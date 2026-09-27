@@ -22,6 +22,60 @@ use tauri_plugin_updater::UpdaterExt;
 /// "Application error: a client-side exception has occurred".
 struct Server(Mutex<Option<CommandChild>>);
 
+/// Windows: put the server in a job object that is killed when this process
+/// ends — however it ends (closed, crashed, killed in Task Manager, or the
+/// installer force-closing it). The job handle is deliberately never closed:
+/// the OS closes it when we exit, which is what triggers the kill.
+#[cfg(windows)]
+fn kill_with_this_process(pid: u32) {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    };
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
+    };
+
+    unsafe {
+        let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+        if job.is_null() {
+            eprintln!("[server] CreateJobObjectW failed");
+            return;
+        }
+        let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let ok = SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &info as *const _ as *const std::ffi::c_void,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        );
+        if ok == 0 {
+            eprintln!("[server] SetInformationJobObject failed");
+            CloseHandle(job);
+            return;
+        }
+        let process = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid);
+        if process.is_null() {
+            eprintln!("[server] OpenProcess({pid}) failed");
+            CloseHandle(job);
+            return;
+        }
+        if AssignProcessToJobObject(job, process) == 0 {
+            eprintln!("[server] AssignProcessToJobObject failed");
+        }
+        CloseHandle(process);
+    }
+}
+
+#[cfg(not(windows))]
+fn kill_with_this_process(_pid: u32) {
+    // Elsewhere the shell's exit handler plus the server's own parent-PID
+    // watchdog (apps/web/lib/parent-watchdog.ts) cover it.
+}
+
 fn stop_server(handle: &AppHandle) {
     if let Some(child) = handle.state::<Server>().0.lock().unwrap().take() {
         let _ = child.kill();
@@ -187,6 +241,7 @@ fn main() {
                     return Ok(());
                 }
             };
+            kill_with_this_process(child.pid());
             *handle.state::<Server>().0.lock().unwrap() = Some(child);
 
             tauri::async_runtime::spawn(check_for_update(handle.clone()));
