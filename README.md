@@ -12,9 +12,26 @@ pnpm i
 cp .env.example .env
 pnpm db:migrate:dev
 pnpm db:seed
+pnpm db:sync-catalog -- --sets sv06.5,sv03.5   # or use the Sync page in the app
 pnpm dev
 ```
 Web: http://localhost:3000
+
+## Getting cards and prices in
+Everything comes from [TCGdex](https://tcgdex.dev) (Pokémon, English): card
+data, images, and the Cardmarket (EUR) + TCGplayer (USD) prices it bundles
+with each card. Needs internet.
+
+- **In the app:** the **Sync** page lists every set; tick some and press
+  *Sync selected sets*. *Refresh prices* re-syncs the sets you already have.
+- **CLI:** `pnpm db:sync-catalog -- --sets <codes>`, or
+  `pnpm db:sync-prices` to refresh every synced set.
+- The app also refreshes prices nightly at 03:30 while it's running.
+
+Re-syncing is safe: images already on disk aren't downloaded again, and each
+run appends new price observations. A card's value is the near-mint price
+combined from both sources (`packages/db/src/valuations.ts`), scaled by
+condition in your collection.
 
 ## Desktop build
 ```bash

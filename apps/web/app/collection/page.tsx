@@ -1,7 +1,9 @@
 import Link from "next/link";
-import { prisma } from "@tcg-vault/db";
+import { collectionItemValue, latestValuations, prisma } from "@tcg-vault/db";
 import { mediaUrl } from "@tcg-vault/shared";
 import { deleteCollectionItem } from "../actions";
+import { FinishBadge, PriceChip, formatEur } from "../../components/money";
+import { cardHref } from "../../lib/cards";
 
 // No DATABASE_URL at build time (only set at runtime by the desktop sidecar) —
 // prerendering this page would fail, so it must render on request instead.
@@ -20,6 +22,11 @@ export default async function CollectionPage() {
   });
 
   const totalCards = items.reduce((sum, item) => sum + item.quantity, 0);
+  const values = await latestValuations(items.map((i) => i.variantId));
+  const itemValues = new Map(
+    items.map((i) => [i.id, collectionItemValue(values.get(i.variantId)?.valueEur, i)]),
+  );
+  const totalValue = [...itemValues.values()].reduce<number>((sum, v) => sum + (v ?? 0), 0);
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-16">
@@ -28,21 +35,32 @@ export default async function CollectionPage() {
         <p className="text-sm text-neutral-500">
           {items.length} entr{items.length === 1 ? "y" : "ies"} · {totalCards} card
           {totalCards === 1 ? "" : "s"}
+          {totalValue > 0 ? (
+            <>
+              {" "}
+              · <span className="font-semibold text-neutral-900">{formatEur(totalValue)}</span>
+            </>
+          ) : null}
         </p>
       </div>
 
       {items.length === 0 ? (
         <p className="mt-6 text-neutral-500">
-          Nothing here yet. <Link href="/browse" className="underline">Browse the catalog</Link> and
-          add a card.
+          Nothing here yet.{" "}
+          <Link href="/browse" className="underline">
+            Browse the catalog
+          </Link>{" "}
+          and add a card.
         </p>
       ) : (
         <ul className="mt-6 divide-y">
           {items.map((item) => {
             const { printing } = item.variant;
-            const gameSlug = printing.set.game.slug;
-            const setCode = printing.set.code;
-            const number = String(printing.sortNumber).padStart(3, "0");
+            const href = cardHref(
+              printing.set.game.slug,
+              printing.set.code,
+              printing.collectorNumber,
+            );
             return (
               <li key={item.id} className="flex items-center gap-4 py-3">
                 {printing.imageKey ? (
@@ -56,15 +74,12 @@ export default async function CollectionPage() {
                   <div className="h-16 w-12 rounded bg-neutral-100" />
                 )}
                 <div className="flex-1">
-                  <Link
-                    href={`/${gameSlug}/${encodeURIComponent(setCode)}/${number}`}
-                    className="font-medium hover:underline"
-                  >
+                  <Link href={href} className="font-medium hover:underline">
                     {printing.card.name}
                   </Link>
-                  <p className="text-sm text-neutral-500">
-                    {printing.set.name} · {printing.collectorNumber} ·{" "}
-                    {item.variant.finish.replaceAll("_", " ")}
+                  <p className="flex items-center gap-2 text-sm text-neutral-500">
+                    {printing.set.name} · {printing.collectorNumber}
+                    <FinishBadge finish={item.variant.finish} />
                   </p>
                   <p className="text-xs text-neutral-400">
                     Qty {item.quantity}
@@ -73,8 +88,12 @@ export default async function CollectionPage() {
                       : item.condition
                         ? ` · ${item.condition.replaceAll("_", " ")}`
                         : ""}
+                    {item.purchasePrice !== null
+                      ? ` · paid ${formatEur(item.purchasePrice)}/card`
+                      : ""}
                   </p>
                 </div>
+                <PriceChip value={itemValues.get(item.id)} />
                 <form action={deleteCollectionItem}>
                   <input type="hidden" name="id" value={item.id} />
                   <button type="submit" className="text-sm text-neutral-400 hover:text-red-600">

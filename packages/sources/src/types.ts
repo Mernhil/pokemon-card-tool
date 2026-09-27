@@ -27,6 +27,21 @@ export interface SourcePrinting {
    * source didn't say — the sync then falls back to a single NON_FOIL variant.
    */
   finishes?: string[];
+  /** Market prices the source bundles with the card, one quote per finish x source. */
+  prices?: SourcePriceQuote[];
+}
+
+/** A price snapshot for one finish of a printing, from one source. Amounts in minor units. */
+export interface SourcePriceQuote {
+  finish: string; // Finish
+  source: string; // PriceSourceKind, see packages/shared/src/enums.ts
+  currency: string;
+  low?: number;
+  mid?: number;
+  market?: number;
+  trend?: number;
+  /** When the source last refreshed this price (ISO string), if it says. */
+  observedAt?: string;
 }
 
 export interface VariantRef {

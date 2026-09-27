@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   finishesFor,
   mapTcgdexCardToSourcePrinting,
+  pricesFor,
+  strictTcgdexFetch,
   mapTcgdexSetToSourceSet,
   type TcgdexCardInput,
   type TcgdexSetInput,
@@ -164,5 +166,93 @@ describe("finishesFor", () => {
       "REVERSE_HOLO",
     ]);
     expect(mapTcgdexCardToSourcePrinting(card).finishes).toEqual([]);
+  });
+});
+
+describe("pricesFor", () => {
+  const cardmarket = {
+    updated: "2026-09-27T00:00:00.000Z",
+    unit: "EUR",
+    avg: 0.25,
+    low: 0.02,
+    trend: 0.2,
+    "avg-holo": 1.5,
+    "low-holo": 0.5,
+    "trend-holo": 1.2,
+  };
+
+  it("maps Cardmarket base -> NON_FOIL and -holo -> REVERSE_HOLO for a normal card", () => {
+    const quotes = pricesFor({ cardmarket }, ["NON_FOIL", "REVERSE_HOLO"]);
+    expect(quotes).toEqual([
+      {
+        finish: "NON_FOIL",
+        source: "CARDMARKET",
+        currency: "EUR",
+        low: 2,
+        mid: 25,
+        trend: 20,
+        observedAt: cardmarket.updated,
+      },
+      {
+        finish: "REVERSE_HOLO",
+        source: "CARDMARKET",
+        currency: "EUR",
+        low: 50,
+        mid: 150,
+        trend: 120,
+        observedAt: cardmarket.updated,
+      },
+    ]);
+  });
+
+  it("gives the Cardmarket base price to HOLO for a holo-only card", () => {
+    const quotes = pricesFor({ cardmarket }, ["HOLO", "REVERSE_HOLO"]);
+    expect(quotes.map((q) => [q.finish, q.trend])).toEqual([
+      ["HOLO", 20],
+      ["REVERSE_HOLO", 120],
+    ]);
+  });
+
+  it("maps TCGplayer sub-types onto finishes and drops ones the card isn't printed in", () => {
+    const quotes = pricesFor(
+      {
+        tcgplayer: {
+          unit: "USD",
+          updated: "2026-09-26",
+          normal: { lowPrice: 0.05, midPrice: 0.2, marketPrice: 0.15 },
+          "reverse-holofoil": { lowPrice: 0.5, midPrice: 1, marketPrice: 0.9 },
+          holofoil: { lowPrice: 9, midPrice: 10, marketPrice: 11 },
+        },
+      },
+      ["NON_FOIL", "REVERSE_HOLO"],
+    );
+    expect(quotes.map((q) => [q.source, q.finish, q.currency, q.market])).toEqual([
+      ["TCGPLAYER", "NON_FOIL", "USD", 15],
+      ["TCGPLAYER", "REVERSE_HOLO", "USD", 90],
+    ]);
+  });
+
+  it("drops quotes with no usable amount and tolerates missing pricing", () => {
+    expect(pricesFor({ cardmarket: { avg: null, low: 0, trend: null } }, ["NON_FOIL"])).toEqual([]);
+    expect(pricesFor(undefined, ["NON_FOIL"])).toEqual([]);
+    expect(pricesFor({ cardmarket: null, tcgplayer: null }, ["NON_FOIL"])).toEqual([]);
+  });
+});
+
+describe("strictTcgdexFetch", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("passes 200 and 404 through (404 = genuinely not found)", async () => {
+    vi.stubGlobal("fetch", async () => new Response("{}", { status: 404 }));
+    expect((await strictTcgdexFetch("https://api.tcgdex.net/v2/en/sets/nope")).status).toBe(404);
+    vi.stubGlobal("fetch", async () => new Response("{}", { status: 200 }));
+    expect((await strictTcgdexFetch("https://api.tcgdex.net/v2/en/sets")).status).toBe(200);
+  });
+
+  it("throws on anything else instead of pretending the set doesn't exist", async () => {
+    vi.stubGlobal("fetch", async () => new Response("denied", { status: 403 }));
+    await expect(strictTcgdexFetch("https://api.tcgdex.net/v2/en/sets/sv01")).rejects.toThrow(
+      /HTTP 403/,
+    );
   });
 });

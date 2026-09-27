@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, normalize, sep } from "node:path";
 
 /**
@@ -29,6 +29,15 @@ export async function putFile(key: string, body: Uint8Array | Buffer): Promise<v
 
 export async function getFile(key: string): Promise<Buffer> {
   return readFile(resolveKey(key));
+}
+
+export async function hasFile(key: string): Promise<boolean> {
+  try {
+    await access(resolveKey(key));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Served by apps/web/app/media/[...key]/route.ts. */

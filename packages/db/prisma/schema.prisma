@@ -189,7 +189,7 @@ model CollectionItem {
   gradingCompany   String? // GradingCompany — see packages/shared/src/enums.ts
   grade            Float? // 10, 9.5, 8.5...
   certNumber       String?
-  purchasePrice    Int? // minor units
+  purchasePrice    Int? // minor units, per card (not per stack)
   purchaseCurrency String?
   acquiredAt       DateTime?
   notes            String?

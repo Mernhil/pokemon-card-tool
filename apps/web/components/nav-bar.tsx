@@ -6,6 +6,7 @@ const LINKS = [
   { href: "/collection", label: "Collection" },
   { href: "/binders", label: "Binders" },
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/sync", label: "Sync" },
 ];
 
 export function NavBar() {

@@ -7,6 +7,7 @@ export interface RawObservation {
 const SOURCE_WEIGHT: Record<string, number> = {
   SALE: 3,
   CARDMARKET_TREND: 2,
+  TCGPLAYER_MARKET: 2,
   CARDTRADER_LOW: 1,
 };
 

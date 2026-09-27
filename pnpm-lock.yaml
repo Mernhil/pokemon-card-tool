@@ -99,6 +99,9 @@ importers:
       '@prisma/client':
         specifier: ^5.20.0
         version: 5.22.0(prisma@5.22.0)
+      '@tcg-vault/pricing':
+        specifier: workspace:*
+        version: link:../pricing
       '@tcg-vault/shared':
         specifier: workspace:*
         version: link:../shared

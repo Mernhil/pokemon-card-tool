@@ -1,31 +1,33 @@
 import cron from "node-cron";
-import { syncCatalog } from "./jobs/sync-catalog";
-import { syncImages } from "./jobs/sync-images";
 import { syncPrices } from "./jobs/sync-prices";
 import { computeValuations } from "./jobs/compute-valuations";
 import { snapshotPortfolios } from "./jobs/snapshot-portfolios";
-
-const GAMES = ["pokemon", "yugioh", "one-piece"];
-const PRICE_SOURCES = ["cardmarket", "cardtrader", "ebay-browse"];
 
 /**
  * Desktop build has no separate worker process or queue: everything runs as
  * scheduled tasks inside the same Next.js server the Tauri shell spawns.
  * Registered once from instrumentation.ts on server start.
+ *
+ * New sets are added by hand from the Sync page (apps/web/app/sync); the
+ * nightly job only refreshes what's already there.
  */
 export function startScheduler(): void {
-  // 03:00 local time: catalog + images, then prices, then valuations, then the snapshot.
-  cron.schedule("0 3 * * *", async () => {
-    for (const game of GAMES) await syncCatalog(game);
-    await syncImages();
-  });
+  // 03:30 local time: re-sync known sets for fresh prices (also recomputes valuations).
+  cron.schedule("30 3 * * *", () => runSafely("sync-prices", syncPrices));
 
-  cron.schedule("30 3 * * *", async () => {
-    for (const source of PRICE_SOURCES) await syncPrices(source);
-  });
+  // Snapshot at least once a day even when the price sync failed or had nothing to do.
+  cron.schedule("0 4 * * *", () =>
+    runSafely("valuations", async () => {
+      await computeValuations();
+      await snapshotPortfolios();
+    }),
+  );
+}
 
-  cron.schedule("0 4 * * *", async () => {
-    await computeValuations();
-    await snapshotPortfolios();
-  });
+async function runSafely(name: string, job: () => Promise<void>): Promise<void> {
+  try {
+    await job();
+  } catch (err) {
+    console.error(`[scheduler] ${name} failed:`, err);
+  }
 }

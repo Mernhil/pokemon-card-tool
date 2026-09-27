@@ -11,10 +11,12 @@
     "seed": "dotenv -e ../../.env -- tsx prisma/seed.ts",
     "sync-catalog": "dotenv -e ../../.env -- tsx src/sync-catalog.ts",
     "validate": "prisma validate",
-    "studio": "dotenv -e ../../.env -- prisma studio"
+    "studio": "dotenv -e ../../.env -- prisma studio",
+    "sync-prices": "dotenv -e ../../.env -- tsx src/sync-catalog.ts --synced"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",
+    "@tcg-vault/pricing": "workspace:*",
     "@tcg-vault/shared": "workspace:*",
     "@tcg-vault/sources": "workspace:*"
   },

@@ -1,5 +1,24 @@
 import TCGdex from "@tcgdex/sdk";
-import type { CatalogSourceAdapter, SourcePrinting, SourceSet } from "../types";
+import type { CatalogSourceAdapter, SourcePriceQuote, SourcePrinting, SourceSet } from "../types";
+
+/**
+ * The SDK maps every non-200 response (a proxy's 403, a 429 rate limit, a
+ * captive portal) to "not found", which made a blocked connection look like
+ * "that set doesn't exist". Only a real 404 means not-found here; anything
+ * else throws so callers can say "couldn't reach TCGdex". `globalThis.fetch`
+ * is looked up per call so tests can stub it.
+ */
+export async function strictTcgdexFetch(
+  input: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1],
+): Promise<Response> {
+  const res = await globalThis.fetch(input, init);
+  if (res.status !== 200 && res.status !== 404) {
+    throw new Error(`TCGdex request failed: ${String(input)} -> HTTP ${res.status}`);
+  }
+  return res;
+}
+TCGdex.fetch = strictTcgdexFetch as typeof fetch;
 
 /** How many set/card detail requests to have in flight at once. */
 const CONCURRENCY = 10;
@@ -59,6 +78,8 @@ export interface TcgdexCardInput {
   dexId?: number[];
   /** Only present when the card overrides its set's default `variants`. */
   variants?: TcgdexVariants;
+  /** Not in the SDK's typings yet, but served by the API on every card. */
+  pricing?: TcgdexPricing;
   set?: { cardCount?: { official?: number; total?: number } };
 }
 
@@ -76,6 +97,123 @@ export function mapTcgdexSetToSourceSet(set: TcgdexSetInput): SourceSet {
     logoUrl: set.logo ? `${set.logo}.png` : undefined,
     symbolUrl: set.symbol ? `${set.symbol}.png` : undefined,
   };
+}
+
+/** Cardmarket's price guide row as TCGdex relays it: EUR, major units. */
+export interface TcgdexCardmarketPrice {
+  updated?: string;
+  unit?: string;
+  avg?: number | null;
+  low?: number | null;
+  trend?: number | null;
+  "avg-holo"?: number | null;
+  "low-holo"?: number | null;
+  "trend-holo"?: number | null;
+}
+
+/** One TCGplayer sub-type ("Normal", "Holofoil", "Reverse Holofoil"): USD, major units. */
+export interface TcgdexTcgplayerRow {
+  lowPrice?: number | null;
+  midPrice?: number | null;
+  highPrice?: number | null;
+  marketPrice?: number | null;
+}
+
+export interface TcgdexPricing {
+  cardmarket?: TcgdexCardmarketPrice | null;
+  tcgplayer?:
+    | ({ updated?: string; unit?: string } & Record<
+        string,
+        TcgdexTcgplayerRow | string | undefined
+      >)
+    | null;
+}
+
+/** Major units (1.23) -> minor units (123); drops missing/zero/garbage. */
+function toMinor(value: number | null | undefined): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return undefined;
+  return Math.round(value * 100);
+}
+
+function hasAmount(quote: SourcePriceQuote): boolean {
+  return [quote.low, quote.mid, quote.market, quote.trend].some((v) => v !== undefined);
+}
+
+/**
+ * Pure: TCGdex `pricing` -> one quote per (finish, source).
+ *
+ * TCGplayer splits by sub-type, which maps 1:1 onto our finishes. Cardmarket
+ * has one product per printing with a base price plus "-holo" columns for
+ * the foil version; for a card that exists non-foil that's the reverse holo,
+ * and for a holo-only card the base price already *is* the holo, so the base
+ * goes to the card's primary finish (NON_FOIL if it has one, else HOLO) and
+ * "-holo" to REVERSE_HOLO. Quotes for finishes the card isn't printed in are
+ * dropped.
+ */
+export function pricesFor(
+  pricing: TcgdexPricing | undefined,
+  finishes: string[],
+): SourcePriceQuote[] {
+  if (!pricing) return [];
+  const known = finishes.length > 0 ? finishes : ["NON_FOIL"];
+  const quotes: SourcePriceQuote[] = [];
+
+  const cm = pricing.cardmarket;
+  if (cm) {
+    const primary = known.includes("NON_FOIL")
+      ? "NON_FOIL"
+      : known.includes("HOLO")
+        ? "HOLO"
+        : known[0]!;
+    quotes.push({
+      finish: primary,
+      source: "CARDMARKET",
+      currency: "EUR",
+      low: toMinor(cm.low),
+      mid: toMinor(cm.avg),
+      trend: toMinor(cm.trend),
+      observedAt: cm.updated,
+    });
+    if (known.includes("REVERSE_HOLO") && primary !== "REVERSE_HOLO") {
+      quotes.push({
+        finish: "REVERSE_HOLO",
+        source: "CARDMARKET",
+        currency: "EUR",
+        low: toMinor(cm["low-holo"]),
+        mid: toMinor(cm["avg-holo"]),
+        trend: toMinor(cm["trend-holo"]),
+        observedAt: cm.updated,
+      });
+    }
+  }
+
+  const tp = pricing.tcgplayer;
+  if (tp) {
+    const subTypes: Record<string, string> = {
+      normal: "NON_FOIL",
+      holofoil: "HOLO",
+      holo: "HOLO",
+      "reverse-holofoil": "REVERSE_HOLO",
+      reverse: "REVERSE_HOLO",
+    };
+    const seen = new Set<string>();
+    for (const [key, finish] of Object.entries(subTypes)) {
+      const row = tp[key];
+      if (!row || typeof row !== "object" || seen.has(finish)) continue;
+      seen.add(finish);
+      quotes.push({
+        finish,
+        source: "TCGPLAYER",
+        currency: "USD",
+        low: toMinor(row.lowPrice),
+        mid: toMinor(row.midPrice),
+        market: toMinor(row.marketPrice),
+        observedAt: tp.updated,
+      });
+    }
+  }
+
+  return quotes.filter((q) => known.includes(q.finish) && hasAmount(q));
 }
 
 /**
@@ -107,6 +245,7 @@ export function mapTcgdexCardToSourcePrinting(
   card: TcgdexCardInput,
   setVariants?: TcgdexVariants,
 ): SourcePrinting {
+  const finishes = finishesFor(card.variants, setVariants);
   const subtypes = [card.stage, card.suffix, card.trainerType, card.energyType].filter(
     (value): value is string => Boolean(value),
   );
@@ -140,7 +279,8 @@ export function mapTcgdexCardToSourcePrinting(
     // inline here so the mapping stays a pure function of its input.
     imageUrl: card.image ? `${card.image}/high.webp` : undefined,
     attributes,
-    finishes: finishesFor(card.variants, setVariants),
+    finishes,
+    prices: pricesFor(card.pricing, finishes),
   };
 }
 
@@ -188,6 +328,25 @@ export class TcgdexPokemonAdapter implements CatalogSourceAdapter {
     return results;
   }
 
+  /** One set's details, or null when TCGdex has no set with that id. */
+  async getSet(setCode: string): Promise<SourceSet | null> {
+    const set = await this.client.set.get(setCode);
+    return set ? mapTcgdexSetToSourceSet(set) : null;
+  }
+
+  /**
+   * Every set's id/name/card count from a single request (unlike
+   * {@link listSets}, which loads each set's details) — newest first, for
+   * pickers.
+   */
+  async listSetSummaries(): Promise<Array<{ code: string; name: string; totalCards?: number }>> {
+    const resumes = await this.client.set.list();
+    if (resumes.length === 0) throw new Error("TCGdex returned an empty set list");
+    return resumes
+      .map((r) => ({ code: r.id, name: r.name, totalCards: r.cardCount?.total }))
+      .reverse();
+  }
+
   async listPrintings(setCode: string): Promise<SourcePrinting[]> {
     const set = await this.client.set.get(setCode);
     if (!set) return [];
@@ -197,11 +356,18 @@ export class TcgdexPokemonAdapter implements CatalogSourceAdapter {
     for (const batch of chunk(set.cards, CONCURRENCY)) {
       const details = await Promise.all(
         batch.map(async (resume) => {
+          // One retry for transient failures, then fail the set loudly rather
+          // than silently dropping the card.
           try {
             return await resume.getCard();
-          } catch (err) {
-            console.error(`[tcgdex] failed to load card "${resume.id}":`, err);
-            return null;
+          } catch {
+            try {
+              return await resume.getCard();
+            } catch (err) {
+              throw new Error(
+                `failed to load card "${resume.id}": ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
           }
         }),
       );
