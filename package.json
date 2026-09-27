@@ -15,6 +15,7 @@
     "db:migrate": "pnpm --filter @tcg-vault/db run migrate:deploy",
     "db:migrate:dev": "pnpm --filter @tcg-vault/db run migrate:dev",
     "db:seed": "pnpm --filter @tcg-vault/db run seed",
+    "db:sync-catalog": "pnpm --filter @tcg-vault/db run sync-catalog",
     "db:validate": "pnpm --filter @tcg-vault/db run validate"
   },
   "devDependencies": {

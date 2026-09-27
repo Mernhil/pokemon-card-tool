@@ -45,14 +45,30 @@ export interface FetchedPrice {
 }
 
 /**
- * One implementation per external source (TCGdex, YGOPRODeck, OPTCG API,
- * Cardmarket files, CardTrader, eBay Browse...). The worker only ever talks
- * to this interface, so swapping a source touches one file.
+ * Catalog-side source: sets and printings (card metadata, art, rarities).
+ * Implemented by e.g. TCGdex, YGOPRODeck, the OPTCG API.
  */
-export interface SourceAdapter {
+export interface CatalogSourceAdapter {
   readonly slug: string;
   listSets(): Promise<SourceSet[]>;
   listPrintings(setCode: string): Promise<SourcePrinting[]>;
+}
+
+/**
+ * Price-side source: live/aggregate pricing and outbound marketplace links.
+ * Implemented by e.g. Cardmarket files, CardTrader, eBay Browse.
+ */
+export interface PriceSourceAdapter {
+  readonly slug: string;
   fetchPrices(variantRefs: VariantRef[]): Promise<FetchedPrice[]>;
   buildLink(variant: VariantRef, copy: { condition?: string; language?: string }): string;
 }
+
+/**
+ * @deprecated Catalog and pricing concerns are now split into
+ * {@link CatalogSourceAdapter} and {@link PriceSourceAdapter}. This
+ * intersection type only exists so older code that implements/consumes the
+ * combined shape keeps compiling — prefer the split interfaces for anything
+ * new.
+ */
+export type SourceAdapter = CatalogSourceAdapter & PriceSourceAdapter;

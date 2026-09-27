@@ -9,11 +9,14 @@
     "migrate:dev": "dotenv -e ../../.env -- prisma migrate dev",
     "migrate:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
     "seed": "dotenv -e ../../.env -- tsx prisma/seed.ts",
+    "sync-catalog": "dotenv -e ../../.env -- tsx src/sync-catalog.ts",
     "validate": "prisma validate",
     "studio": "dotenv -e ../../.env -- prisma studio"
   },
   "dependencies": {
-    "@prisma/client": "^5.20.0"
+    "@prisma/client": "^5.20.0",
+    "@tcg-vault/shared": "workspace:*",
+    "@tcg-vault/sources": "workspace:*"
   },
   "devDependencies": {
     "dotenv-cli": "^7.4.2",
