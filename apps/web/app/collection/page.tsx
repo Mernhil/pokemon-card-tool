@@ -3,6 +3,10 @@ import { prisma } from "@tcg-vault/db";
 import { mediaUrl } from "@tcg-vault/shared";
 import { deleteCollectionItem } from "../actions";
 
+// No DATABASE_URL at build time (only set at runtime by the desktop sidecar) —
+// prerendering this page would fail, so it must render on request instead.
+export const dynamic = "force-dynamic";
+
 export default async function CollectionPage() {
   const items = await prisma.collectionItem.findMany({
     orderBy: { createdAt: "desc" },

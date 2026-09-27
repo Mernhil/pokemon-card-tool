@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { prisma } from "@tcg-vault/db";
 
+// No DATABASE_URL at build time (only set at runtime by the desktop sidecar) —
+// prerendering this page would fail, so it must render on request instead.
+export const dynamic = "force-dynamic";
+
 export default async function BrowsePage() {
   const games = await prisma.game.findMany({
     orderBy: { name: "asc" },
