@@ -4,7 +4,7 @@
 // inside the installer. Run this (via `pnpm build`/`pnpm dev` in this
 // package) *after* `pnpm --filter @tcg-vault/web build` has produced
 // apps/web/.next/standalone.
-import { cpSync, existsSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -17,6 +17,17 @@ const staticDir = join(repoRoot, "apps/web/.next/static");
 const migrationsDir = join(repoRoot, "packages/db/prisma/migrations");
 
 const resourcesDir = join(desktopRoot, "src-tauri/resources/web");
+
+// tauri.conf.json's `build.frontendDist` must point at a real, non-empty
+// directory at bundle time, but the window never actually shows it — its
+// `url` is hardcoded to the sidecar server (see src/main.rs) — so this is
+// just a placeholder to satisfy the bundler.
+const frontendDistDir = join(desktopRoot, "dist");
+mkdirSync(frontendDistDir, { recursive: true });
+writeFileSync(
+  join(frontendDistDir, "index.html"),
+  "<!doctype html><title>TCG Vault</title>\n",
+);
 
 if (!existsSync(standaloneDir)) {
   console.error(
