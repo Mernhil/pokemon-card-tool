@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import "./globals.css";
 import { Providers } from "./providers";
 import { NavBar } from "../components/nav-bar";
+import { UpdateBanner } from "../components/update-banner";
 import { THEME_COOKIE, parseTheme } from "../lib/theme";
 
 export const metadata: Metadata = {
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           <NavBar theme={theme} />
           {children}
+          <UpdateBanner />
         </Providers>
       </body>
     </html>

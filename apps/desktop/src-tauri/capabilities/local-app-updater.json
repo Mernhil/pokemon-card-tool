@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "local-app-updater",
+  "description": "Lets the app's own pages (served by the bundled server on 127.0.0.1, random port) see a downloaded update and install it. Nothing else is exposed to them.",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:*/*"]
+  },
+  "permissions": ["allow-update-status", "allow-install-update"]
+}

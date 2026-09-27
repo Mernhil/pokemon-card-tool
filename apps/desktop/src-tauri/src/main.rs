@@ -9,10 +9,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Manager, RunEvent, Url, WebviewWindow};
-use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
-use tauri_plugin_updater::UpdaterExt;
+
+mod updater;
 
 /// The Node sidecar running the bundled Next.js server. Held so it can be
 /// killed when the app exits: Windows does *not* kill child processes along
@@ -82,78 +82,6 @@ fn stop_server(handle: &AppHandle) {
     }
 }
 
-/// Checks GitHub Releases (see tauri.conf.json's `plugins.updater.endpoints`)
-/// for a newer signed build, and if the user accepts, downloads, installs,
-/// and relaunches. Runs once per app start; any failure is logged and
-/// otherwise ignored so a flaky network never blocks startup.
-async fn check_for_update(handle: AppHandle) {
-    let updater = match handle.updater() {
-        Ok(updater) => updater,
-        Err(err) => {
-            eprintln!("[updater] unavailable: {err}");
-            return;
-        }
-    };
-
-    let update = match updater.check().await {
-        Ok(Some(update)) => update,
-        Ok(None) => return,
-        Err(err) => {
-            eprintln!("[updater] check failed: {err}");
-            return;
-        }
-    };
-
-    let accepted = handle
-        .dialog()
-        .message(format!(
-            "TCG Vault {} is available (you have {}). Install it now?",
-            update.version, update.current_version
-        ))
-        .title("Update available")
-        .buttons(MessageDialogButtons::OkCancelCustom(
-            "Install and restart".into(),
-            "Later".into(),
-        ))
-        .blocking_show();
-
-    if !accepted {
-        return;
-    }
-
-    let bytes = match update.download(|_, _| {}, || {}).await {
-        Ok(bytes) => bytes,
-        Err(err) => {
-            eprintln!("[updater] download failed: {err}");
-            handle
-                .dialog()
-                .message(format!("Update failed: {err}"))
-                .title("TCG Vault")
-                .buttons(MessageDialogButtons::Ok)
-                .blocking_show();
-            return;
-        }
-    };
-
-    // On Windows `install` launches the installer and exits this process
-    // without a RunEvent::Exit, so the server has to be stopped first — both
-    // so it doesn't outlive us and so the installer can overwrite node.exe.
-    stop_server(&handle);
-
-    if let Err(err) = update.install(bytes) {
-        eprintln!("[updater] install failed: {err}");
-        handle
-            .dialog()
-            .message(format!("Update failed: {err}"))
-            .title("TCG Vault")
-            .buttons(MessageDialogButtons::Ok)
-            .blocking_show();
-        return;
-    }
-
-    tauri::process::restart(&handle.env());
-}
-
 /// A port nothing is listening on right now. Picked fresh every launch so a
 /// stray server (another app, or an old TCG Vault) can never be mistaken for ours.
 fn free_port() -> u16 {
@@ -184,6 +112,11 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .manage(Server(Mutex::new(None)))
+        .manage(updater::UpdateState::default())
+        .invoke_handler(tauri::generate_handler![
+            updater::update_status,
+            updater::install_update
+        ])
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -244,7 +177,7 @@ fn main() {
             kill_with_this_process(child.pid());
             *handle.state::<Server>().0.lock().unwrap() = Some(child);
 
-            tauri::async_runtime::spawn(check_for_update(handle.clone()));
+            updater::spawn_checks(handle.clone());
 
             // Server output goes to <app data>/server.log (truncated each launch)
             // so a failed start can be diagnosed on a machine without devtools.
@@ -298,8 +231,14 @@ fn main() {
                     if TcpStream::connect(("127.0.0.1", port)).is_ok() {
                         let url = Url::parse(&format!("http://127.0.0.1:{port}/browse"))
                             .expect("static URL is valid");
-                        if let Err(err) = window.navigate(url) {
-                            show_error(&window, &format!("Couldn't open the app: {err}"));
+                        match window.navigate(url) {
+                            Ok(()) => window
+                                .state::<updater::UpdateState>()
+                                .ui_ready
+                                .store(true, Ordering::SeqCst),
+                            Err(err) => {
+                                show_error(&window, &format!("Couldn't open the app: {err}"))
+                            }
                         }
                         return;
                     }

@@ -54,11 +54,34 @@ manifest — see "Auto-update" below for the one-time setup this needs.
 
 ## Auto-update
 
-The app checks `plugins.updater.endpoints` in `tauri-conf.json` (this
-repo's GitHub Releases "latest" URL) on every launch, and if a newer
-*signed* release is found, prompts the user to install and restart
-(`src-tauri/src/main.rs`, `check_for_update`). No separate update server —
-GitHub Releases hosts everything.
+Built on Tauri's updater plugin (`tauri-plugin-updater`), with GitHub
+Releases as the update server — no separate service.
+
+How it behaves (`src-tauri/src/updater.rs`):
+
+1. 5 s after launch, and then every 6 hours while the app is open, it
+   fetches `plugins.updater.endpoints` in `tauri.conf.json` (this repo's
+   "latest release" `latest.json`).
+2. If that version is newer, it **downloads the installer in the background
+   and verifies its signature** against `plugins.updater.pubkey`. A download
+   that doesn't match the signature is discarded.
+3. Only then does the user hear about it: an "Update ready" card in the app
+   (`apps/web/components/update-banner.tsx`) with **Restart & install** /
+   **Later**. "Later" reminds again on the next launch. If the app's pages
+   can't load (e.g. the server failed to start), a native dialog asks
+   instead, so a broken install can still get its fix.
+4. **Restart & install**: on Windows the shell stops the local server and
+   hands over to the NSIS installer (passive mode), which replaces the app
+   and starts it again; on macOS/Linux it's replaced in place and restarted.
+
+The web page talks to the shell through two app commands,
+`update_status` and `install_update`, which `capabilities/local-app-updater.json`
+exposes to the local server's origin (`http://127.0.0.1:*`) — nothing else
+from Tauri is reachable from the page.
+
+Tauri 2 updates straight from the signed installer (`.exe` + `.exe.sig`,
+produced because `bundle.createUpdaterArtifacts` is `true`); the `.tar.gz`
+/ `.zip` bundles were Tauri 1's format and aren't needed.
 
 To publish an update:
 
@@ -90,6 +113,31 @@ pnpm --filter @tcg-vault/desktop exec tauri signer generate -w /path/to/keep/pri
 
 Never commit the private key file. Only the `.pub` file's contents go into
 `tauri.conf.json`.
+
+### Testing auto-update locally
+
+Debug builds (never release builds) read two overrides, so the whole flow
+can be tried without publishing anything:
+
+```bash
+# a throwaway keypair and a fake, newer "release"
+pnpm --filter @tcg-vault/desktop exec tauri signer generate --ci -p "" -w /tmp/upd/test.key
+cp path/to/some/installer-or-binary /tmp/upd/TCG-Vault_9.9.9_x64-setup.exe
+pnpm --filter @tcg-vault/desktop exec tauri signer sign -f /tmp/upd/test.key -p "" /tmp/upd/TCG-Vault_9.9.9_x64-setup.exe
+# write /tmp/upd/latest.json: {"version":"9.9.9","platforms":{"windows-x86_64":
+#   {"url":"http://127.0.0.1:8765/TCG-Vault_9.9.9_x64-setup.exe","signature":"<contents of the .sig>"}}}
+# (use "linux-x86_64" / "darwin-aarch64" etc. on those platforms)
+python -m http.server 8765 --directory /tmp/upd
+
+# then run a debug build pointed at it
+TCG_VAULT_UPDATE_ENDPOINT=http://127.0.0.1:8765/latest.json \
+TCG_VAULT_UPDATE_PUBKEY="$(cat /tmp/upd/test.key.pub)" \
+  apps/desktop/src-tauri/target/debug/tcg-vault-desktop
+```
+
+The "Update ready" card appears once the download has been verified.
+Signing the file with a different key (or serving a different file) must
+make it log `signature verification failed` and offer nothing.
 
 ## Building locally (on an actual Windows machine)
 

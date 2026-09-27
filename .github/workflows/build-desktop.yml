@@ -110,7 +110,8 @@ jobs:
             --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg url "https://github.com/${{ github.repository }}/releases/download/$RELEASE_TAG/$EXE_NAME" \
             --arg signature "$SIGNATURE" \
-            '{version: $version, pub_date: $pub_date, platforms: {"windows-x86_64": {signature: $signature, url: $url}}}' \
+            --arg notes "Release notes: https://github.com/${{ github.repository }}/releases/tag/$RELEASE_TAG" \
+            '{version: $version, notes: $notes, pub_date: $pub_date, platforms: {"windows-x86_64": {signature: $signature, url: $url}}}' \
             > "$BUNDLE_DIR/latest.json"
 
       - name: Publish the GitHub Release
@@ -118,6 +119,7 @@ jobs:
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
+          generate_release_notes: true
           name: "TCG Vault ${{ env.RELEASE_TAG }}"
           files: |
             apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
