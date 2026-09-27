@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.0",
+    "@tcg-vault/card-fx": "workspace:*",
     "@tcg-vault/db": "workspace:*",
     "@tcg-vault/pricing": "workspace:*",
     "@tcg-vault/shared": "workspace:*",

@@ -32,6 +32,9 @@ importers:
       '@tanstack/react-query':
         specifier: ^5.59.0
         version: 5.104.0(react@18.3.1)
+      '@tcg-vault/card-fx':
+        specifier: workspace:*
+        version: link:../../packages/card-fx
       '@tcg-vault/db':
         specifier: workspace:*
         version: link:../../packages/db

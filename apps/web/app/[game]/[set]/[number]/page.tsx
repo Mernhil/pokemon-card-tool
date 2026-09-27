@@ -6,6 +6,7 @@ import { CONDITIONS, GRADING_COMPANIES } from "@tcg-vault/shared";
 import { addToCollection } from "../../../actions";
 import { FinishBadge, PriceChip, finishLabel, formatEur } from "../../../../components/money";
 import { sortByFinish } from "../../../../lib/cards";
+import { CardViewer } from "../../../../components/card-viewer";
 
 /** "001" / "TG01" from the URL -> the printing whose collector number starts with it. */
 async function findPrinting(setId: number, slug: string) {
@@ -63,18 +64,15 @@ export default async function CardPage({
     v.priceObs.find((o) => o.source === source);
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-16">
+    <main className="mx-auto max-w-4xl px-4 py-16">
       <div className="flex flex-col gap-8 sm:flex-row">
-        {printing.imageKey ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={mediaUrl(printing.imageKey)}
-            alt={printing.card.name}
-            className="h-auto w-56 shrink-0 self-start rounded-lg"
-          />
-        ) : (
-          <div className="aspect-[5/7] w-56 shrink-0 self-start rounded-lg bg-neutral-100" />
-        )}
+        <CardViewer
+          imageSrc={printing.imageKey ? mediaUrl(printing.imageKey) : null}
+          name={printing.card.name}
+          number={printing.collectorNumber}
+          rarityName={printing.rarity?.name ?? null}
+          variants={variants.map((v) => ({ id: v.id, finish: v.finish }))}
+        />
 
         <div>
           <h1 className="text-2xl font-semibold">{printing.card.name}</h1>
@@ -232,7 +230,7 @@ export default async function CardPage({
 
             <button
               type="submit"
-              className="mt-2 rounded bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-700"
+              className="mt-2 rounded bg-neutral-900 px-3 py-2 text-sm font-medium text-neutral-50 hover:bg-neutral-700"
             >
               Add to collection
             </button>
