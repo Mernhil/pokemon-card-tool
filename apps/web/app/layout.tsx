@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
+import "@fontsource-variable/inter";
+import "@fontsource-variable/cinzel";
 import "./globals.css";
 import { Providers } from "./providers";
-import { NavBar } from "../components/nav-bar";
+import { SIDEBAR_COOKIE, Sidebar } from "../components/sidebar";
+import { ToastProvider } from "../components/ui/toast";
 import { UpdateBanner } from "../components/update-banner";
 import { THEME_COOKIE, parseTheme } from "../lib/theme";
 
@@ -12,15 +15,21 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  // Rendered server-side from the cookie, so there's no light flash before dark kicks in.
-  const theme = parseTheme(cookies().get(THEME_COOKIE)?.value);
+  // Rendered server-side from cookies, so there's no flash of the wrong theme/layout.
+  const jar = cookies();
+  const theme = parseTheme(jar.get(THEME_COOKIE)?.value);
+  const collapsed = jar.get(SIDEBAR_COOKIE)?.value === "collapsed";
   return (
     <html lang="en" className={theme === "system" ? undefined : theme}>
       <body>
         <Providers>
-          <NavBar theme={theme} />
-          {children}
-          <UpdateBanner />
+          <ToastProvider>
+            <div className="flex min-h-screen">
+              <Sidebar initialCollapsed={collapsed} theme={theme} />
+              <div className="min-w-0 flex-1">{children}</div>
+            </div>
+            <UpdateBanner />
+          </ToastProvider>
         </Providers>
       </body>
     </html>

@@ -14,7 +14,7 @@ export default async function BrowsePage() {
   const empty = games.every((g) => g._count.cards === 0);
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-16">
+    <main className="page">
       <h1 className="text-2xl font-semibold">Browse the catalog</h1>
       {empty ? (
         <p className="mt-4 rounded border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 p-3 text-sm text-amber-900 dark:text-amber-200">

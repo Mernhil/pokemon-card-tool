@@ -31,7 +31,7 @@ export default async function SetCardGridPage({
   }, 0);
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-16">
+    <main className="page">
       <p className="text-sm text-neutral-500">
         <Link href={`/${game.slug}`} className="hover:underline">
           {game.name}

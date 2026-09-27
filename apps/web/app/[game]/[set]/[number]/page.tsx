@@ -64,7 +64,7 @@ export default async function CardPage({
     v.priceObs.find((o) => o.source === source);
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-16">
+    <main className="page">
       <div className="flex flex-col gap-8 sm:flex-row">
         <CardViewer
           imageSrc={printing.imageKey ? mediaUrl(printing.imageKey) : null}

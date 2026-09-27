@@ -2,53 +2,84 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Theme palette (see tailwind.config.ts). RGB triplets so opacity modifiers work. */
+/* Theme palette: "premium collector" — warm ivory by day, deep vault blue-black
+ * by night, gold accent. RGB triplets so Tailwind opacity modifiers work
+ * (see tailwind.config.ts). Dark is defined once per trigger: the
+ * "Dark" setting (html.dark) and "Auto" following the OS. */
 :root {
   color-scheme: light;
-  --canvas: 255 255 255;
-  --neutral-50: 250 250 250;
-  --neutral-100: 245 245 245;
-  --neutral-200: 229 229 229;
-  --neutral-300: 212 212 212;
-  --neutral-400: 163 163 163;
-  --neutral-500: 115 115 115;
-  --neutral-600: 82 82 82;
-  --neutral-700: 64 64 64;
-  --neutral-800: 38 38 38;
-  --neutral-900: 23 23 23;
-  --neutral-950: 10 10 10;
+  --canvas: 246 244 239;
+  --surface: 255 255 255;
+  --surface-2: 241 238 231;
+  --sidebar: 252 250 246;
+  --accent: 166 124 32;
+  --accent-strong: 196 150 44;
+  --accent-fg: 255 252 242;
+  --accent-soft: 248 238 210;
+  --neutral-50: 250 249 246;
+  --neutral-100: 243 241 236;
+  --neutral-200: 228 225 217;
+  --neutral-300: 209 205 196;
+  --neutral-400: 160 155 146;
+  --neutral-500: 115 110 102;
+  --neutral-600: 84 80 74;
+  --neutral-700: 63 60 55;
+  --neutral-800: 38 36 33;
+  --neutral-900: 24 23 21;
+  --neutral-950: 12 11 10;
+  --shadow-color: 60 45 20;
 }
 html.dark {
   color-scheme: dark;
-  --canvas: 17 17 19;
-  --neutral-50: 27 27 30;
-  --neutral-100: 36 36 40;
-  --neutral-200: 52 52 57;
-  --neutral-300: 72 72 78;
-  --neutral-400: 118 118 125;
-  --neutral-500: 150 150 158;
-  --neutral-600: 178 178 185;
-  --neutral-700: 204 204 210;
-  --neutral-800: 224 224 228;
-  --neutral-900: 240 240 243;
-  --neutral-950: 250 250 251;
+  --canvas: 10 11 15;
+  --surface: 18 20 27;
+  --surface-2: 26 28 37;
+  --sidebar: 13 14 19;
+  --accent: 226 190 104;
+  --accent-strong: 240 206 122;
+  --accent-fg: 22 18 8;
+  --accent-soft: 54 44 20;
+  --neutral-50: 22 24 31;
+  --neutral-100: 30 32 41;
+  --neutral-200: 44 47 58;
+  --neutral-300: 64 67 80;
+  --neutral-400: 110 114 128;
+  --neutral-500: 146 150 164;
+  --neutral-600: 176 179 192;
+  --neutral-700: 204 206 216;
+  --neutral-800: 224 225 232;
+  --neutral-900: 239 240 245;
+  --neutral-950: 250 250 252;
+  --shadow-color: 0 0 0;
 }
 @media (prefers-color-scheme: dark) {
   html:not(.light):not(.dark) {
     color-scheme: dark;
-    --canvas: 17 17 19;
-    --neutral-50: 27 27 30;
-    --neutral-100: 36 36 40;
-    --neutral-200: 52 52 57;
-    --neutral-300: 72 72 78;
-    --neutral-400: 118 118 125;
-    --neutral-500: 150 150 158;
-    --neutral-600: 178 178 185;
-    --neutral-700: 204 204 210;
-    --neutral-800: 224 224 228;
-    --neutral-900: 240 240 243;
-    --neutral-950: 250 250 251;
+    --canvas: 10 11 15;
+    --surface: 18 20 27;
+    --surface-2: 26 28 37;
+    --sidebar: 13 14 19;
+    --accent: 226 190 104;
+    --accent-strong: 240 206 122;
+    --accent-fg: 22 18 8;
+    --accent-soft: 54 44 20;
+    --neutral-50: 22 24 31;
+    --neutral-100: 30 32 41;
+    --neutral-200: 44 47 58;
+    --neutral-300: 64 67 80;
+    --neutral-400: 110 114 128;
+    --neutral-500: 146 150 164;
+    --neutral-600: 176 179 192;
+    --neutral-700: 204 206 216;
+    --neutral-800: 224 225 232;
+    --neutral-900: 239 240 245;
+    --neutral-950: 250 250 252;
+    --shadow-color: 0 0 0;
   }
+}
+html {
+  font-family: "Inter Variable", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 body {
   background: rgb(var(--canvas));
@@ -58,8 +89,240 @@ body {
 input,
 select,
 textarea {
-  background-color: rgb(var(--canvas));
+  background-color: rgb(var(--surface));
   color: inherit;
+}
+::selection {
+  background: rgb(var(--accent) / 0.3);
+}
+
+/* ---------------------------------------------------------------------------
+ * Foundation pieces used across pages.
+ * ------------------------------------------------------------------------ */
+@layer components {
+  /* Page container inside the app shell. */
+  .page {
+    margin-inline: auto;
+    width: 100%;
+    max-width: 76rem;
+    padding: 2rem 2rem 5rem;
+  }
+  .page-enter {
+    animation: page-enter 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  /* Raised surface: panels, tiles, dialogs. */
+  .panel {
+    border-radius: 0.875rem;
+    border: 1px solid rgb(var(--neutral-200));
+    background: rgb(var(--surface));
+    box-shadow:
+      0 1px 2px rgb(var(--shadow-color) / 0.06),
+      0 8px 24px -12px rgb(var(--shadow-color) / 0.18);
+  }
+  .field {
+    border-radius: 0.5rem;
+    border: 1px solid rgb(var(--neutral-200));
+    background: rgb(var(--surface));
+    padding: 0.375rem 0.625rem;
+    font-size: 0.875rem;
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
+  }
+  .field:focus {
+    outline: none;
+    border-color: rgb(var(--accent));
+    box-shadow: 0 0 0 3px rgb(var(--accent) / 0.2);
+  }
+  .label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: rgb(var(--neutral-500));
+  }
+  /* Gold foil text for the wordmark and big numbers. */
+  .text-foil {
+    background: linear-gradient(
+      100deg,
+      rgb(var(--accent)) 0%,
+      rgb(var(--accent-strong)) 35%,
+      #fff6d6 50%,
+      rgb(var(--accent-strong)) 65%,
+      rgb(var(--accent)) 100%
+    );
+    background-size: 250% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: foil-sweep 6s ease-in-out infinite;
+  }
+  .holo-border {
+    position: relative;
+  }
+  .holo-border::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(120deg, #7dd3fc, #c084fc, #f472b6, #fde68a, #7dd3fc);
+    background-size: 300% 300%;
+    animation: foil-sweep 8s linear infinite;
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+  /* Card tiles in grids: lift + gold glow on hover. */
+  .card-tile {
+    transition:
+      transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1),
+      box-shadow 0.25s,
+      border-color 0.25s;
+  }
+  .card-tile:hover {
+    transform: translateY(-4px);
+    border-color: rgb(var(--accent) / 0.55);
+    box-shadow:
+      0 14px 30px -12px rgb(var(--shadow-color) / 0.35),
+      0 0 0 1px rgb(var(--accent) / 0.25);
+  }
+  .card-tile:hover .card-tile__img {
+    transform: scale(1.03) rotate(-0.6deg);
+  }
+  .card-tile__img {
+    transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  /* Children fade/rise in one after another on first render. */
+  .stagger > * {
+    animation: rise 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  .skeleton {
+    border-radius: 0.5rem;
+    background: linear-gradient(
+      90deg,
+      rgb(var(--neutral-100)) 0%,
+      rgb(var(--neutral-200)) 50%,
+      rgb(var(--neutral-100)) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.3s linear infinite;
+  }
+}
+.stagger > *:nth-child(2) {
+  animation-delay: 28ms;
+}
+.stagger > *:nth-child(3) {
+  animation-delay: 56ms;
+}
+.stagger > *:nth-child(4) {
+  animation-delay: 84ms;
+}
+.stagger > *:nth-child(5) {
+  animation-delay: 112ms;
+}
+.stagger > *:nth-child(6) {
+  animation-delay: 140ms;
+}
+.stagger > *:nth-child(7) {
+  animation-delay: 168ms;
+}
+.stagger > *:nth-child(8) {
+  animation-delay: 196ms;
+}
+.stagger > *:nth-child(9) {
+  animation-delay: 224ms;
+}
+.stagger > *:nth-child(10) {
+  animation-delay: 252ms;
+}
+.stagger > *:nth-child(11) {
+  animation-delay: 280ms;
+}
+.stagger > *:nth-child(12) {
+  animation-delay: 308ms;
+}
+.stagger > *:nth-child(13) {
+  animation-delay: 336ms;
+}
+.stagger > *:nth-child(14) {
+  animation-delay: 364ms;
+}
+.stagger > *:nth-child(15) {
+  animation-delay: 392ms;
+}
+.stagger > *:nth-child(16) {
+  animation-delay: 420ms;
+}
+.stagger > *:nth-child(17) {
+  animation-delay: 448ms;
+}
+.stagger > *:nth-child(18) {
+  animation-delay: 476ms;
+}
+.stagger > *:nth-child(19) {
+  animation-delay: 504ms;
+}
+.stagger > *:nth-child(20) {
+  animation-delay: 532ms;
+}
+.stagger > *:nth-child(21) {
+  animation-delay: 560ms;
+}
+.stagger > *:nth-child(22) {
+  animation-delay: 588ms;
+}
+.stagger > *:nth-child(23) {
+  animation-delay: 616ms;
+}
+.stagger > *:nth-child(24) {
+  animation-delay: 644ms;
+}
+.stagger > *:nth-child(n + 25) {
+  animation-delay: 650ms;
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+@keyframes foil-sweep {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stagger > *,
+  .page-enter,
+  .skeleton,
+  .text-foil,
+  .holo-border::before {
+    animation: none;
+  }
+  .card-tile,
+  .card-tile__img {
+    transition: none;
+  }
 }
 
 /* ---------------------------------------------------------------------------

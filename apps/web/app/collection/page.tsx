@@ -29,7 +29,7 @@ export default async function CollectionPage() {
   const totalValue = [...itemValues.values()].reduce<number>((sum, v) => sum + (v ?? 0), 0);
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-16">
+    <main className="page">
       <div className="flex items-baseline justify-between">
         <h1 className="text-2xl font-semibold">My collection</h1>
         <p className="text-sm text-neutral-500">

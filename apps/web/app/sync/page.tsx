@@ -23,7 +23,7 @@ export default async function SyncPage() {
   ]);
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-16">
+    <main className="page">
       <h1 className="text-2xl font-semibold">Sync catalog &amp; prices</h1>
       <p className="mt-2 text-sm text-neutral-500">
         Cards, images and market prices (Cardmarket &amp; TCGplayer) come from{" "}

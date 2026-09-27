@@ -143,7 +143,7 @@ export default async function DashboardPage() {
   );
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-16">
+    <main className="page">
       <h1 className="text-2xl font-semibold">Dashboard</h1>
 
       {items.length === 0 ? (

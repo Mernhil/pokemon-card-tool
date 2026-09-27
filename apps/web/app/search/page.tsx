@@ -70,7 +70,7 @@ export default async function SearchPage({
   const select = "rounded border px-2 py-1 text-sm";
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-16">
+    <main className="page">
       <h1 className="text-2xl font-semibold">Search</h1>
 
       <form className="mt-6 flex flex-wrap items-end gap-3" method="get">

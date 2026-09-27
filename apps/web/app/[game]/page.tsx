@@ -16,7 +16,7 @@ export default async function GameSetListPage({ params }: { params: { game: stri
   if (!game) notFound();
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-16">
+    <main className="page">
       <h1 className="text-2xl font-semibold">{game.name} sets</h1>
       {game.sets.length === 0 ? (
         <p className="mt-6 text-neutral-500">
