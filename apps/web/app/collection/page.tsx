@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { collectionItemValue, latestValuations, prisma } from "@tcg-vault/db";
-import { mediaUrl } from "@tcg-vault/shared";
+import { CardImage } from "../../components/card-image";
 import { deleteCollectionItem } from "../actions";
 import { FinishBadge, PriceChip, formatEur } from "../../components/money";
 import { cardHref } from "../../lib/cards";
@@ -63,16 +63,7 @@ export default async function CollectionPage() {
             );
             return (
               <li key={item.id} className="flex items-center gap-4 py-3">
-                {printing.imageKey ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={mediaUrl(printing.imageKey)}
-                    alt={printing.card.name}
-                    className="h-16 w-auto rounded"
-                  />
-                ) : (
-                  <div className="h-16 w-12 rounded bg-neutral-100" />
-                )}
+                <CardImage imageKey={printing.imageKey} name={printing.card.name} size="thumb" />
                 <div className="flex-1">
                   <Link href={href} className="font-medium hover:underline">
                     {printing.card.name}

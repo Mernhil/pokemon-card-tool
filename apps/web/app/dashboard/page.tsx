@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { collectionItemValue, latestValuations, prisma } from "@tcg-vault/db";
-import { mediaUrl } from "@tcg-vault/shared";
+import { CardImage } from "../../components/card-image";
 import { FinishBadge, formatEur } from "../../components/money";
 import { cardHref } from "../../lib/cards";
 
@@ -147,7 +147,7 @@ export default async function DashboardPage() {
       <h1 className="text-2xl font-semibold">Dashboard</h1>
 
       {items.length === 0 ? (
-        <p className="mt-4 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+        <p className="mt-4 rounded border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 p-3 text-sm text-amber-900 dark:text-amber-200">
           {catalogCards === 0 ? (
             <>
               Nothing to show yet.{" "}
@@ -244,10 +244,12 @@ export default async function DashboardPage() {
                 return (
                   <tr key={item.id} className="border-b last:border-b-0">
                     <td className="w-10 py-1.5">
-                      {printing.imageKey ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={mediaUrl(printing.imageKey)} alt="" className="h-10 rounded" />
-                      ) : null}
+                      <CardImage
+                        imageKey={printing.imageKey}
+                        name={printing.card.name}
+                        size="thumb"
+                        className="!h-10 !w-[29px]"
+                      />
                     </td>
                     <td className="py-1.5">
                       <Link

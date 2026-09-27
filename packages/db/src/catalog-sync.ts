@@ -31,6 +31,8 @@ export interface Counters {
   variantsPruned: number;
   variantsKeptStale: number;
   imagesDownloaded: number;
+  /** Cards the source has no image for yet; retried on every later sync. */
+  imagesMissing: string[];
   priceObservations: number;
   errors: Array<{ setCode: string; collectorNumber?: string; cardName?: string; message: string }>;
 }
@@ -66,18 +68,33 @@ function sortNumberFor(collectorNumber: string): number {
 }
 
 /** Filesystem-safe local-storage key for a printing's master scan (collectorNumber may contain "/"). */
-function imageKeyFor(setCode: string, collectorNumber: string, isAltArt: boolean): string {
+function imageKeyFor(
+  setCode: string,
+  collectorNumber: string,
+  isAltArt: boolean,
+  ext: string,
+): string {
   const safeNumber = collectorNumber.replace(/[\\/]/g, "-");
-  return `pokemon/${setCode}/${safeNumber}${isAltArt ? "-alt" : ""}.webp`;
+  return `pokemon/${setCode}/${safeNumber}${isAltArt ? "-alt" : ""}.${ext}`;
 }
 
-async function downloadImage(url: string): Promise<Buffer> {
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`GET ${url} -> ${res.status} ${res.statusText}`);
+/**
+ * Downloads the first candidate URL that exists. A 404 means "not this one,
+ * try the next"; anything else (network down, 5xx, rate limit) throws so it
+ * is reported as a real error. Returns null when the source simply has no
+ * image for the card (yet) — common for sets released in the last weeks.
+ */
+async function downloadFirstImage(urls: string[]): Promise<{ bytes: Buffer; ext: string } | null> {
+  for (const url of urls) {
+    const res = await fetch(url);
+    if (res.status === 404) continue;
+    if (!res.ok) {
+      throw new Error(`GET ${url} -> ${res.status} ${res.statusText}`);
+    }
+    const ext = url.split(".").pop()?.toLowerCase() ?? "webp";
+    return { bytes: Buffer.from(await res.arrayBuffer()), ext };
   }
-  const arrayBuffer = await res.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+  return null;
 }
 
 async function ensureGameAndLanguage() {
@@ -261,13 +278,19 @@ async function syncSet(
         options.refreshImages ||
         !existingPrinting?.imageKey ||
         !(await hasFile(existingPrinting.imageKey));
-      if (printing.imageUrl && needsImage) {
+      if (needsImage && (!printing.imageUrls || printing.imageUrls.length === 0)) {
+        counters.imagesMissing.push(`${printing.cardName} ${printing.collectorNumber}`);
+      } else if (printing.imageUrls && needsImage) {
         try {
-          const key = imageKeyFor(sourceSet.code, printing.collectorNumber, isAltArt);
-          const bytes = await downloadImage(printing.imageUrl);
-          await putFile(key, bytes);
-          imageKey = key;
-          counters.imagesDownloaded++;
+          const image = await downloadFirstImage(printing.imageUrls);
+          if (image) {
+            const key = imageKeyFor(sourceSet.code, printing.collectorNumber, isAltArt, image.ext);
+            await putFile(key, image.bytes);
+            imageKey = key;
+            counters.imagesDownloaded++;
+          } else {
+            counters.imagesMissing.push(`${printing.cardName} ${printing.collectorNumber}`);
+          }
         } catch (err) {
           counters.errors.push({
             setCode: sourceSet.code,
@@ -356,6 +379,7 @@ export async function syncCatalogSets(
     variantsPruned: 0,
     variantsKeptStale: 0,
     imagesDownloaded: 0,
+    imagesMissing: [],
     priceObservations: 0,
     errors: [],
   };
@@ -414,6 +438,11 @@ export function formatSyncSummary(result: SyncResult): string[] {
   }
   lines.push(
     `Images downloaded:  ${result.imagesDownloaded}`,
+    ...(result.imagesMissing.length > 0
+      ? [
+          `Images not on TCGdex yet: ${result.imagesMissing.length} (tried again on every sync) — ${result.imagesMissing.slice(0, 8).join(", ")}${result.imagesMissing.length > 8 ? ", …" : ""}`,
+        ]
+      : []),
     `Price observations: ${result.priceObservations}`,
     `Valuations written: ${result.valuationsWritten}`,
     `Per-card errors:    ${result.errors.length}`,

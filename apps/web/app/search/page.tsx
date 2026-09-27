@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { latestValuations, prisma, type Prisma } from "@tcg-vault/db";
-import { mediaUrl } from "@tcg-vault/shared";
+import { CardImage } from "../../components/card-image";
 import { FinishBadge, PriceChip, finishLabel } from "../../components/money";
 import { cardHref, sortByFinish } from "../../lib/cards";
 
@@ -146,7 +146,7 @@ export default async function SearchPage({
         </label>
         <button
           type="submit"
-          className="rounded bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700"
+          className="rounded bg-neutral-900 px-3 py-1.5 text-sm font-medium text-neutral-50 hover:bg-neutral-700"
         >
           Search
         </button>
@@ -176,17 +176,7 @@ export default async function SearchPage({
                 href={cardHref(p.set.game.slug, p.set.code, p.collectorNumber)}
                 className="flex h-full flex-col items-center gap-1 rounded-lg border p-2 text-center hover:border-neutral-400"
               >
-                {p.imageKey ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={mediaUrl(p.imageKey)}
-                    alt={p.card.name}
-                    loading="lazy"
-                    className="aspect-[5/7] w-full rounded object-cover"
-                  />
-                ) : (
-                  <div className="aspect-[5/7] w-full rounded bg-neutral-100" />
-                )}
+                <CardImage imageKey={p.imageKey} name={p.card.name} number={p.collectorNumber} />
                 <span className="text-xs font-medium">{p.card.name}</span>
                 <span className="text-xs text-neutral-500">
                   {p.set.name} · {p.collectorNumber}

@@ -275,9 +275,18 @@ export function mapTcgdexCardToSourcePrinting(
     collectorNumber: collectorNumberFor(card),
     rarityName: card.rarity,
     artistName: card.illustrator,
-    // TCGdex's own getImageURL("high", "webp") builds the same string; done
-    // inline here so the mapping stays a pure function of its input.
-    imageUrl: card.image ? `${card.image}/high.webp` : undefined,
+    // TCGdex's own getImageURL(quality, ext) builds the same strings; done
+    // inline here so the mapping stays a pure function of its input. Not every
+    // quality/format exists for every card (brand-new sets especially), so
+    // the sync tries these in order.
+    imageUrls: card.image
+      ? [
+          `${card.image}/high.webp`,
+          `${card.image}/high.png`,
+          `${card.image}/low.webp`,
+          `${card.image}/low.png`,
+        ]
+      : undefined,
     attributes,
     finishes,
     prices: pricesFor(card.pricing, finishes),

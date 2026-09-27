@@ -83,7 +83,12 @@ describe("mapTcgdexCardToSourcePrinting", () => {
     expect(mapped.collectorNumber).toBe("001/64");
     expect(mapped.rarityName).toBe("Common");
     expect(mapped.artistName).toBe("Naoyo Kimura");
-    expect(mapped.imageUrl).toBe("https://assets.tcgdex.net/en/sv/sv06.5/001/high.webp");
+    expect(mapped.imageUrls).toEqual([
+      "https://assets.tcgdex.net/en/sv/sv06.5/001/high.webp",
+      "https://assets.tcgdex.net/en/sv/sv06.5/001/high.png",
+      "https://assets.tcgdex.net/en/sv/sv06.5/001/low.webp",
+      "https://assets.tcgdex.net/en/sv/sv06.5/001/low.png",
+    ]);
     expect(mapped.attributes).toEqual({
       hp: 40,
       types: ["Grass"],
@@ -113,7 +118,7 @@ describe("mapTcgdexCardToSourcePrinting", () => {
 
     expect(mapped.cardType).toBe("Trainer");
     expect(mapped.subtypes).toEqual(["Stadium"]);
-    expect(mapped.imageUrl).toBeUndefined();
+    expect(mapped.imageUrls).toBeUndefined();
     expect(mapped.attributes.effect).toBe(card.effect);
     expect(mapped.attributes.hp).toBeUndefined();
   });

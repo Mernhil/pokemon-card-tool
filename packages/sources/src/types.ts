@@ -19,7 +19,11 @@ export interface SourcePrinting {
   collectorNumber: string;
   rarityName?: string;
   artistName?: string;
-  imageUrl?: string;
+  /**
+   * Candidate image URLs, best first (e.g. high-res webp, then png, then
+   * low-res). The sync downloads the first that exists.
+   */
+  imageUrls?: string[];
   attributes: Record<string, unknown>;
   /**
    * Finishes (packages/shared/src/enums.ts `Finish`) this printing actually

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { latestValuations, prisma } from "@tcg-vault/db";
-import { mediaUrl } from "@tcg-vault/shared";
+import { CardImage } from "../../../components/card-image";
 import { FinishBadge, PriceChip, formatEur } from "../../../components/money";
 import { cardHref, sortByFinish } from "../../../lib/cards";
 
@@ -58,17 +58,11 @@ export default async function SetCardGridPage({
                 href={cardHref(game.slug, set.code, printing.collectorNumber)}
                 className="flex h-full flex-col items-center gap-1 rounded-lg border p-2 text-center hover:border-neutral-400"
               >
-                {printing.imageKey ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={mediaUrl(printing.imageKey)}
-                    alt={printing.card.name}
-                    loading="lazy"
-                    className="aspect-[5/7] w-full rounded object-cover"
-                  />
-                ) : (
-                  <div className="aspect-[5/7] w-full rounded bg-neutral-100" />
-                )}
+                <CardImage
+                  imageKey={printing.imageKey}
+                  name={printing.card.name}
+                  number={printing.collectorNumber}
+                />
                 <span className="text-xs font-medium">{printing.card.name}</span>
                 <span className="text-xs text-neutral-500">
                   {printing.collectorNumber}
