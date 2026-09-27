@@ -15,7 +15,7 @@
     "validate": "dotenv -e ../../.env -- prisma validate",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext .ts",
-    "test": "vitest run"
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0"

@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  # Fixed by supabase/config.toml, so these are stable across CI runs.
+  DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+  DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+  SUPABASE_URL: http://127.0.0.1:54321
+  NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+  # Storage/imgproxy/search vars so packages that read them at import time
+  # don't crash during typecheck/test/build even though nothing here starts
+  # MinIO, imgproxy or Meilisearch.
+  STORAGE_ENDPOINT: http://127.0.0.1:9000
+  STORAGE_REGION: auto
+  STORAGE_ACCESS_KEY_ID: minioadmin
+  STORAGE_SECRET_ACCESS_KEY: minioadmin
+  STORAGE_BUCKET: tcg-vault-media
+  STORAGE_FORCE_PATH_STYLE: "true"
+  IMGPROXY_URL: http://127.0.0.1:8080
+  IMGPROXY_KEY: aabbccdd
+  IMGPROXY_SALT: "11223344"
+  MEILISEARCH_HOST: http://127.0.0.1:7700
+  MEILISEARCH_API_KEY: masterKey
+  REDIS_URL: redis://127.0.0.1:6379
+
+jobs:
+  validate:
+    name: Prisma schema validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Deliberately NOT the real DATABASE_URL above: validate only checks
+      # schema syntax, and doing it in its own job keeps this fast and
+      # independent of the Supabase stack starting up cleanly.
+      - run: pnpm db:validate
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5432/dummy
+          DIRECT_URL: postgresql://user:password@localhost:5432/dummy
+
+  test:
+    name: Typecheck, lint, test, migrate + seed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - run: supabase start
+
+      - run: pnpm db:generate
+      - name: Run migrations (exercises the hand-written SQL too)
+        run: pnpm db:migrate
+      - run: pnpm db:seed
+
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+
+      - if: always()
+        run: supabase stop --no-backup
