@@ -2,18 +2,31 @@
 
 Collection tracker, 3D card viewer and portfolio dashboard for Pokémon, Yu-Gi-Oh! and One Piece cards.
 
-## Setup
+Runs as a native Windows/macOS/Linux desktop app (Tauri) with a local SQLite
+database — single profile, no server, no login, no account. See
+`apps/desktop/README.md` for how the `.exe`/installer gets built.
+
+## Dev setup
 ```bash
 pnpm i
-supabase start        # local Postgres + Auth (auth.uid()/RLS need this, not plain Postgres)
-docker compose up -d  # Meilisearch, Redis, MinIO (local R2), imgproxy
-cp .env.example .env  # fill SUPABASE_*_KEY from the `supabase start` output
-pnpm db:migrate
+cp .env.example .env
+pnpm db:migrate:dev
 pnpm db:seed
 pnpm dev
 ```
-Web: http://localhost:3000 · Supabase Studio: http://localhost:54323 · Meilisearch: http://localhost:7700
+Web: http://localhost:3000
+
+## Desktop build
+```bash
+pnpm --filter @tcg-vault/desktop run package
+```
+See `apps/desktop/README.md` — a genuine Windows `.exe` needs to be built on
+a Windows machine or CI runner (WebView2/NSIS aren't cross-compilable from
+Linux/macOS). The repo's `.github/workflows/build-desktop.yml` does this on
+`windows-latest` automatically.
 
 ## Notes
-- Prisma's role **bypasses RLS**. Every query must filter by the session's `userId` itself.
-- `supabase stop --no-backup` also wipes the local stack's data volume.
+- All data lives in one SQLite file per install (`DATABASE_URL`), in the
+  OS's per-user app-data directory when packaged.
+- Card/user images are plain files on disk (`MEDIA_DIR`), served by
+  `apps/web/app/media/[...key]/route.ts`.

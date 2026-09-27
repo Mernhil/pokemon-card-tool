@@ -1,0 +1,14 @@
+{
+  "name": "@tcg-vault/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "tauri": "tauri",
+    "prepare-resources": "node scripts/prepare-resources.mjs",
+    "package": "pnpm run prepare-resources && tauri build",
+    "dev": "pnpm run prepare-resources && tauri dev"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0"
+  }
+}

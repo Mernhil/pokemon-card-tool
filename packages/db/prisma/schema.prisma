@@ -1,90 +1,24 @@
 generator client {
-  provider        = "prisma-client-js"
-  previewFeatures = ["fullTextSearch", "postgresqlExtensions"]
+  provider      = "prisma-client-js"
+  // "native" covers dev/CI on whatever OS is running; "windows" is required
+  // for the packaged desktop app since the Tauri sidecar always runs on
+  // Windows there regardless of what OS built the repo.
+  binaryTargets = ["native", "windows"]
 }
 
+// Local-only desktop build: one SQLite file per install, no server, no auth.
+// (The original cloud plan used Postgres + Supabase RLS; see git history /
+// the architecture doc if this ever needs to grow back into a hosted app.)
 datasource db {
-  provider   = "postgresql"
-  url        = env("DATABASE_URL")
-  extensions = [pg_trgm, citext]
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
 }
 
-// ---------- ENUMS ----------
-
-enum Condition {
-  MINT
-  NEAR_MINT
-  LIGHTLY_PLAYED
-  MODERATELY_PLAYED
-  HEAVILY_PLAYED
-  DAMAGED
-}
-
-enum Finish {
-  NON_FOIL
-  HOLO // standard holo window
-  REVERSE_HOLO // foil outside the art box
-  COSMOS_HOLO
-  CRACKED_ICE
-  FULL_ART_TEXTURED
-  RAINBOW
-  GOLD
-  ETCHED
-  PARALLEL // One Piece parallel / alt art foil
-  SECRET_TEXTURED // YGO Secret Rare diagonal texture
-  ULTIMATE // YGO Ultimate Rare embossed
-  GHOST
-  STARLIGHT
-  QUARTER_CENTURY
-  PRISMATIC
-  OTHER
-}
-
-enum Edition {
-  UNLIMITED
-  FIRST_EDITION
-  SHADOWLESS
-  LIMITED
-  PROMO
-  STAFF
-  PRERELEASE
-}
-
-enum GradingCompany {
-  PSA
-  BGS
-  CGC
-  SGC
-  TAG
-  ACE
-  OTHER
-}
-
-enum SetType {
-  MAIN
-  EXPANSION
-  SPECIAL
-  STARTER_DECK
-  PROMO
-  TIN_OR_COLLECTION
-  TOURNAMENT
-}
-
-enum PriceSourceKind {
-  CARDMARKET
-  CARDTRADER
-  TCGPLAYER
-  EBAY_SOLD
-  AGGREGATOR
-  MANUAL
-}
-
-enum Marketplace {
-  CARDMARKET
-  CARDTRADER
-  EBAY
-  TCGPLAYER
-}
+// ---------- "ENUMS" ----------
+// SQLite's Prisma connector has no enum support at all (unlike Postgres/MySQL),
+// so every field that would have been an enum is a plain String below. The
+// actual value sets live as TS union types in packages/shared/src/enums.ts —
+// import CONDITIONS / FINISHES / etc. from there for validation and <select> options.
 
 // ---------- CATALOG ----------
 
@@ -112,10 +46,10 @@ model Set {
   code            String // "sv8", "OP09", "ROTA"
   name            String
   series          String? // "Scarlet & Violet", "Duelist Pack"
-  type            SetType    @default(MAIN)
+  type            String     @default("MAIN") // SetType, see packages/shared/src/enums.ts
   primaryLangCode String?
   primaryLang     Language?  @relation(fields: [primaryLangCode], references: [code])
-  releaseDate     DateTime?  @db.Date
+  releaseDate     DateTime?
   printedTotal    Int? // number printed on cards ("/191")
   totalCards      Int? // incl. secret rares
   logoUrl         String?
@@ -135,7 +69,7 @@ model Rarity {
   name          String // "Special Illustration Rare", "Secret Rare", "SEC"
   code          String?
   sortOrder     Int        @default(0) // for rarity breakdown charts
-  defaultFinish Finish     @default(NON_FOIL)
+  defaultFinish String     @default("NON_FOIL") // Finish, see packages/shared/src/enums.ts
   printings     Printing[]
 
   @@unique([gameId, name])
@@ -143,7 +77,7 @@ model Rarity {
 
 model Artist {
   id        Int        @id @default(autoincrement())
-  name      String     @unique @db.Citext
+  name      String     @unique
   printings Printing[]
 }
 
@@ -154,10 +88,10 @@ model Card {
   game         Game          @relation(fields: [gameId], references: [id])
   name         String
   cardType     String // Pokemon/Trainer/Energy, Monster/Spell/Trap, Leader/Character/Event/Stage/DON!!
-  subtypes     String[] // ["Stage 2","ex"], ["Effect","Synchro"], ["Straw Hat Crew"]
+  subtypes     String        @default("[]") // JSON-encoded string[]: ["Stage 2","ex"], ["Effect","Synchro"]
   rulesText    String?
   flavorText   String?
-  attributes   Json          @default("{}") // hp, types, atk, def, level, cost, power, counter, color...
+  attributes   String        @default("{}") // JSON-encoded object: hp, types, atk, def, level, cost, power...
   canonicalKey String // YGO passcode, OP card id, Pokemon hash(name+text)
   printings    Printing[]
   externalRefs ExternalRef[]
@@ -182,7 +116,7 @@ model Printing {
   artistId        Int?
   artist          Artist?        @relation(fields: [artistId], references: [id])
   isAltArt        Boolean        @default(false)
-  imageKey        String? // R2 object key of the master HD scan
+  imageKey        String? // local storage key of the master HD scan (see packages/shared/src/local-storage.ts)
   imageWidth      Int?
   imageHeight     Int?
   variants        PrintVariant[]
@@ -198,8 +132,8 @@ model PrintVariant {
   id            String               @id @default(cuid())
   printingId    String
   printing      Printing             @relation(fields: [printingId], references: [id])
-  finish        Finish               @default(NON_FOIL)
-  edition       Edition              @default(UNLIMITED)
+  finish        String               @default("NON_FOIL") // Finish, see packages/shared/src/enums.ts
+  edition       String               @default("UNLIMITED") // Edition, see packages/shared/src/enums.ts
   languageCode  String
   language      Language             @relation(fields: [languageCode], references: [code])
   foilProfileId Int?
@@ -220,9 +154,9 @@ model FoilProfile {
   id           Int            @id @default(autoincrement())
   slug         String         @unique // "pkm-sv-sir", "ygo-secret", "op-parallel"
   shader       String // shader preset name in /packages/card-fx
-  params       Json           @default("{}") // intensity, hue spread, grain scale, sparkle density...
-  foilMaskKey  String? // R2 key: where foil is applied
-  normalMapKey String? // R2 key: embossing / texture relief
+  params       String         @default("{}") // JSON-encoded FoilPresetParams (see packages/card-fx)
+  foilMaskKey  String? // local storage key: where foil is applied
+  normalMapKey String? // local storage key: embossing / texture relief
   variants     PrintVariant[]
 }
 
@@ -241,52 +175,39 @@ model ExternalRef {
   @@unique([source, externalId])
 }
 
-// ---------- USERS & INVENTORY ----------
-
-model User {
-  id              String              @id // = Supabase auth.users.id
-  handle          String              @unique @db.Citext
-  displayCurrency String              @default("EUR")
-  createdAt       DateTime            @default(now())
-  items           CollectionItem[]
-  binders         Binder[]
-  snapshots       PortfolioSnapshot[]
-}
+// ---------- INVENTORY ----------
+// No User/auth model: this is a single-profile local app. Everything below
+// hangs directly off the one local collection.
 
 /// One physical card (or an identical stack, via quantity) the user owns.
 model CollectionItem {
   id               String          @id @default(cuid())
-  userId           String
-  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   variantId        String
   variant          PrintVariant    @relation(fields: [variantId], references: [id])
   quantity         Int             @default(1)
-  condition        Condition? // null when graded
-  gradingCompany   GradingCompany?
-  grade            Decimal?        @db.Decimal(3, 1) // 10, 9.5, 8.5...
+  condition        String? // Condition, null when graded — see packages/shared/src/enums.ts
+  gradingCompany   String? // GradingCompany — see packages/shared/src/enums.ts
+  grade            Float? // 10, 9.5, 8.5...
   certNumber       String?
   purchasePrice    Int? // minor units
   purchaseCurrency String?
-  acquiredAt       DateTime?       @db.Date
+  acquiredAt       DateTime?
   notes            String?
-  photoKeys        String[] // user photos of their copy
+  photoKeys        String          @default("[]") // JSON-encoded string[]: user photos of their copy
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
   binderSlots      BinderSlot[]
 
-  @@index([userId, variantId])
+  @@index([variantId])
   @@unique([gradingCompany, certNumber])
 }
 
 model Binder {
   id        String       @id @default(cuid())
-  userId    String
-  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   name      String
   coverKey  String?
   rows      Int          @default(3) // 3x3 = 9-pocket, 4x3 = 12-pocket
   cols      Int          @default(3)
-  isPublic  Boolean      @default(false)
   sortOrder Int          @default(0)
   pages     BinderPage[]
   createdAt DateTime     @default(now())
@@ -303,13 +224,13 @@ model BinderPage {
 }
 
 model BinderSlot {
-  id                    String          @id @default(cuid())
-  pageId                String
-  page                  BinderPage      @relation(fields: [pageId], references: [id], onDelete: Cascade)
-  position              Int // 0 .. rows*cols-1
-  collectionItemId      String?
-  collectionItem        CollectionItem? @relation(fields: [collectionItemId], references: [id], onDelete: SetNull)
-  placeholderVariantId  String? // "want" slot: shows a greyed-out card
+  id                   String          @id @default(cuid())
+  pageId               String
+  page                 BinderPage      @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  position             Int // 0 .. rows*cols-1
+  collectionItemId     String?
+  collectionItem       CollectionItem? @relation(fields: [collectionItemId], references: [id], onDelete: SetNull)
+  placeholderVariantId String? // "want" slot: shows a greyed-out card
 
   @@unique([pageId, position])
 }
@@ -320,7 +241,7 @@ model MarketplaceMapping {
   id          Int          @id @default(autoincrement())
   variantId   String
   variant     PrintVariant @relation(fields: [variantId], references: [id])
-  marketplace Marketplace
+  marketplace String // Marketplace, see packages/shared/src/enums.ts
   productId   String // Cardmarket idProduct, CardTrader blueprint id, eBay EPID
   url         String?
   confidence  Float        @default(1) // < 1 when matched heuristically
@@ -328,15 +249,15 @@ model MarketplaceMapping {
   @@unique([variantId, marketplace])
 }
 
-/// Raw, append-only observations. Partition by month in SQL (see note).
+/// Raw, append-only observations.
 model PriceObservation {
-  id             BigInt          @id @default(autoincrement())
+  id             Int             @id @default(autoincrement())
   variantId      String
   variant        PrintVariant    @relation(fields: [variantId], references: [id])
-  source         PriceSourceKind
-  condition      Condition? // null = source doesn't split by condition
-  gradingCompany GradingCompany?
-  grade          Decimal?        @db.Decimal(3, 1)
+  source         String // PriceSourceKind, see packages/shared/src/enums.ts
+  condition      String? // Condition, null = source doesn't split by condition
+  gradingCompany String? // GradingCompany
+  grade          Float?
   currency       String
   low            Int?
   mid            Int?
@@ -350,15 +271,15 @@ model PriceObservation {
 
 /// Individual completed sales (eBay sold, CardTrader completed orders).
 model SaleRecord {
-  id             BigInt          @id @default(autoincrement())
+  id             Int             @id @default(autoincrement())
   variantId      String
   variant        PrintVariant    @relation(fields: [variantId], references: [id])
-  source         PriceSourceKind
+  source         String // PriceSourceKind, see packages/shared/src/enums.ts
   externalId     String
   title          String
-  condition      Condition?
-  gradingCompany GradingCompany?
-  grade          Decimal?        @db.Decimal(3, 1)
+  condition      String? // Condition
+  gradingCompany String? // GradingCompany
+  grade          Float?
   price          Int
   shipping       Int?
   currency       String
@@ -374,7 +295,7 @@ model SaleRecord {
 model VariantValuation {
   variantId  String
   variant    PrintVariant @relation(fields: [variantId], references: [id])
-  day        DateTime     @db.Date
+  day        DateTime
   bucket     String // "NM", "LP", "PSA10", "BGS9.5"
   valueEur   Int
   valueUsd   Int
@@ -384,14 +305,10 @@ model VariantValuation {
 }
 
 model PortfolioSnapshot {
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  day        DateTime @db.Date
+  day        DateTime @id
   currency   String
   totalValue Int
   costBasis  Int?
   itemCount  Int
-  breakdown  Json // by game, set, rarity for the dashboard
-
-  @@id([userId, day])
+  breakdown  String // JSON-encoded object: by game, set, rarity for the dashboard
 }
