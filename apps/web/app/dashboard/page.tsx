@@ -122,6 +122,21 @@ export default async function DashboardPage() {
     .sort((a, b) => b.value! - a.value!)
     .slice(0, 10);
 
+  // Set completion: distinct printings owned vs. printings in the set.
+  const ownedBySet = new Map<number, Set<string>>();
+  for (const { variant } of items) {
+    const owned = ownedBySet.get(variant.printing.setId) ?? new Set<string>();
+    owned.add(variant.printingId);
+    ownedBySet.set(variant.printing.setId, owned);
+  }
+  const ownedSets = await prisma.set.findMany({
+    where: { id: { in: [...ownedBySet.keys()] } },
+    include: { game: true, _count: { select: { printings: true } } },
+  });
+  const setProgress = ownedSets
+    .map((set) => ({ set, owned: ownedBySet.get(set.id)!.size, total: set._count.printings }))
+    .sort((a, b) => b.owned / Math.max(1, b.total) - a.owned / Math.max(1, a.total));
+
   const snapshots = await prisma.portfolioSnapshot.findMany({ orderBy: { day: "desc" }, take: 2 });
   const previous = snapshots.find(
     (s) => s.day.toISOString().slice(0, 10) !== new Date().toISOString().slice(0, 10),
@@ -186,6 +201,36 @@ export default async function DashboardPage() {
         <BarList title="Value by set" rows={bySet} />
         <BarList title="Value by rarity" rows={byRarity} />
       </div>
+
+      {setProgress.length > 0 ? (
+        <section className="mt-6 rounded-lg border p-4">
+          <h2 className="text-sm font-semibold">Set completion</h2>
+          <ul className="mt-3 flex flex-col gap-2">
+            {setProgress.map(({ set, owned, total }) => {
+              const pct = total > 0 ? Math.round((owned / total) * 100) : 0;
+              return (
+                <li key={set.id} title={`${set.name}: ${owned} of ${total} cards (${pct}%)`}>
+                  <Link
+                    href={`/${set.game.slug}/${encodeURIComponent(set.code)}`}
+                    className="flex justify-between gap-2 text-xs hover:underline"
+                  >
+                    <span className="truncate text-neutral-700">{set.name}</span>
+                    <span className="tabular-nums text-neutral-900">
+                      {owned} / {total} ({pct}%)
+                    </span>
+                  </Link>
+                  <div className="mt-1 h-2 w-full rounded-r bg-neutral-100">
+                    <div
+                      className="h-2 rounded-r bg-emerald-600"
+                      style={{ width: `${Math.max(1, pct)}%` }}
+                    />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
 
       <section className="mt-6 rounded-lg border p-4">
         <h2 className="text-sm font-semibold">Most valuable cards</h2>

@@ -20,21 +20,28 @@ export default async function SearchPage({
   const rarityId = searchParams.rarity ? Number(searchParams.rarity) : undefined;
   const finish = searchParams.finish || undefined;
   const owned = searchParams.owned === "1";
+  const lang = searchParams.lang || undefined;
   const sort: Sort = (searchParams.sort as Sort) in SORTS ? (searchParams.sort as Sort) : "value";
 
-  const [sets, rarities] = await Promise.all([
+  const [sets, rarities, languages] = await Promise.all([
     prisma.set.findMany({ orderBy: { releaseDate: "desc" }, select: { id: true, name: true } }),
     prisma.rarity.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    // Only languages some synced card actually exists in.
+    prisma.language.findMany({ where: { variants: { some: {} } }, orderBy: { name: "asc" } }),
   ]);
 
   const where: Prisma.PrintingWhereInput = {
     ...(q ? { card: { name: { contains: q } } } : {}),
     ...(setId ? { setId } : {}),
     ...(rarityId ? { rarityId } : {}),
-    ...(finish || owned
+    ...(finish || owned || lang
       ? {
           variants: {
-            some: { ...(finish ? { finish } : {}), ...(owned ? { collection: { some: {} } } : {}) },
+            some: {
+              ...(finish ? { finish } : {}),
+              ...(lang ? { languageCode: lang } : {}),
+              ...(owned ? { collection: { some: {} } } : {}),
+            },
           },
         }
       : {}),
@@ -110,6 +117,19 @@ export default async function SearchPage({
             ))}
           </select>
         </label>
+        {languages.length > 1 ? (
+          <label className="flex flex-col gap-1 text-xs text-neutral-500">
+            Language
+            <select name="lang" defaultValue={lang ?? ""} className={select}>
+              <option value="">Any language</option>
+              {languages.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <label className="flex flex-col gap-1 text-xs text-neutral-500">
           Sort
           <select name="sort" defaultValue={sort} className={select}>
