@@ -18,6 +18,15 @@ export interface TcgdexSetInput {
   releaseDate?: string;
   serie?: { name?: string };
   cardCount?: { official?: number; total?: number };
+  variants?: TcgdexVariants;
+}
+
+/** TCGdex's per-set default / per-card override flags for which finishes exist. */
+export interface TcgdexVariants {
+  normal?: boolean;
+  reverse?: boolean;
+  holo?: boolean;
+  firstEdition?: boolean;
 }
 
 /** The subset of TCGdex's `Card` shape our mapping needs — see {@link TcgdexSetInput}. */
@@ -48,6 +57,8 @@ export interface TcgdexCardInput {
   energyType?: string;
   regulationMark?: string;
   dexId?: number[];
+  /** Only present when the card overrides its set's default `variants`. */
+  variants?: TcgdexVariants;
   set?: { cardCount?: { official?: number; total?: number } };
 }
 
@@ -67,13 +78,35 @@ export function mapTcgdexSetToSourceSet(set: TcgdexSetInput): SourceSet {
   };
 }
 
+/**
+ * Pure: which of our Finish values a card exists in. TCGdex only puts
+ * `variants` on a card when it overrides the set's defaults, so an ordinary
+ * card with no `variants` of its own inherits the set's. Card flags win
+ * field-by-field over the set's. (`firstEdition` is an edition, not a finish,
+ * and is ignored here.) Returns [] when neither says anything.
+ */
+export function finishesFor(
+  cardVariants: TcgdexVariants | undefined,
+  setVariants: TcgdexVariants | undefined,
+): string[] {
+  const merged = { ...setVariants, ...cardVariants };
+  const finishes: string[] = [];
+  if (merged.normal) finishes.push("NON_FOIL");
+  if (merged.holo) finishes.push("HOLO");
+  if (merged.reverse) finishes.push("REVERSE_HOLO");
+  return finishes;
+}
+
 function collectorNumberFor(card: TcgdexCardInput): string {
   const official = card.set?.cardCount?.official;
   return official ? `${card.localId}/${official}` : card.localId;
 }
 
 /** Pure, network-free: TCGdex Card -> our SourcePrinting. */
-export function mapTcgdexCardToSourcePrinting(card: TcgdexCardInput): SourcePrinting {
+export function mapTcgdexCardToSourcePrinting(
+  card: TcgdexCardInput,
+  setVariants?: TcgdexVariants,
+): SourcePrinting {
   const subtypes = [card.stage, card.suffix, card.trainerType, card.energyType].filter(
     (value): value is string => Boolean(value),
   );
@@ -107,6 +140,7 @@ export function mapTcgdexCardToSourcePrinting(card: TcgdexCardInput): SourcePrin
     // inline here so the mapping stays a pure function of its input.
     imageUrl: card.image ? `${card.image}/high.webp` : undefined,
     attributes,
+    finishes: finishesFor(card.variants, setVariants),
   };
 }
 
@@ -172,7 +206,7 @@ export class TcgdexPokemonAdapter implements CatalogSourceAdapter {
         }),
       );
       for (const card of details) {
-        if (card) results.push(mapTcgdexCardToSourcePrinting(card));
+        if (card) results.push(mapTcgdexCardToSourcePrinting(card, set.variants));
       }
     }
 

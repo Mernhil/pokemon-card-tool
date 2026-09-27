@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  finishesFor,
   mapTcgdexCardToSourcePrinting,
   mapTcgdexSetToSourceSet,
   type TcgdexCardInput,
@@ -130,5 +131,38 @@ describe("mapTcgdexCardToSourcePrinting", () => {
     const card: TcgdexCardInput = { id: "x-1", localId: "1", name: "Mystery Card" };
 
     expect(mapTcgdexCardToSourcePrinting(card).cardType).toBe("Unknown");
+  });
+});
+
+describe("finishesFor", () => {
+  it("inherits the set's default variants when the card has none of its own", () => {
+    expect(finishesFor(undefined, { normal: true, reverse: true, holo: false })).toEqual([
+      "NON_FOIL",
+      "REVERSE_HOLO",
+    ]);
+  });
+
+  it("lets card flags override the set's, field by field", () => {
+    expect(
+      finishesFor({ normal: false, holo: true }, { normal: true, reverse: true, holo: false }),
+    ).toEqual(["HOLO", "REVERSE_HOLO"]);
+  });
+
+  it("ignores firstEdition (an edition, not a finish)", () => {
+    expect(finishesFor({ firstEdition: true, holo: true }, undefined)).toEqual(["HOLO"]);
+  });
+
+  it("returns [] when neither card nor set says anything", () => {
+    expect(finishesFor(undefined, undefined)).toEqual([]);
+  });
+
+  it("is threaded through mapTcgdexCardToSourcePrinting via the set variants", () => {
+    const card: TcgdexCardInput = { id: "sv06.5-001", localId: "001", name: "Joltik" };
+
+    expect(mapTcgdexCardToSourcePrinting(card, { normal: true, reverse: true }).finishes).toEqual([
+      "NON_FOIL",
+      "REVERSE_HOLO",
+    ]);
+    expect(mapTcgdexCardToSourcePrinting(card).finishes).toEqual([]);
   });
 });

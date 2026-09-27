@@ -62,6 +62,9 @@ interface Counters {
   cardsUpdated: number;
   printingsCreated: number;
   printingsUpdated: number;
+  variantsCreated: number;
+  variantsPruned: number;
+  variantsKeptStale: number;
   imagesDownloaded: number;
   errors: Array<{ setCode: string; collectorNumber?: string; cardName?: string; message: string }>;
 }
@@ -188,6 +191,68 @@ async function upsertCard(
   return prisma.card.create({ data: { gameId, canonicalKey, ...data } });
 }
 
+/**
+ * One PrintVariant per finish the source reports (NON_FOIL / HOLO /
+ * REVERSE_HOLO), falling back to NON_FOIL alone when it reports none.
+ *
+ * When the source did report finishes, also prunes this printing's variants
+ * for finishes it no longer reports (e.g. the blanket NON_FOIL rows an
+ * earlier sync wrote before finish data was read) — but only when nothing
+ * references them, so a variant the user owns, has in a binder, or has price
+ * history for is never deleted.
+ */
+async function syncVariants(printingId: string, printing: SourcePrinting, counters: Counters) {
+  const reported = printing.finishes ?? [];
+  const finishes = reported.length > 0 ? reported : ["NON_FOIL"];
+
+  for (const finish of finishes) {
+    const key = { printingId, finish, edition: "UNLIMITED", languageCode: LANGUAGE_CODE };
+    const existing = await prisma.printVariant.findUnique({
+      where: { printingId_finish_edition_languageCode: key },
+    });
+    if (!existing) {
+      await prisma.printVariant.create({ data: key });
+      counters.variantsCreated++;
+    }
+  }
+
+  // Nothing reported means nothing to prune against — don't treat "unknown"
+  // as "only NON_FOIL exists".
+  if (reported.length === 0) return;
+
+  const stale = await prisma.printVariant.findMany({
+    where: {
+      printingId,
+      edition: "UNLIMITED",
+      languageCode: LANGUAGE_CODE,
+      finish: { notIn: finishes },
+    },
+    include: {
+      _count: {
+        select: {
+          collection: true,
+          priceObs: true,
+          sales: true,
+          valuations: true,
+          mappings: true,
+        },
+      },
+    },
+  });
+
+  for (const variant of stale) {
+    const referenced =
+      Object.values(variant._count).some((n) => n > 0) ||
+      (await prisma.binderSlot.count({ where: { placeholderVariantId: variant.id } })) > 0;
+    if (referenced) {
+      counters.variantsKeptStale++;
+      continue;
+    }
+    await prisma.printVariant.delete({ where: { id: variant.id } });
+    counters.variantsPruned++;
+  }
+}
+
 async function syncSet(
   game: { id: number },
   sourceSet: SourceSet,
@@ -270,23 +335,7 @@ async function syncSet(
             });
           })();
 
-      await prisma.printVariant.upsert({
-        where: {
-          printingId_finish_edition_languageCode: {
-            printingId: dbPrinting.id,
-            finish: "NON_FOIL",
-            edition: "UNLIMITED",
-            languageCode: LANGUAGE_CODE,
-          },
-        },
-        update: {},
-        create: {
-          printingId: dbPrinting.id,
-          finish: "NON_FOIL",
-          edition: "UNLIMITED",
-          languageCode: LANGUAGE_CODE,
-        },
-      });
+      await syncVariants(dbPrinting.id, printing, counters);
     } catch (err) {
       counters.errors.push({
         setCode: sourceSet.code,
@@ -341,6 +390,9 @@ async function main() {
     cardsUpdated: 0,
     printingsCreated: 0,
     printingsUpdated: 0,
+    variantsCreated: 0,
+    variantsPruned: 0,
+    variantsKeptStale: 0,
     imagesDownloaded: 0,
     errors: [],
   };
@@ -356,6 +408,13 @@ async function main() {
   console.log(`Cards updated:      ${counters.cardsUpdated}`);
   console.log(`Printings created:  ${counters.printingsCreated}`);
   console.log(`Printings updated:  ${counters.printingsUpdated}`);
+  console.log(`Variants created:   ${counters.variantsCreated}`);
+  console.log(`Variants pruned:    ${counters.variantsPruned}`);
+  if (counters.variantsKeptStale > 0) {
+    console.log(
+      `Variants kept:      ${counters.variantsKeptStale} (no longer reported by the source, but owned/priced — left in place)`,
+    );
+  }
   console.log(`Images downloaded:  ${counters.imagesDownloaded}`);
   console.log(`Per-card errors:    ${counters.errors.length}`);
   for (const e of counters.errors) {

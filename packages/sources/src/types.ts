@@ -21,6 +21,12 @@ export interface SourcePrinting {
   artistName?: string;
   imageUrl?: string;
   attributes: Record<string, unknown>;
+  /**
+   * Finishes (packages/shared/src/enums.ts `Finish`) this printing actually
+   * exists in, e.g. ["NON_FOIL", "REVERSE_HOLO"]. Empty/absent means the
+   * source didn't say — the sync then falls back to a single NON_FOIL variant.
+   */
+  finishes?: string[];
 }
 
 export interface VariantRef {
