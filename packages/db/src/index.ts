@@ -4,3 +4,4 @@ export * from "./catalog-sync";
 export * from "./prices";
 export * from "./valuations";
 export * from "./base-data";
+export * from "./binders";

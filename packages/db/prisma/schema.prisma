@@ -23,12 +23,12 @@ datasource db {
 // ---------- CATALOG ----------
 
 model Game {
-  id       Int      @id @default(autoincrement())
-  slug     String   @unique // "pokemon", "yugioh", "one-piece"
-  name     String
-  sets     Set[]
-  cards    Card[]
-  rarities Rarity[]
+  id        Int      @id @default(autoincrement())
+  slug      String   @unique // "pokemon", "yugioh", "one-piece"
+  name      String
+  sets      Set[]
+  cards     Card[]
+  rarities  Rarity[]
   createdAt DateTime @default(now())
 }
 
@@ -40,15 +40,15 @@ model Language {
 }
 
 model Set {
-  id              Int        @id @default(autoincrement())
+  id              Int           @id @default(autoincrement())
   gameId          Int
-  game            Game       @relation(fields: [gameId], references: [id])
+  game            Game          @relation(fields: [gameId], references: [id])
   code            String // "sv8", "OP09", "ROTA"
   name            String
   series          String? // "Scarlet & Violet", "Duelist Pack"
-  type            String     @default("MAIN") // SetType, see packages/shared/src/enums.ts
+  type            String        @default("MAIN") // SetType, see packages/shared/src/enums.ts
   primaryLangCode String?
-  primaryLang     Language?  @relation(fields: [primaryLangCode], references: [code])
+  primaryLang     Language?     @relation(fields: [primaryLangCode], references: [code])
   releaseDate     DateTime?
   printedTotal    Int? // number printed on cards ("/191")
   totalCards      Int? // incl. secret rares
@@ -56,7 +56,8 @@ model Set {
   symbolUrl       String?
   printings       Printing[]
   externalRefs    ExternalRef[]
-  updatedAt       DateTime   @updatedAt
+  binders         Binder[]
+  updatedAt       DateTime      @updatedAt
 
   @@unique([gameId, code])
   @@index([gameId, releaseDate])
@@ -181,10 +182,10 @@ model ExternalRef {
 
 /// One physical card (or an identical stack, via quantity) the user owns.
 model CollectionItem {
-  id               String          @id @default(cuid())
+  id               String       @id @default(cuid())
   variantId        String
-  variant          PrintVariant    @relation(fields: [variantId], references: [id])
-  quantity         Int             @default(1)
+  variant          PrintVariant @relation(fields: [variantId], references: [id])
+  quantity         Int          @default(1)
   condition        String? // Condition, null when graded — see packages/shared/src/enums.ts
   gradingCompany   String? // GradingCompany — see packages/shared/src/enums.ts
   grade            Float? // 10, 9.5, 8.5...
@@ -193,22 +194,26 @@ model CollectionItem {
   purchaseCurrency String?
   acquiredAt       DateTime?
   notes            String?
-  photoKeys        String          @default("[]") // JSON-encoded string[]: user photos of their copy
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  photoKeys        String       @default("[]") // JSON-encoded string[]: user photos of their copy
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
   binderSlots      BinderSlot[]
 
-  @@index([variantId])
   @@unique([gradingCompany, certNumber])
+  @@index([variantId])
 }
 
 model Binder {
   id        String       @id @default(cuid())
   name      String
   coverKey  String?
+  color     String       @default("#5b1f2b") // cover "leather" colour, CSS hex
   rows      Int          @default(3) // 3x3 = 9-pocket, 4x3 = 12-pocket
   cols      Int          @default(3)
   sortOrder Int          @default(0)
+  /// Set this binder was generated from ("binder from a set"), if any.
+  setId     Int?
+  set       Set?         @relation(fields: [setId], references: [id], onDelete: SetNull)
   pages     BinderPage[]
   createdAt DateTime     @default(now())
 }
@@ -228,9 +233,12 @@ model BinderSlot {
   pageId               String
   page                 BinderPage      @relation(fields: [pageId], references: [id], onDelete: Cascade)
   position             Int // 0 .. rows*cols-1
+  /// The owned copy sitting in this pocket (one card of the item's quantity).
   collectionItemId     String?
   collectionItem       CollectionItem? @relation(fields: [collectionItemId], references: [id], onDelete: SetNull)
-  placeholderVariantId String? // "want" slot: shows a greyed-out card
+  /// The card this pocket is *for* ("want"): shown greyed out while empty, and
+  /// kept when the owned copy is taken out. Independent of collectionItemId.
+  placeholderVariantId String?
 
   @@unique([pageId, position])
 }
@@ -251,9 +259,9 @@ model MarketplaceMapping {
 
 /// Raw, append-only observations.
 model PriceObservation {
-  id             Int             @id @default(autoincrement())
+  id             Int          @id @default(autoincrement())
   variantId      String
-  variant        PrintVariant    @relation(fields: [variantId], references: [id])
+  variant        PrintVariant @relation(fields: [variantId], references: [id])
   source         String // PriceSourceKind, see packages/shared/src/enums.ts
   condition      String? // Condition, null = source doesn't split by condition
   gradingCompany String? // GradingCompany
@@ -271,9 +279,9 @@ model PriceObservation {
 
 /// Individual completed sales (eBay sold, CardTrader completed orders).
 model SaleRecord {
-  id             Int             @id @default(autoincrement())
+  id             Int          @id @default(autoincrement())
   variantId      String
-  variant        PrintVariant    @relation(fields: [variantId], references: [id])
+  variant        PrintVariant @relation(fields: [variantId], references: [id])
   source         String // PriceSourceKind, see packages/shared/src/enums.ts
   externalId     String
   title          String

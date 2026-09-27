@@ -72,7 +72,7 @@ export function CardViewer({
       </button>
 
       {inspecting ? (
-        <InspectOverlay
+        <CardInspector
           imageSrc={imageSrc}
           name={name}
           number={number}
@@ -129,7 +129,7 @@ function FinishPicker({
   );
 }
 
-function InspectOverlay({
+export function CardInspector({
   imageSrc,
   name,
   number,

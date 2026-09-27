@@ -40,7 +40,4 @@ export async function hasFile(key: string): Promise<boolean> {
   }
 }
 
-/** Served by apps/web/app/media/[...key]/route.ts. */
-export function mediaUrl(key: string): string {
-  return `/media/${key.split("/").map(encodeURIComponent).join("/")}`;
-}
+export { mediaUrl } from "./media-url";

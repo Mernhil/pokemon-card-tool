@@ -1,8 +1,11 @@
-export default function BinderDetailPage({ params }: { params: { binderId: string } }) {
-  return (
-    <main className="mx-auto max-w-5xl px-4 py-16">
-      <h1 className="text-2xl font-semibold">Binder {params.binderId}</h1>
-      {/* TODO(sprint 5): BinderSpread + BinderPage + dnd-kit Slot grid */}
-    </main>
-  );
+import { notFound } from "next/navigation";
+import { availableCards, getBinder } from "@tcg-vault/db";
+import { BinderView } from "../../../components/binders/binder-view";
+
+export const dynamic = "force-dynamic";
+
+export default async function BinderDetailPage({ params }: { params: { binderId: string } }) {
+  const [binder, available] = await Promise.all([getBinder(params.binderId), availableCards()]);
+  if (!binder) notFound();
+  return <BinderView binder={binder} available={available} />;
 }
