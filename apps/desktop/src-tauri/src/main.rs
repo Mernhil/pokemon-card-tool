@@ -4,8 +4,63 @@
 use std::net::TcpStream;
 use std::time::Duration;
 use tauri::{Manager, WindowEvent};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_updater::UpdaterExt;
+
+/// Checks GitHub Releases (see tauri.conf.json's `plugins.updater.endpoints`)
+/// for a newer signed build, and if the user accepts, downloads, installs,
+/// and relaunches. Runs once per app start; any failure is logged and
+/// otherwise ignored so a flaky network never blocks startup.
+async fn check_for_update(handle: tauri::AppHandle) {
+    let updater = match handle.updater() {
+        Ok(updater) => updater,
+        Err(err) => {
+            eprintln!("[updater] unavailable: {err}");
+            return;
+        }
+    };
+
+    let update = match updater.check().await {
+        Ok(Some(update)) => update,
+        Ok(None) => return,
+        Err(err) => {
+            eprintln!("[updater] check failed: {err}");
+            return;
+        }
+    };
+
+    let accepted = handle
+        .dialog()
+        .message(format!(
+            "TCG Vault {} is available (you have {}). Install it now?",
+            update.version, update.current_version
+        ))
+        .title("Update available")
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Install and restart".into(),
+            "Later".into(),
+        ))
+        .blocking_show();
+
+    if !accepted {
+        return;
+    }
+
+    if let Err(err) = update.download_and_install(|_, _| {}, || {}).await {
+        eprintln!("[updater] install failed: {err}");
+        handle
+            .dialog()
+            .message(format!("Update failed: {err}"))
+            .title("TCG Vault")
+            .buttons(MessageDialogButtons::Ok)
+            .blocking_show();
+        return;
+    }
+
+    tauri::process::restart(&handle.env());
+}
 
 const PORT: u16 = 47823;
 
@@ -17,6 +72,8 @@ const PORT: u16 = 47823;
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -58,6 +115,8 @@ fn main() {
                 .env("MIGRATIONS_DIR", migrations_dir.to_string_lossy().to_string());
 
             let (mut rx, _child) = sidecar.spawn().expect("failed to spawn the local server");
+
+            tauri::async_runtime::spawn(check_for_update(handle.clone()));
 
             tauri::async_runtime::spawn(async move {
                 while let Some(event) = rx.recv().await {

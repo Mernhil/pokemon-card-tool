@@ -35,8 +35,45 @@ git tag desktop-v0.1.0 && git push origin desktop-v0.1.0
 # or: gh workflow run build-desktop.yml
 ```
 
-The finished installer is uploaded as the `tcg-vault-windows-installer`
-build artifact.
+The workflow also code-signs the build (Tauri's own updater signing, not a
+Windows Authenticode cert) and publishes a GitHub Release for the pushed tag
+with the installer, its `.sig` signature, and a hand-assembled `latest.json`
+manifest — see "Auto-update" below for the one-time setup this needs.
+
+## Auto-update
+
+The app checks `plugins.updater.endpoints` in `tauri-conf.json` (this
+repo's GitHub Releases "latest" URL) on every launch, and if a newer
+*signed* release is found, prompts the user to install and restart
+(`src-tauri/src/main.rs`, `check_for_update`). No separate update server —
+GitHub Releases hosts everything.
+
+To publish an update:
+
+1. Bump `version` in `src-tauri/tauri.conf.json`.
+2. `git tag desktop-vX.Y.Z && git push origin desktop-vX.Y.Z`.
+3. CI builds, signs, and publishes the release automatically. Anyone
+   running an older signed build gets prompted next time they open the app.
+
+**One-time setup (already done once for this repo, only needed again if the
+signing key is ever rotated):** the updater only trusts builds signed with
+one specific keypair. The public half is already committed in
+`tauri.conf.json` (`plugins.updater.pubkey`). The private half must be
+added as two **repository secrets** (Settings → Secrets and variables →
+Actions) so CI can sign releases:
+
+- `TAURI_SIGNING_PRIVATE_KEY`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (blank/empty value — this key has no
+  password)
+
+Generate a new keypair (only if starting fresh or rotating) with:
+
+```bash
+pnpm --filter @tcg-vault/desktop exec tauri signer generate -w /path/to/keep/private.key
+```
+
+Never commit the private key file. Only the `.pub` file's contents go into
+`tauri.conf.json`.
 
 ## Building locally (on an actual Windows machine)
 
