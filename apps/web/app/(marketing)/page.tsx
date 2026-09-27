@@ -11,7 +11,7 @@ export default function HomePage() {
       <div className="mt-4 flex gap-3">
         <Link
           href="/browse"
-          className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700"
+          className="rounded bg-neutral-900 px-4 py-2 text-sm font-medium text-neutral-50 hover:bg-neutral-700"
         >
           Browse the catalog
         </Link>

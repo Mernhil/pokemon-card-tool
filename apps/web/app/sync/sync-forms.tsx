@@ -10,7 +10,7 @@ function SubmitButton({ children, disabled }: { children: React.ReactNode; disab
     <button
       type="submit"
       disabled={pending || disabled}
-      className="rounded bg-neutral-900 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-700 disabled:cursor-wait disabled:opacity-50"
+      className="rounded bg-neutral-900 px-3 py-2 text-sm font-medium text-neutral-50 hover:bg-neutral-700 disabled:cursor-wait disabled:opacity-50"
     >
       {pending ? "Syncing… (this can take a minute)" : children}
     </button>
@@ -22,7 +22,9 @@ function Result({ state }: { state: SyncState | null }) {
   return (
     <pre
       className={`mt-3 max-h-80 overflow-auto whitespace-pre-wrap rounded border p-3 text-xs ${
-        state.ok ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"
+        state.ok
+          ? "border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/60"
+          : "border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/50"
       }`}
     >
       {state.lines.join("\n")}
@@ -80,7 +82,7 @@ export function AddSetsForm({
                     </span>
                   ) : null}
                   {syncedSet.has(s.code) ? (
-                    <span className="text-xs text-emerald-600">synced</span>
+                    <span className="text-xs text-emerald-600 dark:text-emerald-400">synced</span>
                   ) : null}
                 </label>
               </li>

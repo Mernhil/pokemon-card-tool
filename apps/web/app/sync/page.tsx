@@ -54,7 +54,7 @@ export default async function SyncPage() {
       <section className="mt-10">
         <h2 className="font-semibold">Add sets</h2>
         {available.error ? (
-          <p className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-sm text-amber-800">
+          <p className="mt-2 rounded border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 p-2 text-sm text-amber-800 dark:text-amber-200">
             Couldn&apos;t load the set list from TCGdex ({available.error}). You can still type set
             codes below.
           </p>

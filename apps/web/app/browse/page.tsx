@@ -17,7 +17,7 @@ export default async function BrowsePage() {
     <main className="mx-auto max-w-5xl px-4 py-16">
       <h1 className="text-2xl font-semibold">Browse the catalog</h1>
       {empty ? (
-        <p className="mt-4 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+        <p className="mt-4 rounded border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 p-3 text-sm text-amber-900 dark:text-amber-200">
           The catalog is empty.{" "}
           <Link href="/sync" className="font-medium underline">
             Go to Sync

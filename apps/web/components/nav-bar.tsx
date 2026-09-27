@@ -1,4 +1,6 @@
 import Link from "next/link";
+import type { Theme } from "../lib/theme";
+import { ThemeToggle } from "./theme-toggle";
 
 const LINKS = [
   { href: "/browse", label: "Browse" },
@@ -9,9 +11,9 @@ const LINKS = [
   { href: "/sync", label: "Sync" },
 ];
 
-export function NavBar() {
+export function NavBar({ theme }: { theme: Theme }) {
   return (
-    <header className="border-b border-neutral-200">
+    <header className="border-b">
       <div className="mx-auto flex max-w-5xl items-center gap-6 px-4 py-4">
         <Link href="/" className="font-semibold">
           TCG Vault
@@ -23,6 +25,7 @@ export function NavBar() {
             </Link>
           ))}
         </nav>
+        <ThemeToggle initial={theme} />
       </div>
     </header>
   );
