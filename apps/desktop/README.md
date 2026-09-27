@@ -16,12 +16,24 @@ directory.
 - `src-tauri/binaries/node-<target-triple>.exe` is a portable Node runtime,
   downloaded at build time (see the CI workflow) — Tauri's sidecar mechanism
   runs `node server.js` from it.
-- On launch, `src-tauri/src/main.rs` spawns that sidecar, pointed at
-  `DATABASE_URL`/`MEDIA_DIR` inside the app-data directory, waits for it to
-  come up on `127.0.0.1:47823`, then shows the window (already pointed at
-  that URL). `TCG_VAULT_DESKTOP=1` tells the Next.js server
+- On launch, `src-tauri/src/main.rs` shows a local "Starting…" splash
+  (`dist/index.html`, written by `prepare-resources`), picks a free port,
+  spawns the sidecar on it pointed at `DATABASE_URL`/`MEDIA_DIR` inside the
+  app-data directory, and navigates the window to it once it accepts
+  connections. If the server dies first, the splash shows an error pointing
+  at `<app data>/server.log`, which holds the server's output for that launch.
+  `TCG_VAULT_DESKTOP=1` tells the Next.js server
   (`apps/web/instrumentation.ts`) to replay any un-applied SQL migrations by
   hand on first launch, since there's no `prisma` CLI bundled.
+- The server must never outlive the app: Windows doesn't kill child
+  processes with their parent, and an orphaned server from an older version
+  used to keep answering with pages whose JS chunks had been replaced by the
+  update ("Application error: a client-side exception has occurred"), and
+  block the installer from overwriting `node.exe`. So: the shell kills it on
+  exit and before the updater installs; the server exits by itself when the
+  shell's PID disappears (`apps/web/lib/parent-watchdog.ts`); and the NSIS
+  pre-install hook (`src-tauri/windows/installer-hooks.nsh`) stops any
+  `node.exe` still running from the install directory.
 
 ## Why the `.exe` isn't built here
 
@@ -50,8 +62,12 @@ GitHub Releases hosts everything.
 
 To publish an update:
 
-1. Bump `version` in `src-tauri/tauri.conf.json`.
-2. `git tag desktop-vX.Y.Z && git push origin desktop-vX.Y.Z`.
+1. Bump the version in `src-tauri/tauri.conf.json` (the one the build and
+   the updater use), and keep `src-tauri/Cargo.toml`, `Cargo.lock` and
+   `package.json` in step.
+2. Commit, then `git tag desktop-vX.Y.Z && git push origin desktop-vX.Y.Z`
+   on that commit. CI refuses to build if the tag and `tauri.conf.json`
+   disagree.
 3. CI builds, signs, and publishes the release automatically. Anyone
    running an older signed build gets prompted next time they open the app.
 

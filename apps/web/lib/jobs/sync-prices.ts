@@ -9,7 +9,9 @@ import { syncCatalogSets, syncedSetCodes } from "@tcg-vault/db";
 export async function syncPrices(): Promise<void> {
   const codes = await syncedSetCodes();
   if (codes.length === 0) return;
-  const result = await syncCatalogSets(codes, { log: (line) => console.log(`[sync-prices] ${line}`) });
+  const result = await syncCatalogSets(codes, {
+    log: (line) => console.log(`[sync-prices] ${line}`),
+  });
   console.log(
     `[sync-prices] ${result.setsProcessed} sets, ${result.priceObservations} new prices, ${result.errors.length} errors`,
   );

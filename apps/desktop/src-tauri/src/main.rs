@@ -1,19 +1,38 @@
 // Prevents an extra console window from popping up on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::net::TcpStream;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::net::{TcpListener, TcpStream};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::{Manager, WindowEvent};
+use tauri::{AppHandle, Manager, RunEvent, Url, WebviewWindow};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
-use tauri_plugin_shell::process::CommandEvent;
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_updater::UpdaterExt;
+
+/// The Node sidecar running the bundled Next.js server. Held so it can be
+/// killed when the app exits: Windows does *not* kill child processes along
+/// with their parent, and an orphaned server from an older version used to
+/// keep answering on the old fixed port with pages whose JS/CSS chunks the
+/// newly installed version had already replaced — every page then died with
+/// "Application error: a client-side exception has occurred".
+struct Server(Mutex<Option<CommandChild>>);
+
+fn stop_server(handle: &AppHandle) {
+    if let Some(child) = handle.state::<Server>().0.lock().unwrap().take() {
+        let _ = child.kill();
+    }
+}
 
 /// Checks GitHub Releases (see tauri.conf.json's `plugins.updater.endpoints`)
 /// for a newer signed build, and if the user accepts, downloads, installs,
 /// and relaunches. Runs once per app start; any failure is logged and
 /// otherwise ignored so a flaky network never blocks startup.
-async fn check_for_update(handle: tauri::AppHandle) {
+async fn check_for_update(handle: AppHandle) {
     let updater = match handle.updater() {
         Ok(updater) => updater,
         Err(err) => {
@@ -48,7 +67,26 @@ async fn check_for_update(handle: tauri::AppHandle) {
         return;
     }
 
-    if let Err(err) = update.download_and_install(|_, _| {}, || {}).await {
+    let bytes = match update.download(|_, _| {}, || {}).await {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            eprintln!("[updater] download failed: {err}");
+            handle
+                .dialog()
+                .message(format!("Update failed: {err}"))
+                .title("TCG Vault")
+                .buttons(MessageDialogButtons::Ok)
+                .blocking_show();
+            return;
+        }
+    };
+
+    // On Windows `install` launches the installer and exits this process
+    // without a RunEvent::Exit, so the server has to be stopped first — both
+    // so it doesn't outlive us and so the installer can overwrite node.exe.
+    stop_server(&handle);
+
+    if let Err(err) = update.install(bytes) {
         eprintln!("[updater] install failed: {err}");
         handle
             .dialog()
@@ -62,18 +100,36 @@ async fn check_for_update(handle: tauri::AppHandle) {
     tauri::process::restart(&handle.env());
 }
 
-const PORT: u16 = 47823;
+/// A port nothing is listening on right now. Picked fresh every launch so a
+/// stray server (another app, or an old TCG Vault) can never be mistaken for ours.
+fn free_port() -> u16 {
+    TcpListener::bind(("127.0.0.1", 0))
+        .and_then(|listener| listener.local_addr())
+        .map(|addr| addr.port())
+        .unwrap_or(47823)
+}
+
+/// Replaces the splash screen's text with an error (see scripts/prepare-resources.mjs).
+fn show_error(window: &WebviewWindow, message: &str) {
+    let js = format!(
+        "window.showStartupError && window.showStartupError({})",
+        serde_json::to_string(message).unwrap_or_else(|_| "\"\"".into())
+    );
+    let _ = window.eval(&js);
+}
 
 /// TCG Vault has no separate backend process to install or configure: the
 /// Next.js standalone server (built by apps/web, bundled as a resource) is
-/// spawned as a sidecar under a portable Node runtime, and the window just
-/// points at http://127.0.0.1:PORT. See apps/desktop/README.md for how the
-/// resources/binaries get into src-tauri/ before `tauri build` runs.
+/// spawned as a sidecar under a portable Node runtime. The window starts on
+/// a local "Starting…" splash (build.frontendDist) and is navigated to the
+/// server once it's accepting connections. See apps/desktop/README.md for how
+/// the resources/binaries get into src-tauri/ before `tauri build` runs.
 fn main() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
+        .manage(Server(Mutex::new(None)))
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -89,6 +145,7 @@ fn main() {
             );
             let media_dir = app_data_dir.join("media").to_string_lossy().to_string();
             std::fs::create_dir_all(&media_dir).ok();
+            let log_path: PathBuf = app_data_dir.join("server.log");
 
             let server_js = handle
                 .path()
@@ -102,67 +159,114 @@ fn main() {
                 )
                 .expect("bundled migrations resource should exist — see apps/desktop/README.md");
 
+            let port = free_port();
+
             let sidecar = handle
                 .shell()
                 .sidecar("node")
                 .expect("the `node` sidecar binary must be at src-tauri/binaries/ — see apps/desktop/README.md")
                 .args([server_js.to_string_lossy().to_string()])
-                .env("PORT", PORT.to_string())
+                .env("PORT", port.to_string())
                 .env("HOSTNAME", "127.0.0.1")
                 .env("DATABASE_URL", database_url)
                 .env("MEDIA_DIR", media_dir)
                 .env("TCG_VAULT_DESKTOP", "1")
+                // Lets the server exit on its own if this process dies without
+                // killing it (apps/web/lib/parent-watchdog.ts).
+                .env("TCG_VAULT_PARENT_PID", std::process::id().to_string())
                 .env("MIGRATIONS_DIR", migrations_dir.to_string_lossy().to_string());
 
-            let (mut rx, _child) = sidecar.spawn().expect("failed to spawn the local server");
+            let window = handle
+                .get_webview_window("main")
+                .expect("tauri.conf.json defines the main window");
+
+            let (mut rx, child) = match sidecar.spawn() {
+                Ok(spawned) => spawned,
+                Err(err) => {
+                    show_error(&window, &format!("Couldn't start the local server: {err}"));
+                    return Ok(());
+                }
+            };
+            *handle.state::<Server>().0.lock().unwrap() = Some(child);
 
             tauri::async_runtime::spawn(check_for_update(handle.clone()));
 
-            tauri::async_runtime::spawn(async move {
-                while let Some(event) = rx.recv().await {
-                    match event {
-                        CommandEvent::Stderr(line) => {
-                            eprintln!("[server] {}", String::from_utf8_lossy(&line));
-                        }
-                        CommandEvent::Stdout(line) => {
-                            println!("[server] {}", String::from_utf8_lossy(&line));
-                        }
-                        CommandEvent::Error(err) => {
-                            eprintln!("[server] error: {err}");
-                        }
-                        _ => {}
-                    }
-                }
-            });
-
-            // The window is created pointing at 127.0.0.1:PORT immediately, but the
-            // server needs a moment to boot; poll until it's actually accepting
-            // connections before showing the window, so the user never sees a
-            // browser-style connection-refused error flash by.
-            if let Some(window) = handle.get_webview_window("main") {
+            // Server output goes to <app data>/server.log (truncated each launch)
+            // so a failed start can be diagnosed on a machine without devtools.
+            let exited = Arc::new(AtomicBool::new(false));
+            {
+                let exited = exited.clone();
                 let window = window.clone();
-                std::thread::spawn(move || {
-                    for _ in 0..100 {
-                        if TcpStream::connect(("127.0.0.1", PORT)).is_ok() {
-                            let _ = window.show();
-                            return;
+                let log_path = log_path.clone();
+                tauri::async_runtime::spawn(async move {
+                    let mut log = OpenOptions::new()
+                        .create(true)
+                        .write(true)
+                        .truncate(true)
+                        .open(&log_path)
+                        .ok();
+                    while let Some(event) = rx.recv().await {
+                        let line = match event {
+                            CommandEvent::Stdout(line) | CommandEvent::Stderr(line) => {
+                                String::from_utf8_lossy(&line).trim_end().to_string()
+                            }
+                            CommandEvent::Error(err) => format!("[shell] error: {err}"),
+                            CommandEvent::Terminated(payload) => {
+                                exited.store(true, Ordering::SeqCst);
+                                format!("[shell] server exited with code {:?}", payload.code)
+                            }
+                            _ => continue,
+                        };
+                        eprintln!("[server] {line}");
+                        if let Some(file) = log.as_mut() {
+                            let _ = writeln!(file, "{line}");
                         }
-                        std::thread::sleep(Duration::from_millis(150));
+                        if exited.load(Ordering::SeqCst) {
+                            show_error(
+                                &window,
+                                &format!(
+                                    "The local server stopped unexpectedly. Details are in {}",
+                                    log_path.display()
+                                ),
+                            );
+                        }
                     }
-                    // Show it anyway after ~15s so the user at least sees an error
-                    // instead of a permanently invisible app.
-                    let _ = window.show();
                 });
             }
 
+            // Wait until the server accepts connections, then leave the splash.
+            std::thread::spawn(move || {
+                for _ in 0..400 {
+                    if exited.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    if TcpStream::connect(("127.0.0.1", port)).is_ok() {
+                        let url = Url::parse(&format!("http://127.0.0.1:{port}/browse"))
+                            .expect("static URL is valid");
+                        if let Err(err) = window.navigate(url) {
+                            show_error(&window, &format!("Couldn't open the app: {err}"));
+                        }
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(150));
+                }
+                show_error(
+                    &window,
+                    &format!(
+                        "The local server didn't start within a minute. Details are in {}",
+                        log_path.display()
+                    ),
+                );
+            });
+
             Ok(())
         })
-        .on_window_event(|_window, event| {
-            if let WindowEvent::Destroyed = event {
-                // The sidecar is a child process of this one and Tauri/the OS
-                // clean it up on exit; nothing else to do here.
-            }
-        })
-        .run(tauri::generate_context!())
-        .expect("error while running the TCG Vault desktop shell");
+        .build(tauri::generate_context!())
+        .expect("error while building the TCG Vault desktop shell");
+
+    app.run(|handle, event| {
+        if let RunEvent::Exit = event {
+            stop_server(handle);
+        }
+    });
 }

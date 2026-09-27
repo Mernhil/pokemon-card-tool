@@ -18,16 +18,51 @@ const migrationsDir = join(repoRoot, "packages/db/prisma/migrations");
 
 const resourcesDir = join(desktopRoot, "src-tauri/resources/web");
 
-// tauri.conf.json's `build.frontendDist` must point at a real, non-empty
-// directory at bundle time, but the window never actually shows it — its
-// `url` is hardcoded to the sidecar server (see src/main.rs) — so this is
-// just a placeholder to satisfy the bundler.
+const SPLASH_HTML = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TCG Vault</title>
+<style>
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #171717; background: #fff;
+  }
+  h1 { font-size: 28px; margin: 0; }
+  #status { color: #737373; font-size: 14px; }
+  #error { display: none; max-width: 560px; padding: 12px 16px; border: 1px solid #fecaca;
+    background: #fef2f2; color: #991b1b; border-radius: 8px; font-size: 14px; white-space: pre-wrap; }
+  .spinner { width: 22px; height: 22px; border: 3px solid #e5e5e5; border-top-color: #171717;
+    border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+  <h1>TCG Vault</h1>
+  <div class="spinner" id="spinner"></div>
+  <p id="status">Starting…</p>
+  <p id="error"></p>
+  <script>
+    window.showStartupError = function (message) {
+      document.getElementById("spinner").style.display = "none";
+      document.getElementById("status").textContent = "TCG Vault couldn't start.";
+      var el = document.getElementById("error");
+      el.textContent = message;
+      el.style.display = "block";
+    };
+  </script>
+</body>
+</html>
+`;
+
+// tauri.conf.json's `build.frontendDist`: the window opens on this local
+// splash while the bundled server boots, then src-tauri/src/main.rs
+// navigates it to the server. main.rs calls `showStartupError(message)` if
+// the server fails to start, so the user never gets a blank window.
 const frontendDistDir = join(desktopRoot, "dist");
 mkdirSync(frontendDistDir, { recursive: true });
-writeFileSync(
-  join(frontendDistDir, "index.html"),
-  "<!doctype html><title>TCG Vault</title>\n",
-);
+writeFileSync(join(frontendDistDir, "index.html"), SPLASH_HTML);
 
 if (!existsSync(standaloneDir)) {
   console.error(
