@@ -1,11 +1,8 @@
 import { Coins, Layers, TrendingUp } from "lucide-react";
 import { cookies } from "next/headers";
 import { collectionItemValue, latestValuations, prisma } from "@tcg-vault/db";
-import {
-  COLLECTION_VIEW_COOKIE,
-  CollectionView,
-  type CollectionRow,
-} from "../../components/collection-view";
+import { CollectionView, type CollectionRow } from "../../components/collection-view";
+import { COLLECTION_VIEW_COOKIE } from "../../lib/ui-cookies";
 import { formatEur } from "../../components/money";
 import { ButtonLink } from "../../components/ui/button";
 import { EmptyState } from "../../components/ui/empty-state";

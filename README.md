@@ -6,6 +6,21 @@ Runs as a native Windows/macOS/Linux desktop app (Tauri) with a local SQLite
 database — single profile, no server, no login, no account. See
 `apps/desktop/README.md` for how the `.exe`/installer gets built.
 
+## What's in it
+- **Browse & Search** the synced catalog: sets by series with logos and your
+  completion, card grids with owned/missing filters, prices per finish.
+- **Card page:** a 3D card you can tilt, inspect full-screen, rotate and zoom,
+  with holo / reverse-holo / full-art foil; price history; one-click add.
+- **Collection:** grid or list, filters, quantity/condition edits in place,
+  value and profit/loss.
+- **Binders:** a shelf of leather binders; open one to turn real 3D pages
+  (drag the corner), drag cards from "Your cards" into pockets, move/swap
+  them, or build a binder from a set with the missing cards greyed out.
+- **Dashboard:** collection value over time, value by set and rarity, set
+  completion, top cards.
+- **Sync:** pick sets, watch them download with live progress; prices refresh
+  nightly. Light / dark / auto theme; updates install from inside the app.
+
 ## Dev setup
 ```bash
 pnpm i

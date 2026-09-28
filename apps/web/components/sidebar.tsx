@@ -17,6 +17,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import logo from "../assets/logo.png";
 import type { Theme } from "../lib/theme";
+import { SIDEBAR_COOKIE } from "../lib/ui-cookies";
 import { ThemeToggle } from "./theme-toggle";
 
 const NAV: Array<{ href: string; label: string; icon: LucideIcon; match?: RegExp }> = [
@@ -33,8 +34,6 @@ const NAV: Array<{ href: string; label: string; icon: LucideIcon; match?: RegExp
   { href: "/dashboard", label: "Dashboard", icon: ChartLine },
   { href: "/sync", label: "Sync", icon: RefreshCw },
 ];
-
-export const SIDEBAR_COOKIE = "sidebar";
 
 /** App navigation for the desktop window: logo, quick search, sections, theme. Collapsible. */
 export function Sidebar({ initialCollapsed, theme }: { initialCollapsed: boolean; theme: Theme }) {

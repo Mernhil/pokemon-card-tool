@@ -10,6 +10,7 @@ import { CardImage } from "./card-image";
 import { CardTile } from "./card-tile";
 import { FinishBadge, finishLabel, formatEur } from "./money";
 import { useToast } from "./ui/toast";
+import { COLLECTION_VIEW_COOKIE } from "../lib/ui-cookies";
 
 export interface CollectionRow {
   id: string;
@@ -39,7 +40,6 @@ const CONDITION_SHORT: Record<string, string> = {
 };
 
 type Sort = "value" | "recent" | "name" | "set";
-export const COLLECTION_VIEW_COOKIE = "collectionView";
 
 export function CollectionView({
   rows,
