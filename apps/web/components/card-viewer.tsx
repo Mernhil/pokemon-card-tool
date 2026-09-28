@@ -424,7 +424,13 @@ function Card3D({
       apply();
       return;
     }
-    const rect = el.getBoundingClientRect();
+    // Measure the untransformed stage, not `el` itself: `el` carries the
+    // live rotateX/rotateY/scale transform, so its own bounding rect is the
+    // foreshortened, skewed *screen-space* box of the rotated card, not its
+    // layout box — using it here made the pointer-relative tilt/glare math
+    // (and the reset-drag glitch after releasing a rotated/zoomed card)
+    // wildly unstable in inspect mode. The stage wrapper never transforms.
+    const rect = (el.parentElement ?? el).getBoundingClientRect();
     const px = clamp((e.clientX - rect.left) / rect.width, 0, 1);
     const py = clamp((e.clientY - rect.top) / rect.height, 0, 1);
     s.tiltY = (px - 0.5) * 2 * maxTilt;
