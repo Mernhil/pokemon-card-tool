@@ -53,6 +53,8 @@ export interface VariantRef {
   externalIds: Record<string, string>; // per-source product/blueprint id, if known
   cardName: string;
   setCode: string;
+  /** The set's display name — some price sources (e.g. CardTrader) key by name, not our set code. */
+  setName: string;
   collectorNumber: string;
   finish: string;
   languageCode: string;

@@ -67,6 +67,14 @@ export const PRICE_SOURCE_KINDS = [
   "CARDTRADER",
   "TCGPLAYER",
   "EBAY_SOLD",
+  /**
+   * eBay *active* (asking) listing prices, not completed sales. eBay's
+   * actual sold-price API (Marketplace Insights) is invite-only/restricted;
+   * this is a best-effort stand-in via the open Browse API, and is
+   * deliberately a separate kind from EBAY_SOLD so the two are never
+   * confused or silently blended in an aggregate.
+   */
+  "EBAY_ACTIVE",
   "AGGREGATOR",
   "MANUAL",
 ] as const;

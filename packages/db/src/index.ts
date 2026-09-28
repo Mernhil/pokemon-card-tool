@@ -2,6 +2,7 @@ export { prisma } from "./client";
 export * from "@prisma/client";
 export * from "./catalog-sync";
 export * from "./prices";
+export * from "./marketplace-prices";
 export * from "./valuations";
 export * from "./base-data";
 export * from "./binders";

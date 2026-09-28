@@ -24,6 +24,7 @@ describe("SourceAdapter contract", () => {
       externalIds: {},
       cardName: "Charizard",
       setCode: "sv8",
+      setName: "Surging Sparks",
       collectorNumber: "199/191",
       finish: "HOLO",
       languageCode: "en",

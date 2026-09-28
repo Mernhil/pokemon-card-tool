@@ -1,5 +1,6 @@
 import cron from "node-cron";
 import { syncPrices } from "./jobs/sync-prices";
+import { syncMarketplacePricesJob } from "./jobs/sync-marketplace-prices";
 import { computeValuations } from "./jobs/compute-valuations";
 import { snapshotPortfolios } from "./jobs/snapshot-portfolios";
 
@@ -14,6 +15,10 @@ import { snapshotPortfolios } from "./jobs/snapshot-portfolios";
 export function startScheduler(): void {
   // 03:30 local time: re-sync known sets for fresh prices (also recomputes valuations).
   cron.schedule("30 3 * * *", () => runSafely("sync-prices", syncPrices));
+
+  // 03:50: CardTrader/eBay on top, once TCGdex's own prices are fresh. A
+  // no-op until CARDTRADER_API_TOKEN / EBAY_CLIENT_ID+SECRET are set.
+  cron.schedule("50 3 * * *", () => runSafely("marketplace-prices", syncMarketplacePricesJob));
 
   // Snapshot at least once a day even when the price sync failed or had nothing to do.
   cron.schedule("0 4 * * *", () =>
