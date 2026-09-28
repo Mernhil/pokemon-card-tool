@@ -2,6 +2,7 @@
 
 import { foilFor, type CardFoil } from "@tcg-vault/card-fx";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 export interface ViewerVariant {
   id: string;
@@ -218,7 +219,11 @@ export function CardInspector({
   const button =
     "rounded border border-white/30 px-2.5 py-1 text-sm text-white/90 hover:border-white hover:text-white";
 
-  return (
+  // Portaled to <body>: the sticky sidebar this viewer normally lives in
+  // establishes its own stacking context, which traps a `position: fixed`
+  // dialog nested inside it below unrelated later siblings (e.g. the price
+  // chart column painting over the "fixed" overlay and staying clickable).
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
@@ -286,7 +291,8 @@ export function CardInspector({
       <p className="relative z-10 text-xs text-white/40">
         Drag to rotate · scroll to zoom · double-click to reset · Esc to close
       </p>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
