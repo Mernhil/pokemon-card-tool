@@ -19,6 +19,15 @@ const neutral = Object.fromEntries(
 
 export default {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
+  /**
+   * pocket.tsx builds `pocket__foil--${foil.area}` at runtime. Every other
+   * dynamic foil class (`card3d--${foil.area}` etc., in card-viewer.tsx)
+   * happens to survive content scanning because its globals.css rule is a
+   * compound selector that also contains a literal class (`.card3d__foil`);
+   * `.pocket__foil--art`/`--frame` are single-class selectors with no such
+   * anchor, so without this they're silently dropped from the build.
+   */
+  safelist: ["pocket__foil--art", "pocket__foil--frame", "pocket__foil--full"],
   darkMode: [
     "variant",
     ["&:is(.dark *)", "@media (prefers-color-scheme: dark) { &:not(.light *):not(.dark *) }"],
