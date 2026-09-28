@@ -130,6 +130,9 @@ importers:
         specifier: workspace:*
         version: link:../sources
     devDependencies:
+      '@types/node':
+        specifier: ^20.16.11
+        version: 20.19.43
       dotenv-cli:
         specifier: ^7.4.2
         version: 7.4.4

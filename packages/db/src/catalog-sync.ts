@@ -1,25 +1,39 @@
-import { canonicalKeyFor, hasFile, mediaUrl, putFile } from "@tcg-vault/shared";
-import { TcgdexPokemonAdapter, type SourcePrinting, type SourceSet } from "@tcg-vault/sources";
+import type { Prisma } from "@prisma/client";
+import { canonicalKeyFor, hasFile, mediaUrl, putFile, remoteImageKey } from "@tcg-vault/shared";
+import type { CatalogSourceAdapter, SourcePrinting, SourceSet } from "@tcg-vault/sources";
 import { prisma } from "./client";
+import { NonRetryableError } from "./jobs/backoff";
+import { onJobEvent } from "./jobs/events";
+import {
+  enqueueItems,
+  jobStateCounts,
+  runJob,
+  type ClaimedItem,
+  type JobRunOptions,
+  type JobRunSummary,
+} from "./jobs/runner";
 import { recordPrices } from "./prices";
 import { computeValuations, snapshotPortfolio } from "./valuations";
 
 /**
- * Populates Game/Set/Rarity/Artist/Card/Printing/PrintVariant (+ the market
- * prices TCGdex bundles with each card) from a live catalog source. Today
- * that's only TCGdex, Pokemon, English.
+ * Background catalog sync: Game/Set/Rarity/Artist/Card/Printing/PrintVariant
+ * (+ the market prices the source bundles with each card), one SyncState item
+ * per set, run through the shared job runner (src/jobs/runner.ts).
  *
- * Driven by the `pnpm db:sync-catalog` CLI (src/sync-catalog.ts) and by the
- * in-app Sync page (apps/web/app/sync). Safe to re-run: everything is an
- * upsert, images are only downloaded when a printing doesn't have one yet,
- * and each run appends fresh price observations — so re-syncing a set is
- * also how its prices get refreshed.
+ * Card *metadata* only: images are never downloaded here. Each printing gets
+ * its remote image URLs plus a virtual `remote/<printingId>` imageKey, and
+ * the media route fetches + caches the scan the first time it's viewed
+ * (apps/web/lib/image-cache.ts).
+ *
+ * Nothing here is Pokémon-specific: the game, language and data all come
+ * from the {@link CatalogSourceAdapter}. Driven by the app's background
+ * scheduler, the Sync page and the `pnpm db:sync-catalog` CLI.
  */
 
-const GAME_SLUG = "pokemon";
-const GAME_NAME = "Pokémon";
-const LANGUAGE_CODE = "en";
-const LANGUAGE_NAME = "English";
+export const CATALOG_JOB = "catalog";
+
+/** Priority for sets the user explicitly asked for — ahead of everything discovered. */
+export const MANUAL_PRIORITY = 1_000_000;
 
 export interface Counters {
   setsProcessed: number;
@@ -30,11 +44,35 @@ export interface Counters {
   variantsCreated: number;
   variantsPruned: number;
   variantsKeptStale: number;
-  imagesDownloaded: number;
   /** Cards the source has no image for yet; retried on every later sync. */
   imagesMissing: string[];
   priceObservations: number;
   errors: Array<{ setCode: string; collectorNumber?: string; cardName?: string; message: string }>;
+}
+
+function emptyCounters(): Counters {
+  return {
+    setsProcessed: 0,
+    cardsCreated: 0,
+    cardsUpdated: 0,
+    printingsCreated: 0,
+    printingsUpdated: 0,
+    variantsCreated: 0,
+    variantsPruned: 0,
+    variantsKeptStale: 0,
+    imagesMissing: [],
+    priceObservations: 0,
+    errors: [],
+  };
+}
+
+function addCounters(into: Counters, from: Counters): void {
+  for (const key of Object.keys(into) as Array<keyof Counters>) {
+    const a = into[key];
+    const b = from[key];
+    if (typeof a === "number" && typeof b === "number") (into[key] as number) = a + b;
+    else if (Array.isArray(a) && Array.isArray(b)) (a as unknown[]).push(...b);
+  }
 }
 
 /** Pulls plain gameplay/rules text out of a SourcePrinting's free-form attributes, for canonicalKeyFor. */
@@ -67,49 +105,21 @@ function sortNumberFor(collectorNumber: string): number {
   return match ? parseInt(match[0], 10) : 0;
 }
 
-/** Filesystem-safe local-storage key for a printing's master scan (collectorNumber may contain "/"). */
-function imageKeyFor(
-  setCode: string,
-  collectorNumber: string,
-  isAltArt: boolean,
-  ext: string,
-): string {
-  const safeNumber = collectorNumber.replace(/[\\/]/g, "-");
-  return `pokemon/${setCode}/${safeNumber}${isAltArt ? "-alt" : ""}.${ext}`;
-}
+type Tx = Prisma.TransactionClient;
 
-/**
- * Downloads the first candidate URL that exists. A 404 means "not this one,
- * try the next"; anything else (network down, 5xx, rate limit) throws so it
- * is reported as a real error. Returns null when the source simply has no
- * image for the card (yet) — common for sets released in the last weeks.
- */
-async function downloadFirstImage(urls: string[]): Promise<{ bytes: Buffer; ext: string } | null> {
-  for (const url of urls) {
-    const res = await fetch(url);
-    if (res.status === 404) continue;
-    if (!res.ok) {
-      throw new Error(`GET ${url} -> ${res.status} ${res.statusText}`);
-    }
-    const ext = url.split(".").pop()?.toLowerCase() ?? "webp";
-    return { bytes: Buffer.from(await res.arrayBuffer()), ext };
-  }
-  return null;
-}
-
-async function ensureGameAndLanguage() {
+async function ensureGameAndLanguage(adapter: CatalogSourceAdapter) {
+  // ensureBaseData() creates the known games/languages on startup; this is
+  // for a CLI run against a fresh DB, or a new adapter's language.
   const game = await prisma.game.upsert({
-    where: { slug: GAME_SLUG },
+    where: { slug: adapter.game },
     update: {},
-    create: { slug: GAME_SLUG, name: GAME_NAME },
+    create: { slug: adapter.game, name: adapter.game },
   });
-
   await prisma.language.upsert({
-    where: { code: LANGUAGE_CODE },
+    where: { code: adapter.languageCode },
     update: {},
-    create: { code: LANGUAGE_CODE, name: LANGUAGE_NAME },
+    create: { code: adapter.languageCode, name: adapter.languageCode },
   });
-
   return game;
 }
 
@@ -117,6 +127,7 @@ async function ensureGameAndLanguage() {
  * Keeps a copy of a set's logo/symbol in local media so pages don't load
  * them from the internet (they work offline and don't leak requests).
  * Returns the local /media URL, or the remote URL if it couldn't be fetched.
+ * Best-effort and outside the set's transaction: a logo never fails a set.
  */
 async function localAsset(remote: string | undefined, key: string): Promise<string | null> {
   if (!remote) return null;
@@ -131,50 +142,8 @@ async function localAsset(remote: string | undefined, key: string): Promise<stri
   }
 }
 
-async function upsertSet(gameId: number, sourceSet: SourceSet) {
-  const safeCode = sourceSet.code.replace(/[^\w.-]/g, "_");
-  const logoUrl = await localAsset(sourceSet.logoUrl, `pokemon/${safeCode}/logo.png`);
-  const symbolUrl = await localAsset(sourceSet.symbolUrl, `pokemon/${safeCode}/symbol.png`);
-  const data = {
-    name: sourceSet.name,
-    series: sourceSet.series ?? null,
-    primaryLangCode: LANGUAGE_CODE,
-    releaseDate: sourceSet.releaseDate ? new Date(sourceSet.releaseDate) : null,
-    printedTotal: sourceSet.printedTotal ?? null,
-    totalCards: sourceSet.totalCards ?? null,
-    logoUrl,
-    symbolUrl,
-  };
-
-  return prisma.set.upsert({
-    where: { gameId_code: { gameId, code: sourceSet.code } },
-    update: data,
-    create: { gameId, code: sourceSet.code, ...data },
-  });
-}
-
-async function upsertRarity(gameId: number, name: string) {
-  return prisma.rarity.upsert({
-    where: { gameId_name: { gameId, name } },
-    update: {},
-    create: { gameId, name },
-  });
-}
-
-async function upsertArtist(name: string) {
-  return prisma.artist.upsert({
-    where: { name },
-    update: {},
-    create: { name },
-  });
-}
-
-async function upsertCard(
-  gameId: number,
-  printing: SourcePrinting,
-  rulesText: string | undefined,
-  counters: Counters,
-) {
+async function upsertCard(tx: Tx, gameId: number, printing: SourcePrinting, counters: Counters) {
+  const rulesText = deriveRulesText(printing.attributes);
   const canonicalKey = canonicalKeyFor(printing.cardName, rulesText);
   const data = {
     name: printing.cardName,
@@ -184,15 +153,15 @@ async function upsertCard(
     attributes: JSON.stringify(printing.attributes),
   };
 
-  const existing = await prisma.card.findUnique({
+  const existing = await tx.card.findUnique({
     where: { gameId_canonicalKey: { gameId, canonicalKey } },
   });
   if (existing) {
     counters.cardsUpdated++;
-    return prisma.card.update({ where: { id: existing.id }, data });
+    return tx.card.update({ where: { id: existing.id }, data });
   }
   counters.cardsCreated++;
-  return prisma.card.create({ data: { gameId, canonicalKey, ...data } });
+  return tx.card.create({ data: { gameId, canonicalKey, ...data } });
 }
 
 /**
@@ -205,17 +174,23 @@ async function upsertCard(
  * references them, so a variant the user owns, has in a binder, or has price
  * history for is never deleted.
  */
-async function syncVariants(printingId: string, printing: SourcePrinting, counters: Counters) {
+async function syncVariants(
+  tx: Tx,
+  printingId: string,
+  languageCode: string,
+  printing: SourcePrinting,
+  counters: Counters,
+) {
   const reported = printing.finishes ?? [];
   const finishes = reported.length > 0 ? reported : ["NON_FOIL"];
 
   for (const finish of finishes) {
-    const key = { printingId, finish, edition: "UNLIMITED", languageCode: LANGUAGE_CODE };
-    const existing = await prisma.printVariant.findUnique({
+    const key = { printingId, finish, edition: "UNLIMITED", languageCode };
+    const existing = await tx.printVariant.findUnique({
       where: { printingId_finish_edition_languageCode: key },
     });
     if (!existing) {
-      await prisma.printVariant.create({ data: key });
+      await tx.printVariant.create({ data: key });
       counters.variantsCreated++;
     }
   }
@@ -224,11 +199,11 @@ async function syncVariants(printingId: string, printing: SourcePrinting, counte
   // as "only NON_FOIL exists".
   if (reported.length === 0) return;
 
-  const stale = await prisma.printVariant.findMany({
+  const stale = await tx.printVariant.findMany({
     where: {
       printingId,
       edition: "UNLIMITED",
-      languageCode: LANGUAGE_CODE,
+      languageCode,
       finish: { notIn: finishes },
     },
     include: {
@@ -247,160 +222,30 @@ async function syncVariants(printingId: string, printing: SourcePrinting, counte
   for (const variant of stale) {
     const referenced =
       Object.values(variant._count).some((n) => n > 0) ||
-      (await prisma.binderSlot.count({ where: { placeholderVariantId: variant.id } })) > 0;
+      (await tx.binderSlot.count({ where: { placeholderVariantId: variant.id } })) > 0;
     if (referenced) {
       counters.variantsKeptStale++;
       continue;
     }
-    await prisma.printVariant.delete({ where: { id: variant.id } });
+    await tx.printVariant.delete({ where: { id: variant.id } });
     counters.variantsPruned++;
   }
 }
 
-async function syncSet(
-  game: { id: number },
-  sourceSet: SourceSet,
-  adapter: TcgdexPokemonAdapter,
-  counters: Counters,
-  options: SyncOptions,
-) {
-  options.onProgress?.({
-    type: "set",
-    code: sourceSet.code,
-    name: sourceSet.name,
-    total: sourceSet.totalCards ?? 0,
-    phase: "fetching",
-  });
-  const set = await upsertSet(game.id, sourceSet);
-  const printings = await adapter.listPrintings(sourceSet.code);
-
-  // TCGdex assigns each printing (including alt arts) its own localId, so
-  // collisions shouldn't happen in practice — but the schema's uniqueness on
-  // (setId, collectorNumber, isAltArt) depends on us never trying to create
-  // two rows with the same pair, so defend against it anyway.
-  const seenCollectorNumbers = new Set<string>();
-
-  options.onProgress?.({
-    type: "set",
-    code: sourceSet.code,
-    name: sourceSet.name,
-    total: printings.length,
-    phase: "saving",
-  });
-
-  for (const [index, printing] of printings.entries()) {
-    let shownImage: string | null = null;
-    let ok = true;
-    try {
-      const isAltArt = seenCollectorNumbers.has(printing.collectorNumber);
-      seenCollectorNumbers.add(printing.collectorNumber);
-
-      const rulesText = deriveRulesText(printing.attributes);
-      const card = await upsertCard(game.id, printing, rulesText, counters);
-
-      const rarity = printing.rarityName ? await upsertRarity(game.id, printing.rarityName) : null;
-      const artist = printing.artistName ? await upsertArtist(printing.artistName) : null;
-
-      const existingPrinting = await prisma.printing.findUnique({
-        where: {
-          setId_collectorNumber_isAltArt: {
-            setId: set.id,
-            collectorNumber: printing.collectorNumber,
-            isAltArt,
-          },
-        },
-      });
-
-      let imageKey: string | null = null;
-      const needsImage =
-        options.refreshImages ||
-        !existingPrinting?.imageKey ||
-        !(await hasFile(existingPrinting.imageKey));
-      if (needsImage && (!printing.imageUrls || printing.imageUrls.length === 0)) {
-        counters.imagesMissing.push(`${printing.cardName} ${printing.collectorNumber}`);
-      } else if (printing.imageUrls && needsImage) {
-        try {
-          const image = await downloadFirstImage(printing.imageUrls);
-          if (image) {
-            const key = imageKeyFor(sourceSet.code, printing.collectorNumber, isAltArt, image.ext);
-            await putFile(key, image.bytes);
-            imageKey = key;
-            counters.imagesDownloaded++;
-          } else {
-            counters.imagesMissing.push(`${printing.cardName} ${printing.collectorNumber}`);
-          }
-        } catch (err) {
-          counters.errors.push({
-            setCode: sourceSet.code,
-            collectorNumber: printing.collectorNumber,
-            cardName: printing.cardName,
-            message: `image download failed: ${err instanceof Error ? err.message : String(err)}`,
-          });
-        }
-      }
-
-      const printingData = {
-        cardId: card.id,
-        sortNumber: sortNumberFor(printing.collectorNumber),
-        rarityId: rarity?.id ?? null,
-        artistId: artist?.id ?? null,
-        ...(imageKey ? { imageKey } : {}),
-      };
-
-      const dbPrinting = existingPrinting
-        ? await (async () => {
-            counters.printingsUpdated++;
-            return prisma.printing.update({
-              where: { id: existingPrinting.id },
-              data: printingData,
-            });
-          })()
-        : await (async () => {
-            counters.printingsCreated++;
-            return prisma.printing.create({
-              data: {
-                setId: set.id,
-                collectorNumber: printing.collectorNumber,
-                isAltArt,
-                ...printingData,
-              },
-            });
-          })();
-
-      await syncVariants(dbPrinting.id, printing, counters);
-      counters.priceObservations += await recordPrices(dbPrinting.id, printing.prices ?? []);
-      shownImage = dbPrinting.imageKey;
-    } catch (err) {
-      ok = false;
-      counters.errors.push({
-        setCode: sourceSet.code,
-        collectorNumber: printing.collectorNumber,
-        cardName: printing.cardName,
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
-    options.onProgress?.({
-      type: "card",
-      code: sourceSet.code,
-      done: index + 1,
-      total: printings.length,
-      name: printing.cardName,
-      number: printing.collectorNumber,
-      imageKey: shownImage,
-      ok,
-    });
+/**
+ * The image a printing should show: a real local file from an older sync is
+ * kept as is (and never evicted); otherwise the virtual remote key the media
+ * route resolves through the image cache, when the source has an image.
+ */
+async function imageKeyFor(
+  existingKey: string | null | undefined,
+  printingId: string,
+  hasRemote: boolean,
+): Promise<string | null> {
+  if (existingKey && !existingKey.startsWith("remote/") && (await hasFile(existingKey))) {
+    return existingKey;
   }
-
-  counters.setsProcessed++;
-}
-
-export interface SyncOptions {
-  /** Re-download every card image, even ones already on disk. */
-  refreshImages?: boolean;
-  /** Progress lines; defaults to console.log. */
-  log?: (line: string) => void;
-  /** Structured progress, e.g. for the Sync page's live progress bars. */
-  onProgress?: (event: SyncProgress) => void;
+  return hasRemote ? remoteImageKey(printingId) : null;
 }
 
 export type SyncProgress =
@@ -409,7 +254,7 @@ export type SyncProgress =
       code: string;
       name: string;
       total: number;
-      /** "fetching": downloading card data from the source; "saving": writing cards + images. */
+      /** "fetching": downloading card data from the source; "saving": writing cards. */
       phase: "fetching" | "saving";
     }
   | {
@@ -423,74 +268,323 @@ export type SyncProgress =
       ok: boolean;
     };
 
+/** The "detail" payloads the catalog job puts on the job event bus. */
+type CatalogDetail = SyncProgress | { type: "set-counters"; code: string; counters: Counters };
+
+/**
+ * Writes one set and all its cards in a single transaction: either the whole
+ * set lands, or (crash, error) none of it does — so a set is never left
+ * half-written and then marked done.
+ */
+async function writeSet(
+  adapter: CatalogSourceAdapter,
+  gameId: number,
+  sourceSet: SourceSet,
+  printings: SourcePrinting[],
+  assets: { logoUrl: string | null; symbolUrl: string | null },
+  emit: (detail: CatalogDetail) => void,
+): Promise<Counters> {
+  const counters = emptyCounters();
+  const languageCode = adapter.languageCode;
+
+  await prisma.$transaction(
+    async (tx) => {
+      const setData = {
+        name: sourceSet.name,
+        series: sourceSet.series ?? null,
+        primaryLangCode: languageCode,
+        releaseDate: sourceSet.releaseDate ? new Date(sourceSet.releaseDate) : null,
+        printedTotal: sourceSet.printedTotal ?? null,
+        totalCards: sourceSet.totalCards ?? null,
+        logoUrl: assets.logoUrl,
+        symbolUrl: assets.symbolUrl,
+      };
+      const set = await tx.set.upsert({
+        where: { gameId_code: { gameId, code: sourceSet.code } },
+        update: setData,
+        create: { gameId, code: sourceSet.code, ...setData },
+      });
+
+      // Sources assign each printing (incl. alt arts) its own number, so
+      // collisions shouldn't happen — but (setId, collectorNumber, isAltArt)
+      // is unique, so a repeat is stored as the alt art rather than failing.
+      const seenCollectorNumbers = new Set<string>();
+
+      for (const [index, printing] of printings.entries()) {
+        const isAltArt = seenCollectorNumbers.has(printing.collectorNumber);
+        seenCollectorNumbers.add(printing.collectorNumber);
+
+        const card = await upsertCard(tx, gameId, printing, counters);
+        const rarity = printing.rarityName
+          ? await tx.rarity.upsert({
+              where: { gameId_name: { gameId, name: printing.rarityName } },
+              update: {},
+              create: { gameId, name: printing.rarityName },
+            })
+          : null;
+        const artist = printing.artistName
+          ? await tx.artist.upsert({
+              where: { name: printing.artistName },
+              update: {},
+              create: { name: printing.artistName },
+            })
+          : null;
+
+        const imageUrls = printing.imageUrls && printing.imageUrls.length > 0 ? printing.imageUrls : null;
+        if (!imageUrls) counters.imagesMissing.push(`${printing.cardName} ${printing.collectorNumber}`);
+
+        const printingData = {
+          cardId: card.id,
+          sortNumber: sortNumberFor(printing.collectorNumber),
+          rarityId: rarity?.id ?? null,
+          artistId: artist?.id ?? null,
+          imageUrls: imageUrls ? JSON.stringify(imageUrls) : null,
+        };
+        const existing = await tx.printing.findUnique({
+          where: {
+            setId_collectorNumber_isAltArt: {
+              setId: set.id,
+              collectorNumber: printing.collectorNumber,
+              isAltArt,
+            },
+          },
+        });
+        let dbPrinting = existing
+          ? await tx.printing.update({ where: { id: existing.id }, data: printingData })
+          : await tx.printing.create({
+              data: { setId: set.id, collectorNumber: printing.collectorNumber, isAltArt, ...printingData },
+            });
+        if (existing) counters.printingsUpdated++;
+        else counters.printingsCreated++;
+
+        const imageKey = await imageKeyFor(existing?.imageKey, dbPrinting.id, imageUrls !== null);
+        if (imageKey !== dbPrinting.imageKey) {
+          dbPrinting = await tx.printing.update({ where: { id: dbPrinting.id }, data: { imageKey } });
+        }
+
+        await tx.externalRef.upsert({
+          where: { source_externalId: { source: adapter.slug, externalId: printing.externalCardId } },
+          update: { printingId: dbPrinting.id },
+          create: { source: adapter.slug, externalId: printing.externalCardId, printingId: dbPrinting.id },
+        });
+
+        await syncVariants(tx, dbPrinting.id, languageCode, printing, counters);
+        counters.priceObservations += await recordPrices(dbPrinting.id, printing.prices ?? [], tx);
+
+        emit({
+          type: "card",
+          code: sourceSet.code,
+          done: index + 1,
+          total: printings.length,
+          name: printing.cardName,
+          number: printing.collectorNumber,
+          imageKey: dbPrinting.imageKey,
+          ok: true,
+        });
+      }
+    },
+    // Hundreds of cards x a handful of statements each; SQLite is quick, but
+    // well past Prisma's 5 s default on a slow disk.
+    { timeout: 180_000, maxWait: 30_000 },
+  );
+
+  counters.setsProcessed = 1;
+  return counters;
+}
+
+async function processSet(
+  adapter: CatalogSourceAdapter,
+  gameId: number,
+  item: ClaimedItem,
+  emit: (detail: CatalogDetail) => void,
+): Promise<void> {
+  const code = item.key;
+  emit({ type: "set", code, name: item.label ?? code, total: 0, phase: "fetching" });
+
+  // All network first, then all writes: a download failing halfway leaves the DB untouched.
+  const sourceSet = await adapter.getSet(code);
+  if (!sourceSet) throw new NonRetryableError(`the source has no set "${code}"`);
+  const printings = await adapter.listPrintings(code);
+  if (printings.length === 0 && (sourceSet.totalCards ?? 0) > 0) {
+    // Looks like a partial/blocked response rather than a genuinely empty set.
+    throw new Error(`the source returned no cards for ${code} (expected ${sourceSet.totalCards})`);
+  }
+
+  const safeCode = sourceSet.code.replace(/[^\w.-]/g, "_");
+  const assets = {
+    logoUrl: await localAsset(sourceSet.logoUrl, `${adapter.game}/${safeCode}/logo.png`),
+    symbolUrl: await localAsset(sourceSet.symbolUrl, `${adapter.game}/${safeCode}/symbol.png`),
+  };
+
+  emit({ type: "set", code, name: sourceSet.name, total: printings.length, phase: "saving" });
+  const counters = await writeSet(adapter, gameId, sourceSet, printings, assets, emit);
+  emit({ type: "set-counters", code, counters });
+}
+
+export interface CatalogSyncOptions extends JobRunOptions {
+  /** Structured progress, e.g. for the Sync page's live progress bars. */
+  onProgress?: (event: SyncProgress) => void;
+  /** Recompute valuations + today's portfolio snapshot when sets changed. Default true. */
+  updateValuations?: boolean;
+}
+
+export interface CatalogSyncResult extends Counters {
+  run: JobRunSummary;
+  valuationsWritten: number;
+}
+
+/**
+ * One background catalog sync run for `adapter`'s game: lists the source's
+ * sets (new ones become `pending`), then syncs pending/failed sets and `done`
+ * sets older than `refreshAfterMs` (30 days by default), newest sets first.
+ * Returns with `run.status === "locked"` when a run is already in progress.
+ */
+export async function runCatalogSync(
+  adapter: CatalogSourceAdapter,
+  options: CatalogSyncOptions = {},
+): Promise<CatalogSyncResult> {
+  const game = await ensureGameAndLanguage(adapter);
+  const totals = emptyCounters();
+
+  const run = await runJob(
+    {
+      job: CATALOG_JOB,
+      game: adapter.game,
+      discover: async () => {
+        const sets = await adapter.listSetSummaries();
+        // Newest first from the source -> highest priority first.
+        return sets.map((s, i) => ({ key: s.code, label: s.name, priority: sets.length - i }));
+      },
+      process: (item, ctx) =>
+        processSet(adapter, game.id, item, (detail) => {
+          if (detail.type === "set-counters") addCounters(totals, detail.counters);
+          else options.onProgress?.(detail);
+          ctx.detail(detail);
+        }),
+    },
+    { concurrency: 2, delayMs: 1_000, ...options },
+  );
+  for (const failure of run.failed) totals.errors.push({ setCode: failure.key, message: failure.error });
+
+  let valuationsWritten = 0;
+  if (run.succeeded.length > 0 && options.updateValuations !== false) {
+    options.log?.("computing valuations...");
+    valuationsWritten = await computeValuations();
+    await snapshotPortfolio();
+  }
+  return { ...totals, run, valuationsWritten };
+}
+
 export interface SyncResult extends Counters {
-  /** Requested codes TCGdex doesn't know. */
+  /** Requested codes the source doesn't know. */
   unknownCodes: string[];
   valuationsWritten: number;
 }
 
 /**
- * Syncs the given TCGdex set codes (e.g. ["sv06.5", "sv03.5"]), then
- * recomputes valuations and today's portfolio snapshot.
+ * Syncs specific sets now (Sync page, `--sets` CLI): queues them ahead of
+ * everything else and runs the catalog job for just those. If a background
+ * run already holds the lock, it picks them up next; this then waits for
+ * them to finish so the caller still gets a result and live progress.
  */
 export async function syncCatalogSets(
   codes: string[],
-  options: SyncOptions = {},
-  adapter = new TcgdexPokemonAdapter(),
+  options: CatalogSyncOptions = {},
+  adapter: CatalogSourceAdapter,
 ): Promise<SyncResult> {
-  const log = options.log ?? ((line: string) => console.log(line));
-  const game = await ensureGameAndLanguage();
+  await ensureGameAndLanguage(adapter);
+  const requestedAt = new Date();
+  await enqueueItems(
+    CATALOG_JOB,
+    adapter.game,
+    codes.map((key) => ({ key })),
+    MANUAL_PRIORITY,
+  );
 
-  const counters: Counters = {
-    setsProcessed: 0,
-    cardsCreated: 0,
-    cardsUpdated: 0,
-    printingsCreated: 0,
-    printingsUpdated: 0,
-    variantsCreated: 0,
-    variantsPruned: 0,
-    variantsKeptStale: 0,
-    imagesDownloaded: 0,
-    imagesMissing: [],
-    priceObservations: 0,
-    errors: [],
-  };
-  const unknownCodes: string[] = [];
-
-  for (const code of codes) {
-    // Network errors here (TCGdex unreachable) propagate: nothing can be synced.
-    const sourceSet = await adapter.getSet(code);
-    if (!sourceSet) {
-      log(`no TCGdex set found for code "${code}" — skipping.`);
-      unknownCodes.push(code);
-      continue;
-    }
-    log(`syncing ${sourceSet.code} (${sourceSet.name})...`);
-    try {
-      await syncSet(game, sourceSet, adapter, counters, options);
-    } catch (err) {
-      // Keep going: sets already synced stay synced, and the next set may work.
-      const message = err instanceof Error ? err.message : String(err);
-      log(`  ${sourceSet.code} failed: ${message}`);
-      counters.errors.push({ setCode: sourceSet.code, message });
-    }
+  const result = await runCatalogSync(adapter, { ...options, onlyKeys: codes, skipDiscovery: true });
+  if (result.run.status !== "locked") {
+    return {
+      ...result,
+      unknownCodes: result.run.failed.filter((f) => /has no set/.test(f.error)).map((f) => f.key),
+    };
   }
 
-  log("computing valuations...");
-  const valuationsWritten = await computeValuations();
-  await snapshotPortfolio();
-
-  return { ...counters, unknownCodes, valuationsWritten };
+  // Someone else is running the catalog job: follow along until our sets are through.
+  options.log?.("a sync is already running — your sets were queued at the front and will be synced next.");
+  const totals = emptyCounters();
+  const wanted = new Set(codes);
+  const unsubscribe = onJobEvent((e) => {
+    if (e.job !== CATALOG_JOB || e.game !== adapter.game || e.type !== "detail" || !wanted.has(e.key)) return;
+    const detail = e.data as CatalogDetail;
+    if (detail.type === "set-counters") addCounters(totals, detail.counters);
+    else options.onProgress?.(detail);
+  });
+  try {
+    for (;;) {
+      const rows = await prisma.syncState.findMany({
+        where: { job: CATALOG_JOB, game: adapter.game, itemKey: { in: codes } },
+      });
+      const finished = rows.filter(
+        (r) =>
+          (r.status === "done" || r.status === "failed") &&
+          r.lastAttemptAt !== null &&
+          r.lastAttemptAt >= requestedAt,
+      );
+      if (finished.length === codes.length) {
+        const failed = finished.filter((r) => r.status === "failed");
+        for (const r of failed) totals.errors.push({ setCode: r.itemKey, message: r.lastError ?? "failed" });
+        return {
+          ...totals,
+          unknownCodes: failed.filter((r) => /has no set/.test(r.lastError ?? "")).map((r) => r.itemKey),
+          valuationsWritten: 0,
+        };
+      }
+      if (options.signal?.aborted) throw new Error("cancelled");
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+  } finally {
+    unsubscribe();
+  }
 }
 
-/** Every set code already in the local DB for Pokemon — what "refresh prices" re-syncs. */
-export async function syncedSetCodes(): Promise<string[]> {
+/** Every set code already in the local DB for a game — what "re-sync everything" re-queues. */
+export async function syncedSetCodes(game: string): Promise<string[]> {
   const sets = await prisma.set.findMany({
-    where: { game: { slug: GAME_SLUG } },
+    where: { game: { slug: game } },
     select: { code: true },
     orderBy: { releaseDate: "desc" },
   });
   return sets.map((s) => s.code);
+}
+
+export interface CatalogSyncStatus {
+  game: string;
+  total: number;
+  done: number;
+  pending: number;
+  failed: number;
+  syncing: number;
+  failures: Array<{ code: string; name: string | null; error: string | null; attempts: number }>;
+}
+
+/** Sets done / total and the failed sets, from SyncState (works across processes). */
+export async function catalogSyncStatus(game: string): Promise<CatalogSyncStatus> {
+  const counts = await jobStateCounts(CATALOG_JOB, game);
+  const failed = await prisma.syncState.findMany({
+    where: { job: CATALOG_JOB, game, status: "failed" },
+    orderBy: { priority: "desc" },
+    take: 50,
+  });
+  return {
+    game,
+    ...counts,
+    failures: failed.map((f) => ({
+      code: f.itemKey,
+      name: f.label,
+      error: f.lastError,
+      attempts: f.attemptCount,
+    })),
+  };
 }
 
 export function formatSyncSummary(result: SyncResult): string[] {
@@ -509,18 +603,18 @@ export function formatSyncSummary(result: SyncResult): string[] {
     );
   }
   lines.push(
-    `Images downloaded:  ${result.imagesDownloaded}`,
     ...(result.imagesMissing.length > 0
       ? [
-          `Images not on TCGdex yet: ${result.imagesMissing.length} (tried again on every sync) — ${result.imagesMissing.slice(0, 8).join(", ")}${result.imagesMissing.length > 8 ? ", …" : ""}`,
+          `Images not at the source yet: ${result.imagesMissing.length} (checked again on every sync) — ${result.imagesMissing.slice(0, 8).join(", ")}${result.imagesMissing.length > 8 ? ", …" : ""}`,
         ]
       : []),
     `Price observations: ${result.priceObservations}`,
     `Valuations written: ${result.valuationsWritten}`,
-    `Per-card errors:    ${result.errors.length}`,
+    `Errors:             ${result.errors.length}`,
   );
   for (const e of result.errors) {
-    lines.push(`  - [${e.setCode} ${e.collectorNumber ?? "?"}] ${e.cardName ?? "?"}: ${e.message}`);
+    lines.push(`  - [${e.setCode}${e.collectorNumber ? ` ${e.collectorNumber}` : ""}] ${e.cardName ? `${e.cardName}: ` : ""}${e.message}`);
   }
   return lines;
 }
+

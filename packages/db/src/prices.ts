@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import type { SourcePriceQuote } from "@tcg-vault/sources";
 import { prisma } from "./client";
 
@@ -13,10 +14,11 @@ import { prisma } from "./client";
 export async function recordPrices(
   printingId: string,
   quotes: SourcePriceQuote[],
+  db: Prisma.TransactionClient = prisma,
 ): Promise<number> {
   if (quotes.length === 0) return 0;
 
-  const variants = await prisma.printVariant.findMany({
+  const variants = await db.printVariant.findMany({
     where: { printingId, edition: "UNLIMITED" },
     select: { id: true, finish: true },
   });
@@ -31,14 +33,14 @@ export async function recordPrices(
     const observedAt = parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date();
 
     if (parsed) {
-      const dupe = await prisma.priceObservation.findFirst({
+      const dupe = await db.priceObservation.findFirst({
         where: { variantId, source: quote.source, observedAt },
         select: { id: true },
       });
       if (dupe) continue;
     }
 
-    await prisma.priceObservation.create({
+    await db.priceObservation.create({
       data: {
         variantId,
         source: quote.source,

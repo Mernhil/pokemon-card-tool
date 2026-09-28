@@ -1,9 +1,13 @@
 import {
+  CATALOG_JOB,
+  MANUAL_PRIORITY,
+  enqueueItems,
   formatSyncSummary,
   syncCatalogSets,
   syncedSetCodes,
   type SyncProgress,
 } from "@tcg-vault/db";
+import { catalogAdapter, requestCatalogSync } from "./background";
 
 export type SyncEvent =
   | SyncProgress
@@ -11,41 +15,46 @@ export type SyncEvent =
   | { type: "summary"; ok: boolean; lines: string[] }
   | { type: "error"; message: string };
 
-// One sync at a time (Sync page, nightly job): two runs would race on the
-// same upserts. Module state lives for the whole server process.
-let running = false;
-
-export function syncInProgress(): boolean {
-  return running;
-}
-
 /**
- * Runs a catalog/price sync for `codes` (or every synced set when null),
- * reporting through `emit`. Never throws: failures become an "error" or a
- * summary with ok: false.
+ * The Sync page's "sync these sets now": runs them through the background
+ * catalog job (src/catalog-sync.ts in @tcg-vault/db) at the front of the
+ * queue, reporting through `emit`. When a background run is already going,
+ * the sets are queued first in it and this follows their progress. Never
+ * throws: failures become an "error" or a summary with ok: false.
+ *
+ * `codes === null` re-queues every synced set (a full catalog refresh) and
+ * returns once the background job has been started.
  */
 export async function runSync(
   codes: string[] | null,
   emit: (e: SyncEvent) => void,
 ): Promise<boolean> {
-  if (running) {
-    emit({ type: "error", message: "A sync is already running — wait for it to finish." });
-    return false;
-  }
-  running = true;
+  const adapter = catalogAdapter();
   try {
-    const targets = codes ?? (await syncedSetCodes());
-    if (targets.length === 0) {
+    if (codes === null) {
+      const all = await syncedSetCodes(adapter.game);
+      if (all.length === 0) {
+        emit({ type: "error", message: "No sets synced yet." });
+        return false;
+      }
+      await enqueueItems(CATALOG_JOB, adapter.game, all.map((key) => ({ key })), MANUAL_PRIORITY - 1);
+      requestCatalogSync();
       emit({
-        type: "error",
-        message: codes ? "Pick at least one set, or type its code." : "No sets synced yet.",
+        type: "summary",
+        ok: true,
+        lines: [`Queued ${all.length} set(s) for a re-sync in the background.`],
       });
+      return true;
+    }
+    if (codes.length === 0) {
+      emit({ type: "error", message: "Pick at least one set, or type its code." });
       return false;
     }
-    const result = await syncCatalogSets(targets, {
-      log: (line) => emit({ type: "log", line }),
-      onProgress: emit,
-    });
+    const result = await syncCatalogSets(
+      codes,
+      { log: (line) => emit({ type: "log", line }), onProgress: emit },
+      adapter,
+    );
     const ok = result.errors.length === 0 && result.unknownCodes.length === 0;
     emit({ type: "summary", ok, lines: formatSyncSummary(result) });
     return ok;
@@ -53,10 +62,8 @@ export async function runSync(
     const message = err instanceof Error ? err.message : String(err);
     emit({
       type: "error",
-      message: `Sync failed: ${message}. Check your internet connection — sets and prices come from api.tcgdex.net.`,
+      message: `Sync failed: ${message}. Check your internet connection — sets come from api.tcgdex.net.`,
     });
     return false;
-  } finally {
-    running = false;
   }
 }

@@ -40,4 +40,4 @@ export async function hasFile(key: string): Promise<boolean> {
   }
 }
 
-export { mediaUrl } from "./media-url";
+export * from "./media-url";

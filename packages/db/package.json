@@ -12,7 +12,9 @@
     "sync-catalog": "dotenv -e ../../.env -- tsx src/sync-catalog.ts",
     "validate": "prisma validate",
     "studio": "dotenv -e ../../.env -- prisma studio",
-    "sync-prices": "dotenv -e ../../.env -- tsx src/sync-catalog.ts --synced"
+    "sync-prices": "dotenv -e ../../.env -- tsx src/sync-catalog.ts --synced",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",
@@ -21,6 +23,7 @@
     "@tcg-vault/sources": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "^20.16.11",
     "dotenv-cli": "^7.4.2",
     "prisma": "^5.20.0",
     "tsx": "^4.19.1",
