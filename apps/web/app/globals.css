@@ -1196,14 +1196,26 @@ textarea {
     opacity: 0.55;
     background-position: 100% 100%;
   }
-  .pocket__foil--art {
+  /*
+   * Compound with the literal `.pocket__foil` (rather than bare
+   * `.pocket__foil--art`/`--frame`) on purpose: pocket.tsx builds the
+   * modifier class with a template literal
+   * (`pocket__foil pocket__foil--${foil.area}`), which Tailwind's content
+   * scanner never sees as a literal candidate, so a selector using only
+   * the bare modifier class gets purged from the production build (it
+   * silently never reached the browser — see team memory
+   * tailwind-purges-dynamic-class-rules). Both classes are always present
+   * together on the element, so this compound selector matches exactly
+   * the same elements while keeping a literal token Tailwind will keep.
+   */
+  .pocket__foil.pocket__foil--art {
     clip-path: inset(11% 8% 50% 8%);
   }
   /* Same mask-composite -> clip-path fix as .card3d--frame above: a webview
      that doesn't honor mask-composite: xor/exclude renders the un-excluded
      full rectangle instead, which is this "strange rectangle" bug again, just
      in the binder/grid thumbnail rather than the inspector. */
-  .pocket__foil--frame {
+  .pocket__foil.pocket__foil--frame {
     clip-path: polygon(
       0% 0%,
       100% 0%,
