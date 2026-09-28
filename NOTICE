@@ -1,0 +1,33 @@
+TCG Vault
+Copyright (C) 2026 Mernhil
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version. See the LICENSE file for the
+full text of the GPL-3.0.
+
+Third-party attribution
+------------------------
+
+The holographic card-foil effect in apps/web/app/globals.css
+(the `.card3d__foil` / `.card3d__glare` rules and the associated
+`--sunpillar-*` custom properties) is ported from:
+
+  pokemon-cards-css
+  Copyright (C) Simon Goellner (@simeydotme)
+  https://github.com/simeydotme/pokemon-cards-css
+  Licensed under the GNU General Public License v3.0
+
+Specifically, the following techniques and values were adapted from
+that project's public/css/cards/*.css files:
+
+  - the sunpillar color palette and rainbow gradient used for the
+    holo sheen layer
+  - the filter/mix-blend-mode combinations for the regular-holo,
+    reverse-holo, and cosmos-holo presets
+  - the clip-path "donut with slit" technique used to mask the
+    reverse-holo sheen to the card's art window
+
+This is a derivative work distributed under GPL-3.0, as required by
+the license of the original project.
