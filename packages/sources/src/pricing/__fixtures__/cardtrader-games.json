@@ -1,0 +1,6 @@
+{
+  "array": [
+    { "id": 1, "name": "Magic", "display_name": "Magic: the Gathering" },
+    { "id": 5, "name": "Pokemon", "display_name": "Pokémon" }
+  ]
+}

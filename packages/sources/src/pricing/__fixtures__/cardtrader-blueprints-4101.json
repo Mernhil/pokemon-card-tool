@@ -1,0 +1,20 @@
+[
+  {
+    "id": 900001,
+    "name": "Joltik",
+    "expansion_id": 4101,
+    "version": null,
+    "fixed_properties": { "collector_number": "001", "pokemon_rarity": "Common" },
+    "card_market_ids": [772001],
+    "tcg_player_id": 551234
+  },
+  {
+    "id": 900002,
+    "name": "Galvantula ex",
+    "expansion_id": 4101,
+    "version": null,
+    "fixed_properties": { "collector_number": "002", "pokemon_rarity": "Double Rare" },
+    "card_market_ids": [772002]
+  },
+  { "id": 900099, "name": "Shrouded Fable Booster", "expansion_id": 4101, "fixed_properties": {} }
+]

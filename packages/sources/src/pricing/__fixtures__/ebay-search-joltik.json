@@ -1,0 +1,74 @@
+{
+  "href": "https://api.ebay.com/buy/browse/v1/item_summary/search?q=Joltik+001%2F064&limit=100",
+  "total": 11,
+  "itemSummaries": [
+    {
+      "itemId": "v1|1|0",
+      "title": "Joltik 001/064 Shrouded Fable Pokemon Card NM",
+      "price": { "value": "0.99", "currency": "USD" },
+      "buyingOptions": ["FIXED_PRICE"],
+      "conditionId": "4000"
+    },
+    {
+      "itemId": "v1|2|0",
+      "title": "Pokemon TCG Joltik 1/64 Shrouded Fable Common",
+      "price": { "value": "0.50", "currency": "USD" },
+      "buyingOptions": ["FIXED_PRICE", "BEST_OFFER"]
+    },
+    {
+      "itemId": "v1|3|0",
+      "title": "Joltik 001/064 Shrouded Fable pack fresh",
+      "price": { "value": "1.25", "currency": "USD" },
+      "buyingOptions": ["FIXED_PRICE"]
+    },
+    {
+      "itemId": "v1|4|0",
+      "title": "Joltik 001/064 REVERSE HOLO Shrouded Fable",
+      "price": { "value": "1.49", "currency": "USD" },
+      "buyingOptions": ["FIXED_PRICE"]
+    },
+    {
+      "itemId": "v1|5|0",
+      "title": "PSA 10 Joltik 001/064 Shrouded Fable GEM MINT",
+      "price": { "value": "45.00", "currency": "USD" },
+      "buyingOptions": ["FIXED_PRICE"],
+      "conditionId": "2750"
+    },
+    {
+      "itemId": "v1|6|0",
+      "title": "Joltik 001/064 x4 playset Shrouded Fable",
+      "price": { "value": "2.00", "currency": "USD" },
+      "buyingOptions": ["FIXED_PRICE"]
+    },
+    {
+      "itemId": "v1|7|0",
+      "title": "Japanese Joltik 001/064 Night Wanderer",
+      "price": { "value": "0.75", "currency": "USD" },
+      "buyingOptions": ["FIXED_PRICE"]
+    },
+    {
+      "itemId": "v1|8|0",
+      "title": "Galvantula ex 002/064 Shrouded Fable",
+      "price": { "value": "3.50", "currency": "USD" },
+      "buyingOptions": ["FIXED_PRICE"]
+    },
+    {
+      "itemId": "v1|9|0",
+      "title": "Shrouded Fable booster pack sealed",
+      "price": { "value": "5.99", "currency": "USD" },
+      "buyingOptions": ["FIXED_PRICE"]
+    },
+    {
+      "itemId": "v1|10|0",
+      "title": "Joltik 001/064 Shrouded Fable",
+      "price": { "value": "0.80", "currency": "USD" },
+      "buyingOptions": ["AUCTION"]
+    },
+    {
+      "itemId": "v1|11|0",
+      "title": "Joltik 001/064 Shrouded Fable custom gold metal card",
+      "price": { "value": "19.99", "currency": "USD" },
+      "buyingOptions": ["FIXED_PRICE"]
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "id": "sv06.5-001",
+  "localId": "001",
+  "name": "Joltik",
+  "variants": { "normal": true, "reverse": true, "holo": false, "firstEdition": false },
+  "pricing": {
+    "cardmarket": {
+      "updated": "2026-09-27T01:02:03.000Z",
+      "unit": "EUR",
+      "idProduct": 772001,
+      "avg": 0.21,
+      "low": 0.02,
+      "trend": 0.18,
+      "avg1": 0.2,
+      "avg7": 0.19,
+      "avg30": 0.22,
+      "avg-holo": 0.55,
+      "low-holo": 0.2,
+      "trend-holo": 0.48
+    },
+    "tcgplayer": {
+      "updated": "2026-09-27T20:00:00.000Z",
+      "unit": "USD",
+      "productId": 551234,
+      "normal": {
+        "lowPrice": 0.05,
+        "midPrice": 0.15,
+        "highPrice": 2.5,
+        "marketPrice": 0.12,
+        "directLowPrice": null
+      },
+      "reverse-holofoil": { "lowPrice": 0.3, "midPrice": 0.6, "highPrice": 4, "marketPrice": 0.51 }
+    }
+  }
+}

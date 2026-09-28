@@ -13,7 +13,7 @@
     "validate": "prisma validate",
     "studio": "dotenv -e ../../.env -- prisma studio",
     "sync-prices": "dotenv -e ../../.env -- tsx src/sync-prices.ts",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
