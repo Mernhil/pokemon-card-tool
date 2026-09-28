@@ -23,12 +23,15 @@ const FINISH_LABELS: Record<string, string> = {
  */
 export function CardViewer({
   imageSrc,
+  imageIsFallback = false,
   name,
   number,
   rarityName,
   variants,
 }: {
   imageSrc: string | null;
+  /** `imageSrc` is another printing's art (this printing has no scan yet). */
+  imageIsFallback?: boolean;
   name: string;
   number: string;
   rarityName: string | null;
@@ -63,6 +66,11 @@ export function CardViewer({
           onActivate={inspect}
         />
       </div>
+      {imageIsFallback ? (
+        <p className="text-center text-[11px] text-neutral-400">
+          No scan for this printing yet — showing the original printing&apos;s art
+        </p>
+      ) : null}
       <FinishPicker finishes={finishes} value={finish} onChange={setFinish} />
       <button
         type="button"
@@ -75,6 +83,7 @@ export function CardViewer({
       {inspecting ? (
         <CardInspector
           imageSrc={imageSrc}
+          imageIsFallback={imageIsFallback}
           name={name}
           number={number}
           rarityName={rarityName}
@@ -132,6 +141,7 @@ function FinishPicker({
 
 export function CardInspector({
   imageSrc,
+  imageIsFallback = false,
   name,
   number,
   rarityName,
@@ -142,6 +152,7 @@ export function CardInspector({
   onClose,
 }: {
   imageSrc: string | null;
+  imageIsFallback?: boolean;
   name: string;
   number: string;
   rarityName: string | null;
@@ -251,6 +262,11 @@ export function CardInspector({
       <p className="relative z-10 text-sm text-white/80">
         {name} <span className="text-white/50">· {number}</span>
       </p>
+      {imageIsFallback ? (
+        <p className="relative z-10 -mt-2 text-xs text-white/40">
+          No scan for this printing yet — showing the original printing&apos;s art
+        </p>
+      ) : null}
 
       <div
         className="relative z-0 flex min-h-0 flex-1 items-center justify-center [perspective:1600px]"
@@ -418,18 +434,6 @@ function Card3D({
     const el = ref.current;
     if (!el) return;
     const s = state.current;
-    if (drag.current) {
-      const dx = e.clientX - drag.current.x;
-      const dy = e.clientY - drag.current.y;
-      if (Math.abs(dx) + Math.abs(dy) > 3) drag.current.moved = true;
-      drag.current.x = e.clientX;
-      drag.current.y = e.clientY;
-      s.rotY += dx * 0.6;
-      s.rotX = clamp(s.rotX - dy * 0.6, -75, 75);
-      stiffness.current = 0.35;
-      apply();
-      return;
-    }
     // Measure the untransformed stage, not `el` itself: `el` carries the
     // live rotateX/rotateY/scale transform, so its own bounding rect is the
     // foreshortened, skewed *screen-space* box of the rotated card, not its
@@ -437,6 +441,25 @@ function Card3D({
     // (and the reset-drag glitch after releasing a rotated/zoomed card)
     // wildly unstable in inspect mode. The stage wrapper never transforms.
     const rect = (el.parentElement ?? el).getBoundingClientRect();
+    if (drag.current) {
+      const dx = e.clientX - drag.current.x;
+      const dy = e.clientY - drag.current.y;
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.current.moved = true;
+      drag.current.x = e.clientX;
+      drag.current.y = e.clientY;
+      // Normalized by the stage's own box, not raw CSS pixels: dragging
+      // across the full width/height always produces the same rotation
+      // regardless of any mismatch between reported pointer deltas and the
+      // rendered box (seen on some WebView2/Windows display-scaling setups,
+      // where a full mouse drag barely rotated the card and, since the
+      // foil sheen position is also driven by rotation, made the holo
+      // effect look inert too).
+      s.rotY += (dx / rect.width) * 320;
+      s.rotX = clamp(s.rotX - (dy / rect.height) * 320, -75, 75);
+      stiffness.current = 0.35;
+      apply();
+      return;
+    }
     const px = clamp((e.clientX - rect.left) / rect.width, 0, 1);
     const py = clamp((e.clientY - rect.top) / rect.height, 0, 1);
     s.tiltY = (px - 0.5) * 2 * maxTilt;

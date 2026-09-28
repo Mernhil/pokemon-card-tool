@@ -1,8 +1,9 @@
 "use client";
 
 import { Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { CardTile } from "./card-tile";
+import { useListState } from "../lib/list-state";
 
 export interface SetGridCard {
   id: string;
@@ -23,11 +24,21 @@ type Show = "all" | "owned" | "missing";
 type Sort = "number" | "price" | "name" | "rarity";
 
 /** Card grid for one set with search, owned/missing filter, sort and "dim missing". */
+interface SetGridFilters {
+  query: string;
+  show: Show;
+  sort: Sort;
+  dim: boolean;
+}
+
+const DEFAULT_FILTERS: SetGridFilters = { query: "", show: "all", sort: "number", dim: true };
+
 export function SetGrid({ cards }: { cards: SetGridCard[] }) {
-  const [query, setQuery] = useState("");
-  const [show, setShow] = useState<Show>("all");
-  const [sort, setSort] = useState<Sort>("number");
-  const [dim, setDim] = useState(true);
+  const [{ query, show, sort, dim }, setFilters] = useListState(DEFAULT_FILTERS);
+  const setQuery = (query: string) => setFilters((f) => ({ ...f, query }));
+  const setShow = (show: Show) => setFilters((f) => ({ ...f, show }));
+  const setSort = (sort: Sort) => setFilters((f) => ({ ...f, sort }));
+  const setDim = (dim: boolean) => setFilters((f) => ({ ...f, dim }));
   const anyOwned = cards.some((c) => c.owned > 0);
 
   const shown = useMemo(() => {

@@ -11,6 +11,7 @@ import { CardTile } from "./card-tile";
 import { FinishBadge, finishLabel, formatEur } from "./money";
 import { useToast } from "./ui/toast";
 import { COLLECTION_VIEW_COOKIE } from "../lib/ui-cookies";
+import { useListState } from "../lib/list-state";
 
 export interface CollectionRow {
   id: string;
@@ -41,6 +42,15 @@ const CONDITION_SHORT: Record<string, string> = {
 
 type Sort = "value" | "recent" | "name" | "set";
 
+interface CollectionFilters {
+  query: string;
+  setFilter: string;
+  finish: string;
+  sort: Sort;
+}
+
+const DEFAULT_FILTERS: CollectionFilters = { query: "", setFilter: "", finish: "", sort: "value" };
+
 export function CollectionView({
   rows,
   initialView,
@@ -52,10 +62,11 @@ export function CollectionView({
   const toast = useToast();
   const [, start] = useTransition();
   const [view, setView] = useState(initialView);
-  const [query, setQuery] = useState("");
-  const [setFilter, setSetFilter] = useState("");
-  const [finish, setFinish] = useState("");
-  const [sort, setSort] = useState<Sort>("value");
+  const [{ query, setFilter, finish, sort }, setFilters] = useListState(DEFAULT_FILTERS);
+  const setQuery = (query: string) => setFilters((f) => ({ ...f, query }));
+  const setSetFilter = (setFilter: string) => setFilters((f) => ({ ...f, setFilter }));
+  const setFinish = (finish: string) => setFilters((f) => ({ ...f, finish }));
+  const setSort = (sort: Sort) => setFilters((f) => ({ ...f, sort }));
   const [local, setLocal] = useState<Record<string, Partial<CollectionRow> | null>>({});
 
   const sets = useMemo(() => [...new Set(rows.map((r) => r.setName))].sort(), [rows]);

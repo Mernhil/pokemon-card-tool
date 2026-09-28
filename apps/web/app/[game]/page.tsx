@@ -7,6 +7,9 @@ import { CompletionRing } from "../../components/ui/completion-ring";
 import { EmptyState } from "../../components/ui/empty-state";
 import { PageHeader } from "../../components/ui/page-header";
 
+/** Games with a manual set picker on the Sync page; others just sync in the background. */
+const MANUALLY_SYNCABLE = new Set(["pokemon", "yugioh", "one-piece"]);
+
 export default async function GameSetListPage({ params }: { params: { game: string } }) {
   const game = await prisma.game.findUnique({
     where: { slug: params.game },
@@ -51,8 +54,12 @@ export default async function GameSetListPage({ params }: { params: { game: stri
         title={game.name}
         subtitle={`${game.sets.length} synced set${game.sets.length === 1 ? "" : "s"}`}
         actions={
-          game.slug === "pokemon" ? (
-            <ButtonLink href="/sync" variant="secondary" size="sm">
+          MANUALLY_SYNCABLE.has(game.slug) ? (
+            <ButtonLink
+              href={`/sync?game=${encodeURIComponent(game.slug)}`}
+              variant="secondary"
+              size="sm"
+            >
               Add sets
             </ButtonLink>
           ) : null
@@ -64,14 +71,16 @@ export default async function GameSetListPage({ params }: { params: { game: stri
           icon={Library}
           title="No sets synced yet"
           action={
-            game.slug === "pokemon" ? (
-              <ButtonLink href="/sync">Sync some sets</ButtonLink>
+            MANUALLY_SYNCABLE.has(game.slug) ? (
+              <ButtonLink href={`/sync?game=${encodeURIComponent(game.slug)}`}>
+                Sync some sets
+              </ButtonLink>
             ) : undefined
           }
         >
-          {game.slug === "pokemon"
+          {MANUALLY_SYNCABLE.has(game.slug)
             ? "Pick a few sets on the Sync page to download them."
-            : "Only Pokémon can be synced for now."}
+            : "Sets sync automatically in the background — check back soon."}
         </EmptyState>
       ) : (
         groups.map((group) => (

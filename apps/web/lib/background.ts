@@ -10,8 +10,10 @@ import {
 } from "@tcg-vault/db";
 import { PRICE_PROVIDERS, type PriceProviderId } from "@tcg-vault/shared";
 import {
+  OptcgAdapter,
   PokemonTcgIoImageFallback,
   TcgdexPokemonAdapter,
+  YgoprodeckAdapter,
   createPriceProviders,
   withImageFallback,
   type CatalogSourceAdapter,
@@ -35,6 +37,8 @@ const pokemonImageFallback = new PokemonTcgIoImageFallback();
 
 const CATALOG_ADAPTERS: Array<() => CatalogSourceAdapter> = [
   () => withImageFallback(new TcgdexPokemonAdapter(), pokemonImageFallback),
+  () => new YgoprodeckAdapter(),
+  () => new OptcgAdapter(),
 ];
 
 interface Loop {
