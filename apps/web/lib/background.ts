@@ -10,6 +10,7 @@ import {
 } from "@tcg-vault/db";
 import { PRICE_PROVIDERS, type PriceProviderId } from "@tcg-vault/shared";
 import {
+  OptcgAdapter,
   TcgdexPokemonAdapter,
   YgoprodeckAdapter,
   createPriceProviders,
@@ -30,6 +31,7 @@ import {
 const CATALOG_ADAPTERS: Array<() => CatalogSourceAdapter> = [
   () => new TcgdexPokemonAdapter(),
   () => new YgoprodeckAdapter(),
+  () => new OptcgAdapter(),
 ];
 
 interface Loop {

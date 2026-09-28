@@ -9,7 +9,7 @@ import { PageHeader } from "../../components/ui/page-header";
 export const dynamic = "force-dynamic";
 
 /** Games that can be synced today; the others show as "coming soon". */
-const SYNCABLE = new Set(["pokemon", "yugioh"]);
+const SYNCABLE = new Set(["pokemon", "yugioh", "one-piece"]);
 
 export default async function BrowsePage() {
   const games = await prisma.game.findMany({
