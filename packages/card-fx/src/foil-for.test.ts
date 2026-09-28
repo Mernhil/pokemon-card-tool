@@ -24,6 +24,36 @@ describe("foilFor", () => {
     expect(foilFor("HOLO", "Hyper rare")).toMatchObject({ area: "full", preset: { slug: "gold" } });
   });
 
+  it("tells apart the different full-card rarities instead of one generic look", () => {
+    expect(foilFor("HOLO", "Rainbow Rare")).toMatchObject({
+      area: "full",
+      preset: { slug: "rainbow" },
+    });
+    expect(foilFor("HOLO", "Shiny Rare")).toMatchObject({
+      area: "full",
+      preset: { slug: "starlight" },
+    });
+    expect(foilFor("HOLO", "Prismatic Rare")).toMatchObject({
+      area: "full",
+      preset: { slug: "prismatic" },
+    });
+    expect(foilFor("HOLO", "Secret Rare")).toMatchObject({
+      area: "full",
+      preset: { slug: "secret-textured" },
+    });
+  });
+
+  it("trusts an unambiguous finish over the rarity name", () => {
+    expect(foilFor("RAINBOW", "Common")).toMatchObject({
+      area: "full",
+      preset: { slug: "rainbow" },
+    });
+    expect(foilFor("CRACKED_ICE", null)).toMatchObject({
+      area: "full",
+      preset: { slug: "cracked-ice" },
+    });
+  });
+
   it("gives non-foil cards no foil at all", () => {
     expect(foilFor("NON_FOIL", "Common")).toMatchObject({
       area: "none",

@@ -566,6 +566,108 @@ textarea {
       0 0,
       var(--foil-x) var(--foil-y);
   }
+
+  /* Engraved/etched foil: fine diagonal ridges, no rainbow dots (ETCHED, PARALLEL). */
+  .card3d--diagonal .card3d__foil {
+    background-image:
+      repeating-linear-gradient(-45deg, rgb(255 255 255 / 0.28) 0 1px, transparent 1px 4px),
+      repeating-linear-gradient(-45deg, rgb(0 0 0 / 0.12) 2px 3px, transparent 3px 4px),
+      var(--rainbow);
+    background-size:
+      auto,
+      auto,
+      280% 280%;
+    background-position:
+      0 0,
+      0 0,
+      var(--foil-x) var(--foil-y);
+  }
+
+  /* Cracked-ice: angular crystalline facets (CRACKED_ICE). */
+  .card3d--shards .card3d__foil {
+    background-image:
+      repeating-linear-gradient(60deg, rgb(255 255 255 / 0.22) 0 1px, transparent 1px 9px),
+      repeating-linear-gradient(-60deg, rgb(255 255 255 / 0.22) 0 1px, transparent 1px 9px),
+      repeating-linear-gradient(0deg, rgb(255 255 255 / 0.14) 0 1px, transparent 1px 11px),
+      var(--rainbow);
+    background-size:
+      auto,
+      auto,
+      auto,
+      280% 280%;
+    background-position:
+      0 0,
+      0 0,
+      0 0,
+      var(--foil-x) var(--foil-y);
+    filter: brightness(0.95) contrast(1.4) saturate(0.7);
+  }
+
+  /* Rainbow / Secret Rare: wide saturated bands, no dot texture. */
+  .card3d--preset-rainbow .card3d__foil {
+    background-image: var(--rainbow);
+    background-size: 340% 340%;
+  }
+
+  /* Prismatic Rare: vivid rainbow behind a dense sparkle dot field. */
+  .card3d--preset-prismatic .card3d__foil {
+    background-image:
+      radial-gradient(circle, rgb(255 255 255 / 0.9) 0 0.7px, transparent 1.4px),
+      radial-gradient(circle, rgb(255 255 255 / 0.6) 0 0.5px, transparent 1.1px), var(--rainbow);
+    background-size:
+      8px 8px,
+      5px 5px,
+      240% 240%;
+    background-position:
+      0 0,
+      2px 3px,
+      var(--foil-x) var(--foil-y);
+    filter: brightness(0.9) contrast(1.6) saturate(1.6);
+  }
+
+  /* Starlight Rare: a dense field of tiny stars over a full rainbow wash. */
+  .card3d--preset-starlight .card3d__foil {
+    background-image:
+      radial-gradient(circle at 20% 25%, rgb(255 255 255 / 0.55) 0 6%, transparent 7%),
+      radial-gradient(circle at 65% 60%, rgb(255 255 255 / 0.5) 0 5%, transparent 6%),
+      radial-gradient(circle at 40% 80%, rgb(255 255 255 / 0.45) 0 4%, transparent 5%),
+      var(--rainbow);
+    background-size:
+      22px 22px,
+      17px 17px,
+      14px 14px,
+      280% 280%;
+  }
+
+  /* Quarter Century / anniversary gold-silver duotone foil. */
+  .card3d--preset-quarter-century .card3d__foil {
+    background-image:
+      radial-gradient(circle, rgb(255 255 255 / 0.85) 0 0.6px, transparent 1.3px),
+      linear-gradient(
+        115deg,
+        #6b6b6b 0%,
+        #f4f4f4 16%,
+        #b8860b 34%,
+        #fff6c2 50%,
+        #9a9a9a 66%,
+        #ffe27a 84%,
+        #6b6b6b 100%
+      );
+    background-size:
+      11px 11px,
+      280% 280%;
+    background-position:
+      0 0,
+      var(--foil-x) var(--foil-y);
+    mix-blend-mode: soft-light;
+    opacity: calc(var(--energy) * 0.95);
+  }
+
+  /* Ghost Rare: pale, translucent shimmer instead of a saturated rainbow. */
+  .card3d--preset-ghost .card3d__foil {
+    filter: brightness(1.1) contrast(1.1) saturate(0.35);
+  }
+
   .card3d-stage--inspect .card3d__glare {
     opacity: var(--energy);
   }

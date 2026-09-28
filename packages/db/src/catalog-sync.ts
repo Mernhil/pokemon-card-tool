@@ -257,6 +257,17 @@ async function syncVariants(printingId: string, printing: SourcePrinting, counte
   }
 }
 
+/** How many printings' images to download at once — was one-at-a-time, which made big sets slow. */
+const IMAGE_DOWNLOAD_CONCURRENCY = 8;
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const batches: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    batches.push(items.slice(i, i + size));
+  }
+  return batches;
+}
+
 async function syncSet(
   game: { id: number },
   sourceSet: SourceSet,
@@ -277,8 +288,20 @@ async function syncSet(
   // TCGdex assigns each printing (including alt arts) its own localId, so
   // collisions shouldn't happen in practice — but the schema's uniqueness on
   // (setId, collectorNumber, isAltArt) depends on us never trying to create
-  // two rows with the same pair, so defend against it anyway.
+  // two rows with the same pair, so defend against it anyway. Computed up
+  // front (not inside the loop below) so it stays correct once image
+  // downloads run out of order.
   const seenCollectorNumbers = new Set<string>();
+  const isAltArtFor = printings.map((printing) => {
+    const isAltArt = seenCollectorNumbers.has(printing.collectorNumber);
+    seenCollectorNumbers.add(printing.collectorNumber);
+    return isAltArt;
+  });
+
+  const existingPrintings = await prisma.printing.findMany({ where: { setId: set.id } });
+  const existingByKey = new Map(
+    existingPrintings.map((p) => [`${p.collectorNumber}\u0000${p.isAltArt}`, p]),
+  );
 
   options.onProgress?.({
     type: "set",
@@ -288,12 +311,44 @@ async function syncSet(
     phase: "saving",
   });
 
+  // Image downloads are the slow, network-bound part of a sync (one HTTP GET
+  // per card, sometimes several candidate URLs each) — fetch them all up
+  // front with bounded concurrency instead of one at a time inline below, so
+  // a big set doesn't sit there downloading images sequentially for minutes.
+  // DB writes stay fully sequential in the loop after this: concurrent
+  // upserts of the same card/rarity/artist row would race.
+  const downloadedImages = new Map<number, { bytes: Buffer; ext: string } | Error | null>();
+  const toDownload = printings
+    .map((printing, index) => ({ printing, index, isAltArt: isAltArtFor[index]! }))
+    .filter(({ printing, isAltArt }) => {
+      const existing = existingByKey.get(`${printing.collectorNumber}\u0000${isAltArt}`);
+      return options.refreshImages || !existing?.imageKey;
+    });
+  for (const batch of chunk(toDownload, IMAGE_DOWNLOAD_CONCURRENCY)) {
+    await Promise.all(
+      batch.map(async ({ printing, index, isAltArt }) => {
+        const existing = existingByKey.get(`${printing.collectorNumber}\u0000${isAltArt}`);
+        const needsImage =
+          options.refreshImages || !existing?.imageKey || !(await hasFile(existing.imageKey));
+        if (!needsImage) return;
+        if (!printing.imageUrls || printing.imageUrls.length === 0) {
+          downloadedImages.set(index, null);
+          return;
+        }
+        try {
+          downloadedImages.set(index, await downloadFirstImage(printing.imageUrls));
+        } catch (err) {
+          downloadedImages.set(index, err instanceof Error ? err : new Error(String(err)));
+        }
+      }),
+    );
+  }
+
   for (const [index, printing] of printings.entries()) {
     let shownImage: string | null = null;
     let ok = true;
     try {
-      const isAltArt = seenCollectorNumbers.has(printing.collectorNumber);
-      seenCollectorNumbers.add(printing.collectorNumber);
+      const isAltArt = isAltArtFor[index]!;
 
       const rulesText = deriveRulesText(printing.attributes);
       const card = await upsertCard(game.id, printing, rulesText, counters);
@@ -301,42 +356,25 @@ async function syncSet(
       const rarity = printing.rarityName ? await upsertRarity(game.id, printing.rarityName) : null;
       const artist = printing.artistName ? await upsertArtist(printing.artistName) : null;
 
-      const existingPrinting = await prisma.printing.findUnique({
-        where: {
-          setId_collectorNumber_isAltArt: {
-            setId: set.id,
-            collectorNumber: printing.collectorNumber,
-            isAltArt,
-          },
-        },
-      });
+      const existingPrinting =
+        existingByKey.get(`${printing.collectorNumber}\u0000${isAltArt}`) ?? null;
 
       let imageKey: string | null = null;
-      const needsImage =
-        options.refreshImages ||
-        !existingPrinting?.imageKey ||
-        !(await hasFile(existingPrinting.imageKey));
-      if (needsImage && (!printing.imageUrls || printing.imageUrls.length === 0)) {
+      const downloaded = downloadedImages.get(index);
+      if (downloaded instanceof Error) {
+        counters.errors.push({
+          setCode: sourceSet.code,
+          collectorNumber: printing.collectorNumber,
+          cardName: printing.cardName,
+          message: `image download failed: ${downloaded.message}`,
+        });
+      } else if (downloaded) {
+        const key = imageKeyFor(sourceSet.code, printing.collectorNumber, isAltArt, downloaded.ext);
+        await putFile(key, downloaded.bytes);
+        imageKey = key;
+        counters.imagesDownloaded++;
+      } else if (downloaded === null) {
         counters.imagesMissing.push(`${printing.cardName} ${printing.collectorNumber}`);
-      } else if (printing.imageUrls && needsImage) {
-        try {
-          const image = await downloadFirstImage(printing.imageUrls);
-          if (image) {
-            const key = imageKeyFor(sourceSet.code, printing.collectorNumber, isAltArt, image.ext);
-            await putFile(key, image.bytes);
-            imageKey = key;
-            counters.imagesDownloaded++;
-          } else {
-            counters.imagesMissing.push(`${printing.cardName} ${printing.collectorNumber}`);
-          }
-        } catch (err) {
-          counters.errors.push({
-            setCode: sourceSet.code,
-            collectorNumber: printing.collectorNumber,
-            cardName: printing.cardName,
-            message: `image download failed: ${err instanceof Error ? err.message : String(err)}`,
-          });
-        }
       }
 
       const printingData = {

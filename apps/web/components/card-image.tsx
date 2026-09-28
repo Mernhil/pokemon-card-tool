@@ -1,9 +1,13 @@
+"use client";
+
+import { useState } from "react";
 import { mediaUrl } from "@tcg-vault/shared/src/media-url";
 
 /**
  * A card's scan, or — when the source has no image for it yet (common for
- * sets released in the last few weeks; the sync retries every time) — a
- * card-shaped placeholder that still says which card it is.
+ * sets released in the last few weeks; the sync retries every time) or the
+ * downloaded file is missing/broken on disk — a card-shaped placeholder that
+ * still says which card it is.
  */
 export function CardImage({
   imageKey,
@@ -18,14 +22,16 @@ export function CardImage({
   size?: "thumb" | "grid" | "large";
   className?: string;
 }) {
+  const [broken, setBroken] = useState(false);
   const box = size === "thumb" ? "h-16 w-[46px]" : size === "large" ? "w-full" : "w-full";
-  if (imageKey) {
+  if (imageKey && !broken) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
         src={mediaUrl(imageKey)}
         alt={name}
         loading={size === "grid" ? "lazy" : undefined}
+        onError={() => setBroken(true)}
         className={`${box} aspect-[5/7] rounded object-cover ${className}`}
       />
     );
