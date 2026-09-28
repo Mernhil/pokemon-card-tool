@@ -28,6 +28,12 @@
   --neutral-900: 24 23 21;
   --neutral-950: 12 11 10;
   --shadow-color: 60 45 20;
+  /* Brightest stop of the gold-foil text: deep enough to read on ivory. */
+  --foil-hi: 214 170 64;
+  /* Chart series (dataviz reference slots 1-3; validated all-pairs vs our surfaces). */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
 }
 html.dark {
   color-scheme: dark;
@@ -51,6 +57,10 @@ html.dark {
   --neutral-900: 239 240 245;
   --neutral-950: 250 250 252;
   --shadow-color: 0 0 0;
+  --foil-hi: 255 246 214;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
 }
 @media (prefers-color-scheme: dark) {
   html:not(.light):not(.dark) {
@@ -75,6 +85,10 @@ html.dark {
     --neutral-900: 239 240 245;
     --neutral-950: 250 250 252;
     --shadow-color: 0 0 0;
+    --foil-hi: 255 246 214;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
   }
 }
 html {
@@ -152,7 +166,7 @@ textarea {
       100deg,
       rgb(var(--accent)) 0%,
       rgb(var(--accent-strong)) 35%,
-      #fff6d6 50%,
+      rgb(var(--foil-hi)) 50%,
       rgb(var(--accent-strong)) 65%,
       rgb(var(--accent)) 100%
     );

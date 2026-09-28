@@ -1,4 +1,4 @@
-import { canonicalKeyFor, hasFile, putFile } from "@tcg-vault/shared";
+import { canonicalKeyFor, hasFile, mediaUrl, putFile } from "@tcg-vault/shared";
 import { TcgdexPokemonAdapter, type SourcePrinting, type SourceSet } from "@tcg-vault/sources";
 import { prisma } from "./client";
 import { recordPrices } from "./prices";
@@ -113,7 +113,28 @@ async function ensureGameAndLanguage() {
   return game;
 }
 
+/**
+ * Keeps a copy of a set's logo/symbol in local media so pages don't load
+ * them from the internet (they work offline and don't leak requests).
+ * Returns the local /media URL, or the remote URL if it couldn't be fetched.
+ */
+async function localAsset(remote: string | undefined, key: string): Promise<string | null> {
+  if (!remote) return null;
+  if (await hasFile(key)) return mediaUrl(key);
+  try {
+    const res = await fetch(remote);
+    if (!res.ok) return remote;
+    await putFile(key, Buffer.from(await res.arrayBuffer()));
+    return mediaUrl(key);
+  } catch {
+    return remote;
+  }
+}
+
 async function upsertSet(gameId: number, sourceSet: SourceSet) {
+  const safeCode = sourceSet.code.replace(/[^\w.-]/g, "_");
+  const logoUrl = await localAsset(sourceSet.logoUrl, `pokemon/${safeCode}/logo.png`);
+  const symbolUrl = await localAsset(sourceSet.symbolUrl, `pokemon/${safeCode}/symbol.png`);
   const data = {
     name: sourceSet.name,
     series: sourceSet.series ?? null,
@@ -121,8 +142,8 @@ async function upsertSet(gameId: number, sourceSet: SourceSet) {
     releaseDate: sourceSet.releaseDate ? new Date(sourceSet.releaseDate) : null,
     printedTotal: sourceSet.printedTotal ?? null,
     totalCards: sourceSet.totalCards ?? null,
-    logoUrl: sourceSet.logoUrl ?? null,
-    symbolUrl: sourceSet.symbolUrl ?? null,
+    logoUrl,
+    symbolUrl,
   };
 
   return prisma.set.upsert({

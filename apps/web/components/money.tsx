@@ -1,4 +1,4 @@
-import { formatMoney } from "@tcg-vault/shared";
+import { formatMoney } from "@tcg-vault/shared/src/currency";
 
 /** All values in the UI are shown in EUR (Cardmarket's currency). */
 export function formatEur(amount: number): string {

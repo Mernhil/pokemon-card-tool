@@ -2,11 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { latestValuations, prisma } from "@tcg-vault/db";
 import { formatMoney, mediaUrl } from "@tcg-vault/shared";
-import { CONDITIONS, GRADING_COMPANIES } from "@tcg-vault/shared";
-import { addToCollection } from "../../../actions";
-import { FinishBadge, PriceChip, finishLabel, formatEur } from "../../../../components/money";
-import { sortByFinish } from "../../../../lib/cards";
+import { AddToCollection } from "../../../../components/add-to-collection";
 import { CardViewer } from "../../../../components/card-viewer";
+import { FinishBadge, PriceChip, finishLabel } from "../../../../components/money";
+import { LineChart, type ChartSeries } from "../../../../components/ui/line-chart";
+import { cardHref, sortByFinish } from "../../../../lib/cards";
 
 /** "001" / "TG01" from the URL -> the printing whose collector number starts with it. */
 async function findPrinting(setId: number, slug: string) {
@@ -18,7 +18,7 @@ async function findPrinting(setId: number, slug: string) {
       include: {
         language: true,
         priceObs: { orderBy: { observedAt: "desc" as const }, take: 10 },
-        _count: { select: { collection: true } },
+        collection: { select: { quantity: true } },
       },
     },
   };
@@ -41,7 +41,13 @@ function fmt(amount: number | null, currency: string): string {
   return amount === null ? "—" : formatMoney({ amount, currency });
 }
 
-/** SEO-indexable card page: one Printing, its variants, prices and marketplace links. */
+const SERIES_COLOR: Record<string, string> = {
+  NON_FOIL: "var(--series-1)",
+  HOLO: "var(--series-2)",
+  REVERSE_HOLO: "var(--series-3)",
+};
+
+/** One card: 3D viewer, prices per finish, price history, add to collection. */
 export default async function CardPage({
   params,
 }: {
@@ -59,182 +65,198 @@ export default async function CardPage({
   if (!printing) notFound();
 
   const variants = sortByFinish(printing.variants);
-  const values = await latestValuations(variants.map((v) => v.id));
+  const [values, history, neighbours] = await Promise.all([
+    latestValuations(variants.map((v) => v.id)),
+    prisma.variantValuation.findMany({
+      where: { variantId: { in: variants.map((v) => v.id) }, bucket: "NM" },
+      orderBy: { day: "asc" },
+    }),
+    prisma.printing.findMany({
+      where: { setId: set.id },
+      orderBy: [{ sortNumber: "asc" }, { collectorNumber: "asc" }],
+      select: { id: true, collectorNumber: true },
+    }),
+  ]);
   const latestBySource = (v: (typeof variants)[number], source: string) =>
     v.priceObs.find((o) => o.source === source);
+  const owned = variants.map((v) => ({
+    finish: v.finish,
+    qty: v.collection.reduce((s, c) => s + c.quantity, 0),
+  }));
+  const ownedTotal = owned.reduce((s, o) => s + o.qty, 0);
+  const series: ChartSeries[] = variants
+    .map((v) => ({
+      id: v.id,
+      label: finishLabel(v.finish),
+      color: SERIES_COLOR[v.finish] ?? "var(--series-1)",
+      points: history
+        .filter((h) => h.variantId === v.id)
+        .map((h) => ({ t: h.day.getTime(), v: h.valueEur })),
+    }))
+    .filter((s) => s.points.length > 0);
+  const days = new Set(history.map((h) => h.day.getTime())).size;
+  const idx = neighbours.findIndex((n) => n.id === printing.id);
+  const prev = idx > 0 ? neighbours[idx - 1] : undefined;
+  const next = idx >= 0 && idx < neighbours.length - 1 ? neighbours[idx + 1] : undefined;
+  const lastUpdate = Math.max(
+    0,
+    ...variants.flatMap((v) => v.priceObs.map((o) => o.observedAt.getTime())),
+  );
 
   return (
     <main className="page">
-      <div className="flex flex-col gap-8 sm:flex-row">
-        <CardViewer
-          imageSrc={printing.imageKey ? mediaUrl(printing.imageKey) : null}
-          name={printing.card.name}
-          number={printing.collectorNumber}
-          rarityName={printing.rarity?.name ?? null}
-          variants={variants.map((v) => ({ id: v.id, finish: v.finish }))}
-        />
-
-        <div>
-          <h1 className="text-2xl font-semibold">{printing.card.name}</h1>
-          <p className="mt-1 text-sm text-neutral-500">
+      <div className="mb-4 flex items-center justify-between text-xs">
+        <Link
+          href={`/${game.slug}/${encodeURIComponent(set.code)}`}
+          className="flex items-center gap-2 font-semibold uppercase tracking-[0.14em] text-accent hover:underline"
+        >
+          {set.symbolUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={set.symbolUrl} alt="" className="h-4 w-4 object-contain" />
+          ) : null}
+          {set.name}
+        </Link>
+        <span className="flex gap-3 text-neutral-500">
+          {prev ? (
             <Link
-              href={`/${game.slug}/${encodeURIComponent(set.code)}`}
-              className="hover:underline"
+              href={cardHref(game.slug, set.code, prev.collectorNumber)}
+              className="hover:text-neutral-900"
             >
-              {set.name}
-            </Link>{" "}
-            · {printing.collectorNumber}
-            {printing.rarity ? ` · ${printing.rarity.name}` : ""}
-          </p>
-          {printing.artist ? (
-            <p className="mt-1 text-xs text-neutral-400">Illustrated by {printing.artist.name}</p>
+              ← {prev.collectorNumber}
+            </Link>
           ) : null}
-          {printing.card.rulesText ? (
-            <p className="mt-4 whitespace-pre-line text-sm">{printing.card.rulesText}</p>
+          {next ? (
+            <Link
+              href={cardHref(game.slug, set.code, next.collectorNumber)}
+              className="hover:text-neutral-900"
+            >
+              {next.collectorNumber} →
+            </Link>
           ) : null}
+        </span>
+      </div>
 
-          <table className="mt-6 w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-xs text-neutral-500">
-                <th className="py-1 font-medium">Finish</th>
-                <th className="py-1 font-medium">Value (NM)</th>
-                <th className="py-1 font-medium">Cardmarket trend</th>
-                <th className="py-1 font-medium">TCGplayer market</th>
-                <th className="py-1 font-medium">Owned</th>
-              </tr>
-            </thead>
-            <tbody>
-              {variants.map((v) => {
-                const cm = latestBySource(v, "CARDMARKET");
-                const tp = latestBySource(v, "TCGPLAYER");
-                return (
-                  <tr key={v.id} className="border-b last:border-b-0">
-                    <td className="py-1.5">
-                      <FinishBadge finish={v.finish} />
-                    </td>
-                    <td className="py-1.5">
-                      <PriceChip value={values.get(v.id)?.valueEur} />
-                    </td>
-                    <td className="py-1.5 text-neutral-600">
-                      {cm ? fmt(cm.trend ?? cm.mid ?? cm.low, cm.currency) : "—"}
-                    </td>
-                    <td className="py-1.5 text-neutral-600">
-                      {tp ? fmt(tp.market ?? tp.mid ?? tp.low, tp.currency) : "—"}
-                    </td>
-                    <td className="py-1.5 text-neutral-600">{v._count.collection || ""}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {variants.some((v) => v.priceObs.length > 0) ? (
-            <p className="mt-1 text-xs text-neutral-400">
-              Prices via TCGdex, updated{" "}
-              {new Date(
-                Math.max(...variants.flatMap((v) => v.priceObs.map((o) => o.observedAt.getTime()))),
-              ).toLocaleDateString()}
-              .
+      <div className="grid gap-10 lg:grid-cols-[18rem_minmax(0,1fr)]">
+        <div className="lg:sticky lg:top-6 lg:self-start">
+          <CardViewer
+            imageSrc={printing.imageKey ? mediaUrl(printing.imageKey) : null}
+            name={printing.card.name}
+            number={printing.collectorNumber}
+            rarityName={printing.rarity?.name ?? null}
+            variants={variants.map((v) => ({ id: v.id, finish: v.finish }))}
+          />
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-5">
+          <header>
+            <h1 className="font-display text-4xl font-semibold tracking-tight">
+              {printing.card.name}
+            </h1>
+            <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-neutral-500">
+              <span>{printing.collectorNumber}</span>
+              {printing.rarity ? <span>· {printing.rarity.name}</span> : null}
+              {printing.artist ? <span>· Illustrated by {printing.artist.name}</span> : null}
             </p>
-          ) : (
-            <p className="mt-1 text-xs text-neutral-400">
-              No prices yet — run a sync from the{" "}
-              <Link href="/sync" className="underline">
-                Sync
-              </Link>{" "}
-              page.
-            </p>
-          )}
+            {ownedTotal > 0 ? (
+              <p className="mt-3 inline-flex items-center gap-2 rounded-full bg-accent-soft px-3 py-1 text-xs font-medium text-neutral-800">
+                You own {ownedTotal}
+                {owned.filter((o) => o.qty > 0).length > 1 || variants.length > 1
+                  ? ` (${owned
+                      .filter((o) => o.qty > 0)
+                      .map((o) => `${o.qty} ${finishLabel(o.finish)}`)
+                      .join(", ")})`
+                  : ""}
+                <Link href="/collection" className="text-accent hover:underline">
+                  View
+                </Link>
+              </p>
+            ) : null}
+          </header>
 
-          <form action={addToCollection} className="mt-6 flex flex-col gap-3 rounded-lg border p-4">
-            <h2 className="text-sm font-semibold">Add to collection</h2>
+          <AddToCollection
+            cardName={printing.card.name}
+            variants={variants.map((v) => ({
+              id: v.id,
+              finish: v.finish,
+              value: values.get(v.id)?.valueEur ?? null,
+            }))}
+          />
 
-            <label className="flex flex-col gap-1 text-sm">
-              Variant
-              <select name="variantId" className="rounded border px-2 py-1" required>
-                {variants.map((variant) => {
-                  const value = values.get(variant.id)?.valueEur;
+          <section className="panel p-5">
+            <h2 className="mb-3 text-sm font-semibold">Prices</h2>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs text-neutral-500">
+                  <th className="pb-2 font-medium">Finish</th>
+                  <th className="pb-2 font-medium">Value (NM)</th>
+                  <th className="pb-2 font-medium">Cardmarket trend</th>
+                  <th className="pb-2 font-medium">TCGplayer market</th>
+                  <th className="pb-2 text-right font-medium">Owned</th>
+                </tr>
+              </thead>
+              <tbody>
+                {variants.map((v) => {
+                  const cm = latestBySource(v, "CARDMARKET");
+                  const tp = latestBySource(v, "TCGPLAYER");
+                  const qty = owned.find((o) => o.finish === v.finish)?.qty ?? 0;
                   return (
-                    <option key={variant.id} value={variant.id}>
-                      {finishLabel(variant.finish)} · {variant.language.name}
-                      {value !== undefined ? ` · ${formatEur(value)}` : ""}
-                    </option>
+                    <tr key={v.id} className="border-b last:border-b-0">
+                      <td className="py-2">
+                        <FinishBadge finish={v.finish} />
+                      </td>
+                      <td className="py-2">
+                        <PriceChip value={values.get(v.id)?.valueEur} />
+                      </td>
+                      <td className="py-2 tabular-nums text-neutral-600">
+                        {cm ? fmt(cm.trend ?? cm.mid ?? cm.low, cm.currency) : "—"}
+                      </td>
+                      <td className="py-2 tabular-nums text-neutral-600">
+                        {tp ? fmt(tp.market ?? tp.mid ?? tp.low, tp.currency) : "—"}
+                      </td>
+                      <td className="py-2 text-right tabular-nums text-neutral-600">{qty || ""}</td>
+                    </tr>
                   );
                 })}
-              </select>
-            </label>
+              </tbody>
+            </table>
+            <p className="mt-3 text-xs text-neutral-400">
+              {lastUpdate > 0 ? (
+                <>Prices via TCGdex, updated {new Date(lastUpdate).toLocaleDateString()}.</>
+              ) : (
+                <>
+                  No prices yet — run a sync from the{" "}
+                  <Link href="/sync" className="underline">
+                    Sync
+                  </Link>{" "}
+                  page.
+                </>
+              )}
+            </p>
+          </section>
 
-            <div className="flex gap-3">
-              <label className="flex flex-1 flex-col gap-1 text-sm">
-                Quantity
-                <input
-                  type="number"
-                  name="quantity"
-                  min={1}
-                  defaultValue={1}
-                  className="rounded border px-2 py-1"
-                />
-              </label>
-              <label className="flex flex-1 flex-col gap-1 text-sm">
-                Condition
-                <select name="condition" className="rounded border px-2 py-1">
-                  <option value="">—</option>
-                  {CONDITIONS.map((condition) => (
-                    <option key={condition} value={condition}>
-                      {condition.replaceAll("_", " ")}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            <div className="flex gap-3">
-              <label className="flex flex-1 flex-col gap-1 text-sm">
-                Grading company
-                <select name="gradingCompany" className="rounded border px-2 py-1">
-                  <option value="">Ungraded</option>
-                  {GRADING_COMPANIES.map((company) => (
-                    <option key={company} value={company}>
-                      {company}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex flex-1 flex-col gap-1 text-sm">
-                Grade
-                <input
-                  type="number"
-                  name="grade"
-                  step={0.5}
-                  min={1}
-                  max={10}
-                  className="rounded border px-2 py-1"
-                />
-              </label>
-            </div>
-
-            <label className="flex flex-col gap-1 text-sm">
-              Price paid per card (€, optional)
-              <input
-                type="number"
-                name="purchasePrice"
-                min={0}
-                step={0.01}
-                className="rounded border px-2 py-1"
+          <section className="panel p-5">
+            <h2 className="mb-3 text-sm font-semibold">Price history</h2>
+            {days >= 2 ? (
+              <LineChart
+                series={series}
+                label={`${printing.card.name} near-mint value over time`}
               />
-            </label>
+            ) : (
+              <p className="text-sm text-neutral-500">
+                The chart fills in as prices are refreshed — one point per day the app syncs
+                {days === 1 ? " (1 so far)" : ""}.
+              </p>
+            )}
+          </section>
 
-            <label className="flex flex-col gap-1 text-sm">
-              Notes
-              <input type="text" name="notes" className="rounded border px-2 py-1" />
-            </label>
-
-            <button
-              type="submit"
-              className="mt-2 rounded bg-neutral-900 px-3 py-2 text-sm font-medium text-neutral-50 hover:bg-neutral-700"
-            >
-              Add to collection
-            </button>
-          </form>
+          {printing.card.rulesText ? (
+            <section className="panel p-5">
+              <h2 className="mb-2 text-sm font-semibold">Card text</h2>
+              <p className="whitespace-pre-line text-sm text-neutral-700">
+                {printing.card.rulesText}
+              </p>
+            </section>
+          ) : null}
         </div>
       </div>
     </main>

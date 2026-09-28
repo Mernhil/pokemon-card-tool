@@ -1,21 +1,17 @@
+import { ChartLine, Coins, Layers, Library, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { collectionItemValue, latestValuations, prisma } from "@tcg-vault/db";
-import { CardImage } from "../../components/card-image";
-import { FinishBadge, formatEur } from "../../components/money";
+import { CardTile } from "../../components/card-tile";
+import { formatEur } from "../../components/money";
+import { ButtonLink } from "../../components/ui/button";
+import { EmptyState } from "../../components/ui/empty-state";
+import { LineChart } from "../../components/ui/line-chart";
+import { PageHeader } from "../../components/ui/page-header";
+import { StatTile } from "../../components/ui/stat-tile";
 import { cardHref } from "../../lib/cards";
 
 // Reads the local DB on every request (no DATABASE_URL at build time).
 export const dynamic = "force-dynamic";
-
-function Tile({ label, value, sub }: { label: string; value: string; sub?: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border p-4">
-      <p className="text-xs uppercase tracking-wide text-neutral-500">{label}</p>
-      <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
-      {sub ? <p className="mt-1 text-xs text-neutral-500">{sub}</p> : null}
-    </div>
-  );
-}
 
 /** Ranked single-series bars: one hue, label + value in text ink, native tooltip on hover. */
 function BarList({
@@ -27,13 +23,13 @@ function BarList({
 }) {
   const max = Math.max(1, ...rows.map((r) => r.value));
   return (
-    <section className="rounded-lg border p-4">
+    <section className="panel p-5">
       <h2 className="text-sm font-semibold">{title}</h2>
       {rows.length === 0 ? (
         <p className="mt-2 text-sm text-neutral-500">No data yet.</p>
       ) : (
-        <ul className="mt-3 flex flex-col gap-2">
-          {rows.map((r) => (
+        <ul className="mt-4 flex flex-col gap-3">
+          {rows.slice(0, 8).map((r) => (
             <li
               key={r.label}
               title={`${r.label}: ${formatEur(r.value)} · ${r.count} card${r.count === 1 ? "" : "s"}`}
@@ -43,9 +39,9 @@ function BarList({
                 <span className="truncate text-neutral-700">{r.label}</span>
                 <span className="tabular-nums text-neutral-900">{formatEur(r.value)}</span>
               </div>
-              <div className="mt-1 h-2 w-full">
+              <div className="mt-1.5 h-2 w-full">
                 <div
-                  className="h-2 rounded-r bg-emerald-600 group-hover:bg-emerald-700"
+                  className="h-2 rounded-r bg-accent transition-colors group-hover:bg-accent-strong"
                   style={{ width: `${Math.max(1, (r.value / max) * 100)}%` }}
                 />
               </div>
@@ -75,20 +71,19 @@ function groupBy<T>(
 }
 
 export default async function DashboardPage() {
-  const [items, catalogCards, syncedSets] = await Promise.all([
+  const [items, catalogCards, syncedSets, snapshots] = await Promise.all([
     prisma.collectionItem.findMany({
       include: {
         variant: {
           include: {
-            printing: {
-              include: { card: true, rarity: true, set: { include: { game: true } } },
-            },
+            printing: { include: { card: true, rarity: true, set: { include: { game: true } } } },
           },
         },
       },
     }),
     prisma.printing.count(),
     prisma.set.count(),
+    prisma.portfolioSnapshot.findMany({ orderBy: { day: "asc" } }),
   ]);
 
   const values = await latestValuations(items.map((i) => i.variantId));
@@ -96,14 +91,15 @@ export default async function DashboardPage() {
     item,
     value: collectionItemValue(values.get(item.variantId)?.valueEur, item),
   }));
-
   const totalValue = rows.reduce((sum, r) => sum + (r.value ?? 0), 0);
   const cardCount = items.reduce((sum, i) => sum + i.quantity, 0);
   const unpriced = rows.filter((r) => r.value === null).length;
   const paidRows = rows.filter((r) => r.item.purchasePrice !== null);
   const costBasis = paidRows.reduce((s, r) => s + r.item.purchasePrice! * r.item.quantity, 0);
-  const paidValue = paidRows.reduce((s, r) => s + (r.value ?? 0), 0);
-  const pnl = paidValue - costBasis;
+  const pnl = paidRows.reduce((s, r) => s + (r.value ?? 0), 0) - costBasis;
+  const previous = snapshots
+    .filter((s) => s.day.toISOString().slice(0, 10) !== new Date().toISOString().slice(0, 10))
+    .at(-1);
 
   const bySet = groupBy(
     rows,
@@ -120,9 +116,8 @@ export default async function DashboardPage() {
   const top = [...rows]
     .filter((r) => r.value !== null)
     .sort((a, b) => b.value! - a.value!)
-    .slice(0, 10);
+    .slice(0, 12);
 
-  // Set completion: distinct printings owned vs. printings in the set.
   const ownedBySet = new Map<number, Set<string>>();
   for (const { variant } of items) {
     const owned = ownedBySet.get(variant.printing.setId) ?? new Set<string>();
@@ -137,65 +132,107 @@ export default async function DashboardPage() {
     .map((set) => ({ set, owned: ownedBySet.get(set.id)!.size, total: set._count.printings }))
     .sort((a, b) => b.owned / Math.max(1, b.total) - a.owned / Math.max(1, a.total));
 
-  const snapshots = await prisma.portfolioSnapshot.findMany({ orderBy: { day: "desc" }, take: 2 });
-  const previous = snapshots.find(
-    (s) => s.day.toISOString().slice(0, 10) !== new Date().toISOString().slice(0, 10),
-  );
+  if (items.length === 0) {
+    return (
+      <main className="page">
+        <PageHeader eyebrow="Overview" title="Dashboard" />
+        <EmptyState
+          icon={ChartLine}
+          title={catalogCards === 0 ? "Nothing to show yet" : "Your collection is empty"}
+          action={
+            catalogCards === 0 ? (
+              <ButtonLink href="/sync">Sync some sets</ButtonLink>
+            ) : (
+              <ButtonLink href="/browse">Browse the catalog</ButtonLink>
+            )
+          }
+        >
+          {catalogCards === 0
+            ? "Sync a few sets, add the cards you own, and their value shows up here."
+            : "Add cards from any card page — their value, trends and set progress show up here."}
+        </EmptyState>
+      </main>
+    );
+  }
+
+  const delta = previous ? totalValue - previous.totalValue : null;
+  // Chart ends on the live value (today's stored snapshot may predate edits).
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const chartPoints = [
+    ...snapshots
+      .filter((s) => s.day.toISOString().slice(0, 10) !== todayKey)
+      .map((s) => ({ t: s.day.getTime(), v: s.totalValue })),
+    { t: new Date(`${todayKey}T00:00:00Z`).getTime(), v: totalValue },
+  ];
 
   return (
     <main className="page">
-      <h1 className="text-2xl font-semibold">Dashboard</h1>
-
-      {items.length === 0 ? (
-        <p className="mt-4 rounded border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 p-3 text-sm text-amber-900 dark:text-amber-200">
-          {catalogCards === 0 ? (
-            <>
-              Nothing to show yet.{" "}
-              <Link href="/sync" className="font-medium underline">
-                Sync some sets
-              </Link>
-              , then add cards to your collection from any card page.
-            </>
-          ) : (
-            <>
-              Your collection is empty.{" "}
-              <Link href="/browse" className="font-medium underline">
-                Browse the catalog
-              </Link>{" "}
-              and add cards from their card pages — their value shows up here.
-            </>
-          )}
-        </p>
-      ) : null}
-
-      <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Tile
+      <PageHeader eyebrow="Overview" title="Dashboard" />
+      <div className="stagger grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatTile
           label="Collection value"
-          value={formatEur(totalValue)}
+          value={totalValue}
+          format="eur"
+          icon={Coins}
+          highlight
           sub={
-            previous
-              ? `${totalValue - previous.totalValue >= 0 ? "▲" : "▼"} ${formatEur(Math.abs(totalValue - previous.totalValue))} since ${previous.day.toLocaleDateString()}`
+            delta !== null
+              ? `${delta >= 0 ? "▲" : "▼"} ${formatEur(Math.abs(delta))} since ${previous!.day.toLocaleDateString()}`
               : unpriced > 0
                 ? `${unpriced} entr${unpriced === 1 ? "y" : "ies"} without a price yet`
                 : "Near-mint value adjusted for condition"
           }
         />
-        <Tile
+        <StatTile
           label="Profit / loss"
-          value={paidRows.length > 0 ? `${pnl >= 0 ? "+" : "−"}${formatEur(Math.abs(pnl))}` : "—"}
+          icon={TrendingUp}
+          display={paidRows.length > 0 ? `${pnl >= 0 ? "+" : "−"}${formatEur(Math.abs(pnl))}` : "—"}
           sub={
             paidRows.length > 0
-              ? `on ${formatEur(costBasis)} paid (${paidRows.length} entr${paidRows.length === 1 ? "y" : "ies"} with a price paid)`
+              ? `on ${formatEur(costBasis)} paid`
               : "Enter a price paid when adding cards"
           }
         />
-        <Tile label="Cards owned" value={String(cardCount)} sub={`${items.length} entries`} />
-        <Tile
+        <StatTile
+          label="Cards owned"
+          value={cardCount}
+          format="int"
+          icon={Layers}
+          sub={`${items.length} entries`}
+        />
+        <StatTile
           label="Catalog"
-          value={String(catalogCards)}
+          value={catalogCards}
+          format="int"
+          icon={Library}
           sub={`cards in ${syncedSets} synced set${syncedSets === 1 ? "" : "s"}`}
         />
       </div>
+
+      <section className="panel mt-6 p-5">
+        <h2 className="mb-3 text-sm font-semibold">Collection value over time</h2>
+        {chartPoints.length >= 2 ? (
+          <LineChart
+            label="Collection value over time"
+            series={[
+              {
+                id: "value",
+                label: "Collection value",
+                color: "rgb(var(--accent))",
+                points: snapshots.map((s) => ({ t: s.day.getTime(), v: s.totalValue })),
+              },
+            ]}
+          />
+        ) : (
+          <p className="text-sm text-neutral-500">
+            One point per day the app refreshes prices — the chart appears from the second day
+            {snapshots.length === 1
+              ? ` (${formatEur(snapshots[0]!.totalValue)} on ${snapshots[0]!.day.toLocaleDateString()})`
+              : ""}
+            .
+          </p>
+        )}
+      </section>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2">
         <BarList title="Value by set" rows={bySet} />
@@ -203,25 +240,25 @@ export default async function DashboardPage() {
       </div>
 
       {setProgress.length > 0 ? (
-        <section className="mt-6 rounded-lg border p-4">
+        <section className="panel mt-6 p-5">
           <h2 className="text-sm font-semibold">Set completion</h2>
-          <ul className="mt-3 flex flex-col gap-2">
+          <ul className="mt-4 grid gap-x-8 gap-y-3 md:grid-cols-2">
             {setProgress.map(({ set, owned, total }) => {
               const pct = total > 0 ? Math.round((owned / total) * 100) : 0;
               return (
                 <li key={set.id} title={`${set.name}: ${owned} of ${total} cards (${pct}%)`}>
                   <Link
                     href={`/${set.game.slug}/${encodeURIComponent(set.code)}`}
-                    className="flex justify-between gap-2 text-xs hover:underline"
+                    className="flex justify-between gap-2 text-xs hover:text-accent"
                   >
                     <span className="truncate text-neutral-700">{set.name}</span>
                     <span className="tabular-nums text-neutral-900">
                       {owned} / {total} ({pct}%)
                     </span>
                   </Link>
-                  <div className="mt-1 h-2 w-full rounded-r bg-neutral-100">
+                  <div className="mt-1.5 h-2 w-full rounded-r bg-neutral-100">
                     <div
-                      className="h-2 rounded-r bg-emerald-600"
+                      className="h-2 rounded-r bg-accent"
                       style={{ width: `${Math.max(1, pct)}%` }}
                     />
                   </div>
@@ -232,51 +269,27 @@ export default async function DashboardPage() {
         </section>
       ) : null}
 
-      <section className="mt-6 rounded-lg border p-4">
-        <h2 className="text-sm font-semibold">Most valuable cards</h2>
-        {top.length === 0 ? (
-          <p className="mt-2 text-sm text-neutral-500">No priced cards in your collection yet.</p>
-        ) : (
-          <table className="mt-3 w-full text-sm">
-            <tbody>
-              {top.map(({ item, value }) => {
-                const { printing } = item.variant;
-                return (
-                  <tr key={item.id} className="border-b last:border-b-0">
-                    <td className="w-10 py-1.5">
-                      <CardImage
-                        imageKey={printing.imageKey}
-                        name={printing.card.name}
-                        size="thumb"
-                        className="!h-10 !w-[29px]"
-                      />
-                    </td>
-                    <td className="py-1.5">
-                      <Link
-                        href={cardHref(
-                          printing.set.game.slug,
-                          printing.set.code,
-                          printing.collectorNumber,
-                        )}
-                        className="font-medium hover:underline"
-                      >
-                        {printing.card.name}
-                      </Link>
-                      <span className="ml-2 text-xs text-neutral-500">
-                        {printing.set.name} · {printing.collectorNumber}
-                      </span>
-                    </td>
-                    <td className="py-1.5">
-                      <FinishBadge finish={item.variant.finish} />
-                    </td>
-                    <td className="py-1.5 text-right text-xs text-neutral-500">×{item.quantity}</td>
-                    <td className="py-1.5 text-right tabular-nums">{formatEur(value!)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
+      <section className="mt-8">
+        <h2 className="mb-3 font-display text-lg font-semibold">Most valuable cards</h2>
+        <ul className="stagger grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-6">
+          {top.map(({ item, value }) => {
+            const p = item.variant.printing;
+            return (
+              <li key={item.id}>
+                <CardTile
+                  href={cardHref(p.set.game.slug, p.set.code, p.collectorNumber)}
+                  imageKey={p.imageKey}
+                  name={p.card.name}
+                  number={p.collectorNumber}
+                  subtitle={`${p.set.name} · ${p.collectorNumber}`}
+                  finishes={[item.variant.finish]}
+                  price={value}
+                  owned={item.quantity}
+                />
+              </li>
+            );
+          })}
+        </ul>
       </section>
     </main>
   );

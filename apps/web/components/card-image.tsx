@@ -1,4 +1,4 @@
-import { mediaUrl } from "@tcg-vault/shared";
+import { mediaUrl } from "@tcg-vault/shared/src/media-url";
 
 /**
  * A card's scan, or — when the source has no image for it yet (common for

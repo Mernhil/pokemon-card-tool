@@ -1,8 +1,16 @@
-import Link from "next/link";
+import { Coins, Layers, TrendingUp } from "lucide-react";
+import { cookies } from "next/headers";
 import { collectionItemValue, latestValuations, prisma } from "@tcg-vault/db";
-import { CardImage } from "../../components/card-image";
-import { deleteCollectionItem } from "../actions";
-import { FinishBadge, PriceChip, formatEur } from "../../components/money";
+import {
+  COLLECTION_VIEW_COOKIE,
+  CollectionView,
+  type CollectionRow,
+} from "../../components/collection-view";
+import { formatEur } from "../../components/money";
+import { ButtonLink } from "../../components/ui/button";
+import { EmptyState } from "../../components/ui/empty-state";
+import { PageHeader } from "../../components/ui/page-header";
+import { StatTile } from "../../components/ui/stat-tile";
 import { cardHref } from "../../lib/cards";
 
 // No DATABASE_URL at build time (only set at runtime by the desktop sidecar) —
@@ -15,86 +23,81 @@ export default async function CollectionPage() {
     include: {
       variant: {
         include: {
-          printing: { include: { card: true, set: { include: { game: true } } } },
+          printing: { include: { card: true, rarity: true, set: { include: { game: true } } } },
         },
       },
     },
   });
-
-  const totalCards = items.reduce((sum, item) => sum + item.quantity, 0);
   const values = await latestValuations(items.map((i) => i.variantId));
-  const itemValues = new Map(
-    items.map((i) => [i.id, collectionItemValue(values.get(i.variantId)?.valueEur, i)]),
-  );
-  const totalValue = [...itemValues.values()].reduce<number>((sum, v) => sum + (v ?? 0), 0);
+  const rows: CollectionRow[] = items.map((item) => {
+    const p = item.variant.printing;
+    return {
+      id: item.id,
+      href: cardHref(p.set.game.slug, p.set.code, p.collectorNumber),
+      name: p.card.name,
+      number: p.collectorNumber,
+      setName: p.set.name,
+      imageKey: p.imageKey,
+      finish: item.variant.finish,
+      rarity: p.rarity?.name ?? null,
+      quantity: item.quantity,
+      condition: item.condition,
+      graded: item.gradingCompany ? `${item.gradingCompany} ${item.grade ?? ""}`.trim() : null,
+      value: collectionItemValue(values.get(item.variantId)?.valueEur, item),
+      paidPerCard: item.purchasePrice,
+      addedAt: item.createdAt.getTime(),
+    };
+  });
+  const total = rows.reduce((s, r) => s + (r.value ?? 0), 0);
+  const cards = rows.reduce((s, r) => s + r.quantity, 0);
+  const paidRows = rows.filter((r) => r.paidPerCard !== null);
+  const cost = paidRows.reduce((s, r) => s + r.paidPerCard! * r.quantity, 0);
+  const pnl = paidRows.reduce((s, r) => s + (r.value ?? 0), 0) - cost;
+  const view = cookies().get(COLLECTION_VIEW_COOKIE)?.value === "list" ? "list" : "grid";
 
   return (
     <main className="page">
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-2xl font-semibold">My collection</h1>
-        <p className="text-sm text-neutral-500">
-          {items.length} entr{items.length === 1 ? "y" : "ies"} · {totalCards} card
-          {totalCards === 1 ? "" : "s"}
-          {totalValue > 0 ? (
-            <>
-              {" "}
-              · <span className="font-semibold text-neutral-900">{formatEur(totalValue)}</span>
-            </>
-          ) : null}
-        </p>
-      </div>
-
-      {items.length === 0 ? (
-        <p className="mt-6 text-neutral-500">
-          Nothing here yet.{" "}
-          <Link href="/browse" className="underline">
-            Browse the catalog
-          </Link>{" "}
-          and add a card.
-        </p>
+      <PageHeader eyebrow="Your cards" title="Collection" />
+      {rows.length === 0 ? (
+        <EmptyState
+          icon={Layers}
+          title="Nothing here yet"
+          action={<ButtonLink href="/browse">Browse the catalog</ButtonLink>}
+        >
+          Open any card and press “Add to collection” — with its finish, condition and what you
+          paid.
+        </EmptyState>
       ) : (
-        <ul className="mt-6 divide-y">
-          {items.map((item) => {
-            const { printing } = item.variant;
-            const href = cardHref(
-              printing.set.game.slug,
-              printing.set.code,
-              printing.collectorNumber,
-            );
-            return (
-              <li key={item.id} className="flex items-center gap-4 py-3">
-                <CardImage imageKey={printing.imageKey} name={printing.card.name} size="thumb" />
-                <div className="flex-1">
-                  <Link href={href} className="font-medium hover:underline">
-                    {printing.card.name}
-                  </Link>
-                  <p className="flex items-center gap-2 text-sm text-neutral-500">
-                    {printing.set.name} · {printing.collectorNumber}
-                    <FinishBadge finish={item.variant.finish} />
-                  </p>
-                  <p className="text-xs text-neutral-400">
-                    Qty {item.quantity}
-                    {item.gradingCompany
-                      ? ` · ${item.gradingCompany} ${item.grade ?? ""}`
-                      : item.condition
-                        ? ` · ${item.condition.replaceAll("_", " ")}`
-                        : ""}
-                    {item.purchasePrice !== null
-                      ? ` · paid ${formatEur(item.purchasePrice)}/card`
-                      : ""}
-                  </p>
-                </div>
-                <PriceChip value={itemValues.get(item.id)} />
-                <form action={deleteCollectionItem}>
-                  <input type="hidden" name="id" value={item.id} />
-                  <button type="submit" className="text-sm text-neutral-400 hover:text-red-600">
-                    Remove
-                  </button>
-                </form>
-              </li>
-            );
-          })}
-        </ul>
+        <>
+          <div className="mb-6 grid gap-4 sm:grid-cols-3">
+            <StatTile
+              label="Collection value"
+              value={total}
+              format="eur"
+              icon={Coins}
+              highlight
+              sub="Near-mint value adjusted for condition"
+            />
+            <StatTile
+              label="Cards"
+              value={cards}
+              format="int"
+              icon={Layers}
+              sub={`${rows.length} entries`}
+            />
+            <StatTile
+              label="Profit / loss"
+              icon={TrendingUp}
+              display={
+                paidRows.length > 0 ? `${pnl >= 0 ? "+" : "−"}${formatEur(Math.abs(pnl))}` : "—"
+              }
+              sub={
+                paidRows.length > 0 ? `on ${formatEur(cost)} paid` : "Add a price paid to track it"
+              }
+            />
+          </div>
+          <CollectionView rows={rows} initialView={view} />
+        </>
       )}
     </main>
   );

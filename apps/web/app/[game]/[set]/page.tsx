@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { latestValuations, prisma } from "@tcg-vault/db";
-import { CardImage } from "../../../components/card-image";
-import { FinishBadge, PriceChip, formatEur } from "../../../components/money";
+import { formatEur } from "../../../components/money";
+import { SetGrid, type SetGridCard } from "../../../components/set-grid";
+import { CompletionRing } from "../../../components/ui/completion-ring";
 import { cardHref, sortByFinish } from "../../../lib/cards";
 
 export default async function SetCardGridPage({
@@ -18,71 +19,88 @@ export default async function SetCardGridPage({
     include: {
       printings: {
         orderBy: [{ sortNumber: "asc" }, { collectorNumber: "asc" }],
-        include: { card: true, rarity: true, variants: true },
+        include: {
+          card: true,
+          rarity: true,
+          variants: { include: { collection: { select: { quantity: true } } } },
+        },
       },
     },
   });
   if (!set) notFound();
 
   const values = await latestValuations(set.printings.flatMap((p) => p.variants.map((v) => v.id)));
-  const setValue = set.printings.reduce((sum, p) => {
-    const prices = p.variants.map((v) => values.get(v.id)?.valueEur ?? 0);
-    return sum + Math.max(0, ...prices);
-  }, 0);
+
+  let masterValue = 0;
+  let ownedValue = 0;
+  const cards: SetGridCard[] = set.printings.map((printing) => {
+    const variants = sortByFinish(printing.variants);
+    const prices = variants
+      .map((v) => values.get(v.id)?.valueEur)
+      .filter((v): v is number => v !== undefined);
+    masterValue += Math.max(0, ...prices);
+    let owned = 0;
+    for (const v of variants) {
+      const qty = v.collection.reduce((s, c) => s + c.quantity, 0);
+      owned += qty;
+      ownedValue += qty * (values.get(v.id)?.valueEur ?? 0);
+    }
+    return {
+      id: printing.id,
+      href: cardHref(game.slug, set.code, printing.collectorNumber),
+      name: printing.card.name,
+      number: printing.collectorNumber,
+      sortNumber: printing.sortNumber,
+      rarity: printing.rarity?.name ?? null,
+      imageKey: printing.imageKey,
+      finishes: variants.map((v) => v.finish),
+      price: prices.length > 0 ? Math.min(...prices) : null,
+      multiPrice: prices.length > 1,
+      owned,
+    };
+  });
+  const ownedDistinct = cards.filter((c) => c.owned > 0).length;
 
   return (
     <main className="page">
-      <p className="text-sm text-neutral-500">
-        <Link href={`/${game.slug}`} className="hover:underline">
-          {game.name}
-        </Link>
-        {set.series ? ` · ${set.series}` : ""}
-      </p>
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-2xl font-semibold">{set.name}</h1>
-        <p className="text-sm text-neutral-500">
-          {set.printings.length} cards
-          {setValue > 0 ? ` · master set ≈ ${formatEur(setValue)}` : ""}
-        </p>
-      </div>
-      <ul className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4 md:grid-cols-6">
-        {set.printings.map((printing) => {
-          const variants = sortByFinish(printing.variants);
-          const prices = variants
-            .map((v) => values.get(v.id)?.valueEur)
-            .filter((v): v is number => v !== undefined);
-          const fromPrice = prices.length > 0 ? Math.min(...prices) : null;
-          return (
-            <li key={printing.id}>
-              <Link
-                href={cardHref(game.slug, set.code, printing.collectorNumber)}
-                className="flex h-full flex-col items-center gap-1 rounded-lg border p-2 text-center hover:border-neutral-400"
-              >
-                <CardImage
-                  imageKey={printing.imageKey}
-                  name={printing.card.name}
-                  number={printing.collectorNumber}
-                />
-                <span className="text-xs font-medium">{printing.card.name}</span>
-                <span className="text-xs text-neutral-500">
-                  {printing.collectorNumber}
-                  {printing.rarity ? ` · ${printing.rarity.name}` : ""}
-                </span>
-                <span className="flex flex-wrap justify-center gap-1">
-                  {variants
-                    .filter((v) => v.finish !== "NON_FOIL")
-                    .map((v) => (
-                      <FinishBadge key={v.id} finish={v.finish} />
-                    ))}
-                </span>
-                <span className="mt-auto pt-1">
-                  <PriceChip value={fromPrice} prefix={prices.length > 1 ? "from " : ""} />
-                </span>
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
+      <header className="mb-6 flex flex-wrap items-center gap-6">
+        <div className="flex h-20 w-44 items-center justify-center">
+          {set.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={set.logoUrl}
+              alt=""
+              className="max-h-20 max-w-full object-contain drop-shadow-md"
+            />
+          ) : null}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
+            <Link href={`/${game.slug}`} className="hover:underline">
+              {game.name}
+            </Link>
+            {set.series ? ` · ${set.series}` : ""}
+          </p>
+          <h1 className="font-display text-3xl font-semibold tracking-tight">{set.name}</h1>
+          <p className="mt-1 text-sm text-neutral-500">
+            {set.releaseDate ? `Released ${set.releaseDate.toLocaleDateString()} · ` : ""}
+            {set.printings.length} cards
+            {masterValue > 0 ? ` · master set ≈ ${formatEur(masterValue)}` : ""}
+          </p>
+        </div>
+        <div className="panel flex items-center gap-4 px-5 py-3">
+          <CompletionRing owned={ownedDistinct} total={set.printings.length} size={52} />
+          <div>
+            <p className="text-sm font-semibold">
+              {ownedDistinct} / {set.printings.length} owned
+            </p>
+            <p className="text-xs text-neutral-500">
+              {ownedValue > 0 ? `${formatEur(ownedValue)} in your collection` : "None owned yet"}
+            </p>
+          </div>
+        </div>
+      </header>
+      <SetGrid cards={cards} />
     </main>
   );
 }
