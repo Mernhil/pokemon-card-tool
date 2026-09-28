@@ -1,6 +1,7 @@
 import { ChartLine, Coins, Layers, Library, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { collectionItemValue, latestValuations, prisma } from "@tcg-vault/db";
+import { topMovers } from "@tcg-vault/pricing";
 import { CardTile } from "../../components/card-tile";
 import { formatEur } from "../../components/money";
 import { ButtonLink } from "../../components/ui/button";
@@ -9,6 +10,7 @@ import { LineChart } from "../../components/ui/line-chart";
 import { PageHeader } from "../../components/ui/page-header";
 import { StatTile } from "../../components/ui/stat-tile";
 import { cardHref } from "../../lib/cards";
+import { loadMoneyDisplay } from "../../lib/money-config";
 
 // Reads the local DB on every request (no DATABASE_URL at build time).
 export const dynamic = "force-dynamic";
@@ -71,6 +73,7 @@ function groupBy<T>(
 }
 
 export default async function DashboardPage() {
+  await loadMoneyDisplay();
   const [items, catalogCards, syncedSets, snapshots] = await Promise.all([
     prisma.collectionItem.findMany({
       include: {
@@ -87,6 +90,18 @@ export default async function DashboardPage() {
   ]);
 
   const values = await latestValuations(items.map((i) => i.variantId));
+  const recentValuations = await prisma.variantValuation.findMany({
+    where: {
+      variantId: { in: items.map((i) => i.variantId) },
+      bucket: "NM",
+      day: { gte: new Date(Date.now() - 30 * 86_400_000) },
+    },
+  });
+  const movers = topMovers(
+    recentValuations.map((v) => ({ id: v.variantId, day: v.day, value: v.valueEur })),
+    { days: 7, limit: 6 },
+  );
+  const itemByVariant = new Map(items.map((i) => [i.variantId, i]));
   const rows = items.map((item) => ({
     item,
     value: collectionItemValue(values.get(item.variantId)?.valueEur, item),
@@ -232,6 +247,53 @@ export default async function DashboardPage() {
             .
           </p>
         )}
+      </section>
+
+      <section className="panel mt-6 p-5">
+        <h2 className="text-sm font-semibold">Top movers · last 7 days</h2>
+        {movers.length === 0 ? (
+          <p className="mt-2 text-sm text-neutral-500">
+            No changes yet — movers appear once your cards have a week of price history.
+          </p>
+        ) : (
+          <ul className="mt-3 divide-y text-sm">
+            {movers.map((m) => {
+              const item = itemByVariant.get(m.id)!;
+              const p = item.variant.printing;
+              const up = m.change > 0;
+              return (
+                <li key={m.id} className="flex items-center justify-between gap-3 py-2">
+                  <Link
+                    href={cardHref(p.set.game.slug, p.set.code, p.collectorNumber)}
+                    className="min-w-0 truncate hover:text-accent"
+                  >
+                    {p.card.name}{" "}
+                    <span className="text-xs text-neutral-500">
+                      {p.set.name} · {p.collectorNumber}
+                    </span>
+                  </Link>
+                  <span className="shrink-0 text-right tabular-nums">
+                    <span className="text-neutral-500">{formatEur(m.from)} → </span>
+                    <span className="font-semibold">{formatEur(m.to)}</span>{" "}
+                    <span
+                      className={
+                        up
+                          ? "text-emerald-700 dark:text-emerald-400"
+                          : "text-red-700 dark:text-red-400"
+                      }
+                    >
+                      {up ? "▲ +" : "▼ −"}
+                      {Math.abs(Math.round(m.pct * 100))}%
+                    </span>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <p className="mt-2 text-xs text-neutral-400">
+          Near-mint value per card, from stored prices.
+        </p>
       </section>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2">

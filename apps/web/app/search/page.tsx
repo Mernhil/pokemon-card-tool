@@ -5,6 +5,7 @@ import { finishLabel } from "../../components/money";
 import { buttonClass } from "../../components/ui/button";
 import { PageHeader } from "../../components/ui/page-header";
 import { cardHref, sortByFinish } from "../../lib/cards";
+import { loadMoneyDisplay } from "../../lib/money-config";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ export default async function SearchPage({
 }: {
   searchParams: Record<string, string | undefined>;
 }) {
+  await loadMoneyDisplay();
   const q = searchParams.q?.trim() ?? "";
   const setId = searchParams.set ? Number(searchParams.set) : undefined;
   const rarityId = searchParams.rarity ? Number(searchParams.rarity) : undefined;

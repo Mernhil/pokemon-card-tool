@@ -1,8 +1,49 @@
-import { formatMoney } from "@tcg-vault/shared/src/currency";
+import { convertMinor, formatMoney } from "@tcg-vault/shared/src/currency";
 
-/** All values in the UI are shown in EUR (Cardmarket's currency). */
+/**
+ * Valuations are computed and stored in EUR; they're shown in the display
+ * currency chosen in Settings, converted at the current exchange rate and
+ * marked "≈" when converted. Configured once per runtime: on the server by
+ * lib/money-config.ts, in the browser by <MoneyConfig> in the root layout.
+ */
+export interface MoneyDisplay {
+  currency: string;
+  /** Units of `currency` per 1 EUR. */
+  perEur: number;
+}
+
+let display: MoneyDisplay = { currency: "EUR", perEur: 1 };
+
+export function configureMoney(next: MoneyDisplay): void {
+  display = next;
+}
+
+export function moneyDisplay(): MoneyDisplay {
+  return display;
+}
+
+/** EUR minor units -> converted to the display currency (EUR minor units in, never another currency). */
+export function eurToDisplay(amount: number): {
+  amount: number;
+  currency: string;
+  converted: boolean;
+} {
+  if (display.currency === "EUR") return { amount, currency: "EUR", converted: false };
+  const converted = convertMinor(amount, "EUR", display.currency, {
+    source: "ecb",
+    asOf: null,
+    perEur: { EUR: 1, [display.currency]: display.perEur },
+  });
+  return converted === null
+    ? { amount, currency: "EUR", converted: false }
+    : { amount: converted, currency: display.currency, converted: true };
+}
+
+/** A value stored in EUR minor units, formatted in the display currency. */
 export function formatEur(amount: number): string {
-  return formatMoney({ amount, currency: "EUR" });
+  const shown = eurToDisplay(amount);
+  const text = formatMoney({ amount: shown.amount, currency: shown.currency });
+  return shown.converted ? `≈${text}` : text;
 }
 
 /** Small price pill; renders a dash when there's no valuation yet. */

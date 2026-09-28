@@ -1,34 +1,47 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { formatEur } from "../money";
 
 export interface ChartSeries {
   id: string;
   label: string;
+  /** Shorter name for the direct label at the line's end (defaults to `label`). */
+  shortLabel?: string;
   /** CSS colour, e.g. "var(--series-1)". */
   color: string;
-  points: Array<{ t: number; v: number }>;
+  /** `v: null` breaks the line there (a data gap the chart shouldn't bridge). */
+  points: Array<{ t: number; v: number | null }>;
 }
 
-const eur = (minor: number) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "EUR" }).format(minor / 100);
+type Point = { t: number; v: number };
+const defined = (points: ChartSeries["points"]): Point[] =>
+  points.filter((p): p is Point => p.v !== null);
+
+/** Default: values are EUR minor units, shown in the display currency. */
+const eur = (minor: number) => formatEur(minor);
 const day = (t: number) =>
   new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
 /**
- * Money-over-time line chart (one y axis, EUR). Thin lines, recessive grid,
- * a legend + direct end labels when there's more than one series, and a
- * hover crosshair with a tooltip of every series' value that day. A hidden
+ * Money-over-time line chart (one y axis, EUR unless `format` says
+ * otherwise). Thin lines, recessive grid, a legend + direct end labels when
+ * there's more than one series, and a hover crosshair with a tooltip of
+ * every series' value that day. A `null` value breaks a line (no bridging
+ * across data gaps); a point with no neighbour is drawn as a dot. A hidden
  * table carries the same data for screen readers.
  */
 export function LineChart({
   series,
   height = 220,
   label,
+  format = eur,
 }: {
   series: ChartSeries[];
   height?: number;
   label: string;
+  /** Formats a minor-unit value for the axis and tooltip. */
+  format?: (minor: number) => string;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
@@ -45,10 +58,11 @@ export function LineChart({
   const multi = series.length > 1;
   const pad = { top: 12, right: multi ? 96 : 16, bottom: 26, left: 58 };
   const times = useMemo(
-    () => [...new Set(series.flatMap((s) => s.points.map((p) => p.t)))].sort((a, b) => a - b),
+    () =>
+      [...new Set(series.flatMap((s) => defined(s.points).map((p) => p.t)))].sort((a, b) => a - b),
     [series],
   );
-  const values = series.flatMap((s) => s.points.map((p) => p.v));
+  const values = series.flatMap((s) => defined(s.points).map((p) => p.v));
   const tMin = times[0] ?? 0;
   const tMax = times[times.length - 1] ?? 1;
   const vMaxRaw = Math.max(1, ...values);
@@ -117,7 +131,7 @@ export function LineChart({
               textAnchor="end"
               className="fill-neutral-500 text-[10px] tabular-nums"
             >
-              {eur(v)}
+              {format(v)}
             </text>
           </g>
         ))}
@@ -133,25 +147,38 @@ export function LineChart({
           </text>
         ))}
         {series.map((s) => {
-          const pts = [...s.points].sort((a, b) => a.t - b.t);
-          if (pts.length === 0) return null;
-          const d = pts
-            .map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`)
+          const all = [...s.points].sort((a, b) => a.t - b.t);
+          // Split into runs of consecutive values; a null ends a run.
+          const runs: Point[][] = [[]];
+          for (const p of all) {
+            if (p.v === null) runs.push([]);
+            else runs[runs.length - 1]!.push(p as Point);
+          }
+          const segments = runs.filter((r) => r.length > 0);
+          if (segments.length === 0) return null;
+          const d = segments
+            .filter((r) => r.length > 1)
+            .map((r) =>
+              r.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(""),
+            )
             .join("");
-          const last = pts[pts.length - 1]!;
+          const lone = segments.filter((r) => r.length === 1).map((r) => r[0]!);
+          const last = segments[segments.length - 1]!.at(-1)!;
           return (
             <g key={s.id}>
-              <path
-                d={d}
-                fill="none"
-                stroke={s.color}
-                strokeWidth={2}
-                strokeLinejoin="round"
-                strokeLinecap="round"
-              />
-              {pts.length === 1 ? (
-                <circle cx={x(last.t)} cy={y(last.v)} r={4} fill={s.color} />
+              {d ? (
+                <path
+                  d={d}
+                  fill="none"
+                  stroke={s.color}
+                  strokeWidth={2}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                />
               ) : null}
+              {lone.map((p) => (
+                <circle key={p.t} cx={x(p.t)} cy={y(p.v)} r={3.5} fill={s.color} />
+              ))}
               {multi ? (
                 <text
                   x={x(last.t) + 8}
@@ -159,7 +186,7 @@ export function LineChart({
                   dy="0.32em"
                   className="fill-neutral-700 text-[10px] font-medium"
                 >
-                  {s.label}
+                  {s.shortLabel ?? s.label}
                 </text>
               ) : null}
             </g>
@@ -176,7 +203,7 @@ export function LineChart({
               strokeDasharray="3 3"
             />
             {series.map((s) => {
-              const p = s.points.find((q) => q.t === hoverT);
+              const p = defined(s.points).find((q) => q.t === hoverT);
               return p ? (
                 <circle
                   key={s.id}
@@ -202,14 +229,14 @@ export function LineChart({
         >
           <p className="mb-1 font-medium text-neutral-700">{day(hoverT)}</p>
           {series.map((s) => {
-            const p = s.points.find((q) => q.t === hoverT);
+            const p = defined(s.points).find((q) => q.t === hoverT);
             return p ? (
               <p key={s.id} className="flex items-center justify-between gap-3">
                 <span className="flex items-center gap-1.5 text-neutral-600">
                   <span className="h-2 w-2 rounded-full" style={{ background: s.color }} />
                   {s.label}
                 </span>
-                <span className="font-semibold tabular-nums text-neutral-900">{eur(p.v)}</span>
+                <span className="font-semibold tabular-nums text-neutral-900">{format(p.v)}</span>
               </p>
             ) : null;
           })}
@@ -230,8 +257,8 @@ export function LineChart({
             <tr key={t}>
               <td>{day(t)}</td>
               {series.map((s) => {
-                const p = s.points.find((q) => q.t === t);
-                return <td key={s.id}>{p ? eur(p.v) : "—"}</td>;
+                const p = defined(s.points).find((q) => q.t === t);
+                return <td key={s.id}>{p ? format(p.v) : "—"}</td>;
               })}
             </tr>
           ))}

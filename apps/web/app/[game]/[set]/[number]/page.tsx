@@ -1,12 +1,19 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { latestValuations, prisma } from "@tcg-vault/db";
-import { formatMoney, mediaUrl } from "@tcg-vault/shared";
+import { enqueueStalePrices, latestValuations, prisma, recordCardView } from "@tcg-vault/db";
+import { PRICE_PROVIDERS, mediaUrl } from "@tcg-vault/shared";
 import { AddToCollection } from "../../../../components/add-to-collection";
 import { CardViewer } from "../../../../components/card-viewer";
 import { FinishBadge, PriceChip, finishLabel } from "../../../../components/money";
-import { LineChart, type ChartSeries } from "../../../../components/ui/line-chart";
+import { PriceHistory } from "../../../../components/prices/price-history";
+import { PriceRefresh } from "../../../../components/prices/price-refresh";
+import { PricesSection } from "../../../../components/prices/prices-section";
+import { priceProviders, requestPriceRefresh } from "../../../../lib/background";
+import { PROVIDER_COLORS, loadCardPrices } from "../../../../lib/card-prices";
 import { cardHref, sortByFinish } from "../../../../lib/cards";
+import { loadMoneyDisplay } from "../../../../lib/money-config";
+
+export const dynamic = "force-dynamic";
 
 /** "001" / "TG01" from the URL -> the printing whose collector number starts with it. */
 async function findPrinting(setId: number, slug: string) {
@@ -17,7 +24,6 @@ async function findPrinting(setId: number, slug: string) {
     variants: {
       include: {
         language: true,
-        priceObs: { orderBy: { observedAt: "desc" as const }, take: 10 },
         collection: { select: { quantity: true } },
       },
     },
@@ -37,22 +43,20 @@ async function findPrinting(setId: number, slug: string) {
   });
 }
 
-function fmt(amount: number | null, currency: string): string {
-  return amount === null ? "—" : formatMoney({ amount, currency });
-}
-
-const SERIES_COLOR: Record<string, string> = {
-  NON_FOIL: "var(--series-1)",
-  HOLO: "var(--series-2)",
-  REVERSE_HOLO: "var(--series-3)",
-};
-
-/** One card: 3D viewer, prices per finish, price history, add to collection. */
+/**
+ * One card: 3D viewer, prices from every provider for the selected finish,
+ * price history, add to collection. Reads prices from the DB only; if
+ * they're stale, a background refresh is queued and the page says
+ * "Updating…" until it lands.
+ */
 export default async function CardPage({
   params,
+  searchParams,
 }: {
   params: { game: string; set: string; number: string };
+  searchParams: { finish?: string };
 }) {
+  await loadMoneyDisplay();
   const game = await prisma.game.findUnique({ where: { slug: params.game } });
   if (!game) notFound();
 
@@ -65,43 +69,46 @@ export default async function CardPage({
   if (!printing) notFound();
 
   const variants = sortByFinish(printing.variants);
-  const [values, history, neighbours] = await Promise.all([
-    latestValuations(variants.map((v) => v.id)),
-    prisma.variantValuation.findMany({
-      where: { variantId: { in: variants.map((v) => v.id) }, bucket: "NM" },
-      orderBy: { day: "asc" },
-    }),
+  const selected = variants.find((v) => v.finish === searchParams.finish) ?? variants[0];
+  const variantIds = variants.map((v) => v.id);
+
+  // Remember the view (recently viewed cards get refreshed) and queue a
+  // background refresh for stale prices. Neither ever blocks on a provider.
+  const { settings, providers } = await priceProviders();
+  const active = PRICE_PROVIDERS.filter(
+    (id) => settings.providers[id].enabled && providers[id].isConfigured(),
+  );
+  await recordCardView(printing.id).catch(() => {});
+  const queued = await enqueueStalePrices(
+    variantIds,
+    active,
+    game.slug,
+    settings.staleAfterHours * 3_600_000,
+  ).catch(() => false);
+  if (queued) requestPriceRefresh(active);
+
+  const [values, neighbours, prices] = await Promise.all([
+    latestValuations(variantIds),
     prisma.printing.findMany({
       where: { setId: set.id },
       orderBy: [{ sortNumber: "asc" }, { collectorNumber: "asc" }],
       select: { id: true, collectorNumber: true },
     }),
+    selected
+      ? loadCardPrices(selected.id, variantIds, {
+          name: printing.card.name,
+          number: printing.collectorNumber,
+        })
+      : null,
   ]);
-  const latestBySource = (v: (typeof variants)[number], source: string) =>
-    v.priceObs.find((o) => o.source === source);
   const owned = variants.map((v) => ({
     finish: v.finish,
     qty: v.collection.reduce((s, c) => s + c.quantity, 0),
   }));
   const ownedTotal = owned.reduce((s, o) => s + o.qty, 0);
-  const series: ChartSeries[] = variants
-    .map((v) => ({
-      id: v.id,
-      label: finishLabel(v.finish),
-      color: SERIES_COLOR[v.finish] ?? "var(--series-1)",
-      points: history
-        .filter((h) => h.variantId === v.id)
-        .map((h) => ({ t: h.day.getTime(), v: h.valueEur })),
-    }))
-    .filter((s) => s.points.length > 0);
-  const days = new Set(history.map((h) => h.day.getTime())).size;
   const idx = neighbours.findIndex((n) => n.id === printing.id);
   const prev = idx > 0 ? neighbours[idx - 1] : undefined;
   const next = idx >= 0 && idx < neighbours.length - 1 ? neighbours[idx + 1] : undefined;
-  const lastUpdate = Math.max(
-    0,
-    ...variants.flatMap((v) => v.priceObs.map((o) => o.observedAt.getTime())),
-  );
 
   return (
     <main className="page">
@@ -182,72 +189,56 @@ export default async function CardPage({
             }))}
           />
 
-          <section className="panel p-5">
-            <h2 className="mb-3 text-sm font-semibold">Prices</h2>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs text-neutral-500">
-                  <th className="pb-2 font-medium">Finish</th>
-                  <th className="pb-2 font-medium">Value (NM)</th>
-                  <th className="pb-2 font-medium">Cardmarket trend</th>
-                  <th className="pb-2 font-medium">TCGplayer market</th>
-                  <th className="pb-2 text-right font-medium">Owned</th>
-                </tr>
-              </thead>
-              <tbody>
-                {variants.map((v) => {
-                  const cm = latestBySource(v, "CARDMARKET");
-                  const tp = latestBySource(v, "TCGPLAYER");
-                  const qty = owned.find((o) => o.finish === v.finish)?.qty ?? 0;
-                  return (
-                    <tr key={v.id} className="border-b last:border-b-0">
-                      <td className="py-2">
-                        <FinishBadge finish={v.finish} />
-                      </td>
-                      <td className="py-2">
-                        <PriceChip value={values.get(v.id)?.valueEur} />
-                      </td>
-                      <td className="py-2 tabular-nums text-neutral-600">
-                        {cm ? fmt(cm.trend ?? cm.mid ?? cm.low, cm.currency) : "—"}
-                      </td>
-                      <td className="py-2 tabular-nums text-neutral-600">
-                        {tp ? fmt(tp.market ?? tp.mid ?? tp.low, tp.currency) : "—"}
-                      </td>
-                      <td className="py-2 text-right tabular-nums text-neutral-600">{qty || ""}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            <p className="mt-3 text-xs text-neutral-400">
-              {lastUpdate > 0 ? (
-                <>Prices via TCGdex, updated {new Date(lastUpdate).toLocaleDateString()}.</>
-              ) : (
-                <>
-                  No prices yet — run a sync from the{" "}
-                  <Link href="/sync" className="underline">
-                    Sync
-                  </Link>{" "}
-                  page.
-                </>
-              )}
-            </p>
-          </section>
-
-          <section className="panel p-5">
-            <h2 className="mb-3 text-sm font-semibold">Price history</h2>
-            {days >= 2 ? (
-              <LineChart
-                series={series}
-                label={`${printing.card.name} near-mint value over time`}
+          {selected && prices ? (
+            <>
+              <PricesSection
+                prices={prices}
+                variantId={selected.id}
+                game={game.slug}
+                header={
+                  <div className="flex flex-wrap items-center gap-3">
+                    {variants.length > 1 ? (
+                      <nav aria-label="Finish" className="flex rounded-lg border p-0.5 text-xs">
+                        {variants.map((v) => (
+                          <Link
+                            key={v.id}
+                            href={`?finish=${v.finish}`}
+                            scroll={false}
+                            aria-current={v.id === selected.id ? "page" : undefined}
+                            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 ${v.id === selected.id ? "bg-accent-soft font-semibold text-neutral-900" : "text-neutral-500 hover:text-neutral-900"}`}
+                          >
+                            {finishLabel(v.finish)}
+                            <PriceChip value={values.get(v.id)?.valueEur} />
+                          </Link>
+                        ))}
+                      </nav>
+                    ) : (
+                      <span className="flex items-center gap-2 text-xs text-neutral-500">
+                        <FinishBadge finish={selected.finish} /> value{" "}
+                        <PriceChip value={values.get(selected.id)?.valueEur} />
+                      </span>
+                    )}
+                    <PriceRefresh
+                      variantIds={variantIds}
+                      game={game.slug}
+                      initiallyUpdating={prices.updating || queued}
+                    />
+                  </div>
+                }
               />
-            ) : (
-              <p className="text-sm text-neutral-500">
-                The chart fills in as prices are refreshed — one point per day the app syncs
-                {days === 1 ? " (1 so far)" : ""}.
-              </p>
-            )}
-          </section>
+              <PriceHistory
+                points={prices.points}
+                providers={prices.panels.map((p) => ({
+                  id: p.id,
+                  label: p.label,
+                  color: PROVIDER_COLORS[p.id],
+                }))}
+                displayCurrency={prices.settings.displayCurrency}
+                rates={prices.rates}
+                cardName={printing.card.name}
+              />
+            </>
+          ) : null}
 
           {printing.card.rulesText ? (
             <section className="panel p-5">

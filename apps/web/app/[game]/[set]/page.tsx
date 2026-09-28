@@ -5,12 +5,14 @@ import { formatEur } from "../../../components/money";
 import { SetGrid, type SetGridCard } from "../../../components/set-grid";
 import { CompletionRing } from "../../../components/ui/completion-ring";
 import { cardHref, sortByFinish } from "../../../lib/cards";
+import { loadMoneyDisplay } from "../../../lib/money-config";
 
 export default async function SetCardGridPage({
   params,
 }: {
   params: { game: string; set: string };
 }) {
+  await loadMoneyDisplay();
   const game = await prisma.game.findUnique({ where: { slug: params.game } });
   if (!game) notFound();
 

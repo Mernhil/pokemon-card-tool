@@ -6,10 +6,12 @@ import { NewBinderButton } from "../../components/binders/new-binder-dialog";
 import { formatEur } from "../../components/money";
 import { EmptyState } from "../../components/ui/empty-state";
 import { PageHeader } from "../../components/ui/page-header";
+import { loadMoneyDisplay } from "../../lib/money-config";
 
 export const dynamic = "force-dynamic";
 
 export default async function BindersPage() {
+  await loadMoneyDisplay();
   const [binders, sets] = await Promise.all([
     listBinders(),
     prisma.set.findMany({

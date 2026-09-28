@@ -8,6 +8,8 @@ import { Sidebar } from "../components/sidebar";
 import { SIDEBAR_COOKIE } from "../lib/ui-cookies";
 import { ToastProvider } from "../components/ui/toast";
 import { UpdateBanner } from "../components/update-banner";
+import { MoneyConfig } from "../components/money-config";
+import { loadMoneyDisplay } from "../lib/money-config";
 import { THEME_COOKIE, parseTheme } from "../lib/theme";
 
 export const metadata: Metadata = {
@@ -15,14 +17,16 @@ export const metadata: Metadata = {
   description: "Collection tracker, 3D card viewer and portfolio dashboard for TCG cards.",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // Rendered server-side from cookies, so there's no flash of the wrong theme/layout.
   const jar = cookies();
   const theme = parseTheme(jar.get(THEME_COOKIE)?.value);
   const collapsed = jar.get(SIDEBAR_COOKIE)?.value === "collapsed";
+  const money = await loadMoneyDisplay();
   return (
     <html lang="en" className={theme === "system" ? undefined : theme}>
       <body>
+        <MoneyConfig display={money} />
         <Providers>
           <ToastProvider>
             <div className="flex min-h-screen">

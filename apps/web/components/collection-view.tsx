@@ -274,8 +274,14 @@ export function CollectionView({
                   <Plus className="h-3.5 w-3.5" />
                 </button>
               </div>
-              <span className="w-24 text-right text-sm font-semibold tabular-nums">
-                {r.value !== null ? formatEur(r.value) : "—"}
+              <span className="w-28 text-right tabular-nums">
+                <span className="block text-sm font-semibold">
+                  {r.value !== null ? formatEur(r.value) : "—"}
+                </span>
+                <GainLoss
+                  value={r.value}
+                  paid={r.paidPerCard !== null ? r.paidPerCard * r.quantity : null}
+                />
               </span>
               <button
                 type="button"
@@ -291,5 +297,23 @@ export function CollectionView({
         </ul>
       )}
     </>
+  );
+}
+
+/** Current value vs. what was paid: "▲ +€3.20 (+36%)", never colour alone. */
+function GainLoss({ value, paid }: { value: number | null; paid: number | null }) {
+  if (value === null || paid === null || paid <= 0) return null;
+  const diff = value - paid;
+  const pct = Math.round((diff / paid) * 100);
+  const up = diff >= 0;
+  return (
+    <span
+      className={`block text-[11px] ${up ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400"}`}
+      title={`Paid ${formatEur(paid)} in total`}
+    >
+      {up ? "▲ +" : "▼ −"}
+      {formatEur(Math.abs(diff))} ({up ? "+" : "−"}
+      {Math.abs(pct)}%)
+    </span>
   );
 }
