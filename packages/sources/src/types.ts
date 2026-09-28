@@ -46,6 +46,8 @@ export interface SourcePriceQuote {
   trend?: number;
   /** When the source last refreshed this price (ISO string), if it says. */
   observedAt?: string;
+  /** The marketplace's own product id, when the source relays it (Cardmarket idProduct, TCGplayer productId). */
+  externalId?: string;
 }
 
 export interface VariantRef {

@@ -113,6 +113,8 @@ export function mapTcgdexSetToSourceSet(set: TcgdexSetInput): SourceSet {
 export interface TcgdexCardmarketPrice {
   updated?: string;
   unit?: string;
+  /** Cardmarket's own product id for this printing. */
+  idProduct?: number | string | null;
   avg?: number | null;
   low?: number | null;
   trend?: number | null;
@@ -132,9 +134,9 @@ export interface TcgdexTcgplayerRow {
 export interface TcgdexPricing {
   cardmarket?: TcgdexCardmarketPrice | null;
   tcgplayer?:
-    | ({ updated?: string; unit?: string } & Record<
+    | ({ updated?: string; unit?: string; productId?: number | string | null } & Record<
         string,
-        TcgdexTcgplayerRow | string | undefined
+        TcgdexTcgplayerRow | string | number | null | undefined
       >)
     | null;
 }
@@ -175,6 +177,7 @@ export function pricesFor(
       : known.includes("HOLO")
         ? "HOLO"
         : known[0]!;
+    const externalId = cm.idProduct != null ? String(cm.idProduct) : undefined;
     quotes.push({
       finish: primary,
       source: "CARDMARKET",
@@ -183,6 +186,7 @@ export function pricesFor(
       mid: toMinor(cm.avg),
       trend: toMinor(cm.trend),
       observedAt: cm.updated,
+      externalId,
     });
     if (known.includes("REVERSE_HOLO") && primary !== "REVERSE_HOLO") {
       quotes.push({
@@ -193,6 +197,7 @@ export function pricesFor(
         mid: toMinor(cm["avg-holo"]),
         trend: toMinor(cm["trend-holo"]),
         observedAt: cm.updated,
+        externalId,
       });
     }
   }
@@ -219,6 +224,7 @@ export function pricesFor(
         mid: toMinor(row.midPrice),
         market: toMinor(row.marketPrice),
         observedAt: tp.updated,
+        externalId: tp.productId != null ? String(tp.productId) : undefined,
       });
     }
   }
