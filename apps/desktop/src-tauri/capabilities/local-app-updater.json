@@ -6,5 +6,5 @@
   "remote": {
     "urls": ["http://127.0.0.1:*/*"]
   },
-  "permissions": ["allow-update-status", "allow-install-update"]
+  "permissions": ["allow-update-status", "allow-install-update", "allow-check-for-updates"]
 }
