@@ -8,7 +8,7 @@ import { EmptyState } from "../../components/ui/empty-state";
 import { PageHeader } from "../../components/ui/page-header";
 
 /** Games with a manual set picker on the Sync page; others just sync in the background. */
-const MANUALLY_SYNCABLE = new Set(["pokemon"]);
+const MANUALLY_SYNCABLE = new Set(["pokemon", "yugioh", "one-piece"]);
 
 export default async function GameSetListPage({ params }: { params: { game: string } }) {
   const game = await prisma.game.findUnique({
@@ -55,7 +55,11 @@ export default async function GameSetListPage({ params }: { params: { game: stri
         subtitle={`${game.sets.length} synced set${game.sets.length === 1 ? "" : "s"}`}
         actions={
           MANUALLY_SYNCABLE.has(game.slug) ? (
-            <ButtonLink href="/sync" variant="secondary" size="sm">
+            <ButtonLink
+              href={`/sync?game=${encodeURIComponent(game.slug)}`}
+              variant="secondary"
+              size="sm"
+            >
               Add sets
             </ButtonLink>
           ) : null
@@ -68,7 +72,9 @@ export default async function GameSetListPage({ params }: { params: { game: stri
           title="No sets synced yet"
           action={
             MANUALLY_SYNCABLE.has(game.slug) ? (
-              <ButtonLink href="/sync">Sync some sets</ButtonLink>
+              <ButtonLink href={`/sync?game=${encodeURIComponent(game.slug)}`}>
+                Sync some sets
+              </ButtonLink>
             ) : undefined
           }
         >

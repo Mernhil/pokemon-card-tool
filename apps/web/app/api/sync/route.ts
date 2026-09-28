@@ -9,7 +9,12 @@ export const dynamic = "force-dynamic";
  * Sync page can show live progress.
  */
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => ({}))) as { codes?: unknown; refresh?: unknown };
+  const body = (await request.json().catch(() => ({}))) as {
+    codes?: unknown;
+    refresh?: unknown;
+    game?: unknown;
+  };
+  const game = typeof body.game === "string" && body.game ? body.game : undefined;
   const codes = body.refresh
     ? null
     : Array.isArray(body.codes)
@@ -35,7 +40,7 @@ export async function POST(request: Request) {
           open = false;
         }
       };
-      await runSync(codes, emit);
+      await runSync(codes, emit, game);
       revalidatePath("/", "layout");
       if (open) controller.close();
     },

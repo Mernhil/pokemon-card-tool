@@ -40,7 +40,7 @@ function useSyncRunner() {
   const toast = useToast();
   const [state, setState] = useState<RunState>(IDLE);
 
-  const start = async (body: { codes?: string[]; refresh?: boolean }) => {
+  const start = async (body: { codes?: string[]; refresh?: boolean; game: string }) => {
     setState({ ...IDLE, running: true });
     const apply = (e: SyncEvent) =>
       setState((s) => {
@@ -127,9 +127,11 @@ function useSyncRunner() {
 }
 
 export function SyncPanel({
+  game,
   synced,
   available,
 }: {
+  game: string;
   synced: Array<{ code: string; name: string; cards: number; symbolUrl: string | null }>;
   available: Array<{ code: string; name: string; totalCards?: number }>;
 }) {
@@ -172,7 +174,7 @@ export function SyncPanel({
             </p>
           </div>
           <Button
-            onClick={() => start({ refresh: true })}
+            onClick={() => start({ refresh: true, game })}
             disabled={state.running || synced.length === 0}
           >
             <RefreshCw className={`h-4 w-4 ${state.running ? "animate-spin" : ""}`} />
@@ -254,7 +256,10 @@ export function SyncPanel({
           />
         </label>
         <div className="mt-4 flex items-center gap-3">
-          <Button onClick={() => start({ codes })} disabled={state.running || codes.length === 0}>
+          <Button
+            onClick={() => start({ codes, game })}
+            disabled={state.running || codes.length === 0}
+          >
             {state.running
               ? "Syncing…"
               : `Sync ${codes.length || ""} selected set${codes.length === 1 ? "" : "s"}`}
