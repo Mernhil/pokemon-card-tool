@@ -68,6 +68,20 @@ export default async function CardPage({
   const printing = await findPrinting(set.id, decodeURIComponent(params.number));
   if (!printing) notFound();
 
+  // Some sets (reprint collections like the 30th Anniversary Classic
+  // Collection) have no scan of their own from the source yet. Since a
+  // reprint shares its Card row with the printing(s) it reprints (see
+  // Card.canonicalKey), fall back to showing the art from any sibling
+  // printing that does have a scan, rather than a blank placeholder.
+  const fallbackPrinting = printing.imageKey
+    ? null
+    : await prisma.printing.findFirst({
+        where: { cardId: printing.cardId, imageKey: { not: null } },
+        select: { imageKey: true },
+      });
+  const imageKey = printing.imageKey ?? fallbackPrinting?.imageKey ?? null;
+  const imageIsFallback = !printing.imageKey && !!fallbackPrinting;
+
   const variants = sortByFinish(printing.variants);
   const selected = variants.find((v) => v.finish === searchParams.finish) ?? variants[0];
   const variantIds = variants.map((v) => v.id);
@@ -146,7 +160,8 @@ export default async function CardPage({
       <div className="grid gap-10 lg:grid-cols-[18rem_minmax(0,1fr)]">
         <div className="lg:sticky lg:top-6 lg:self-start">
           <CardViewer
-            imageSrc={printing.imageKey ? mediaUrl(printing.imageKey) : null}
+            imageSrc={imageKey ? mediaUrl(imageKey) : null}
+            imageIsFallback={imageIsFallback}
             name={printing.card.name}
             number={printing.collectorNumber}
             rarityName={printing.rarity?.name ?? null}
