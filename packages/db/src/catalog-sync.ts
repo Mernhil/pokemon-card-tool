@@ -472,7 +472,11 @@ async function syncSet(
           })();
 
       await syncVariants(dbPrinting.id, printing, languageCode, counters);
-      counters.priceObservations += await recordPrices(dbPrinting.id, printing.prices ?? []);
+      counters.priceObservations += await recordPrices(
+        dbPrinting.id,
+        printing.prices ?? [],
+        languageCode,
+      );
       shownImage = dbPrinting.imageKey;
     } catch (err) {
       ok = false;

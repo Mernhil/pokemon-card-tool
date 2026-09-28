@@ -3,21 +3,27 @@ import { prisma } from "./client";
 
 /**
  * Appends one PriceObservation per quote onto the matching variant of a
- * printing (same finish, UNLIMITED, any language we synced). Quotes for a
- * finish with no variant are ignored. A quote whose source timestamp we've
- * already stored for that variant is skipped, so re-syncing within the same
- * source refresh window doesn't pile up duplicates.
+ * printing (same finish + language, UNLIMITED). Quotes for a finish with no
+ * variant are ignored. A quote whose source timestamp we've already stored
+ * for that variant is skipped, so re-syncing within the same source refresh
+ * window doesn't pile up duplicates.
+ *
+ * `languageCode` scopes which language's variant a quote attaches to — a
+ * printing can have the same finish in several languages (see
+ * catalog-sync.ts), and a source's prices are always for whichever language
+ * we asked it about, so this must never fall back to "any language".
  *
  * Returns the number of observations written.
  */
 export async function recordPrices(
   printingId: string,
   quotes: SourcePriceQuote[],
+  languageCode: string,
 ): Promise<number> {
   if (quotes.length === 0) return 0;
 
   const variants = await prisma.printVariant.findMany({
-    where: { printingId, edition: "UNLIMITED" },
+    where: { printingId, edition: "UNLIMITED", languageCode },
     select: { id: true, finish: true },
   });
   const byFinish = new Map(variants.map((v) => [v.finish, v.id]));
