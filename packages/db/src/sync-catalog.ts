@@ -1,4 +1,8 @@
-import { TcgdexPokemonAdapter } from "@tcg-vault/sources";
+import {
+  PokemonTcgIoImageFallback,
+  TcgdexPokemonAdapter,
+  withImageFallback,
+} from "@tcg-vault/sources";
 import { prisma } from "./client";
 import {
   CATALOG_JOB,
@@ -84,7 +88,7 @@ async function printStatus(game: string) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const adapter = new TcgdexPokemonAdapter();
+  const adapter = withImageFallback(new TcgdexPokemonAdapter(), new PokemonTcgIoImageFallback());
   if (args.obsoleteRefreshImages) {
     log(
       "--refresh-images is no longer needed: images are fetched on first view and cached (see packages/db/src/image-cache.ts).",

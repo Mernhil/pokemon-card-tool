@@ -10,8 +10,10 @@ import {
 } from "@tcg-vault/db";
 import { PRICE_PROVIDERS, type PriceProviderId } from "@tcg-vault/shared";
 import {
+  PokemonTcgIoImageFallback,
   TcgdexPokemonAdapter,
   createPriceProviders,
+  withImageFallback,
   type CatalogSourceAdapter,
   type PriceProvider,
 } from "@tcg-vault/sources";
@@ -26,7 +28,14 @@ import {
  * their prices then refresh through every provider that supports the game.
  */
 
-const CATALOG_ADAPTERS: Array<() => CatalogSourceAdapter> = [() => new TcgdexPokemonAdapter()];
+// Cards TCGdex has no scan for at all (e.g. some 30th Anniversary Classic
+// Collection reprints) get a second chance from pokemontcg.io before falling
+// back to the "no image yet" placeholder.
+const pokemonImageFallback = new PokemonTcgIoImageFallback();
+
+const CATALOG_ADAPTERS: Array<() => CatalogSourceAdapter> = [
+  () => withImageFallback(new TcgdexPokemonAdapter(), pokemonImageFallback),
+];
 
 interface Loop {
   running: boolean;
