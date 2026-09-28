@@ -167,7 +167,8 @@ export function SyncPanel({
           <div>
             <h2 className="text-sm font-semibold">Synced sets ({synced.length})</h2>
             <p className="text-xs text-neutral-500">
-              Refreshing re-downloads prices for all of them (new images only when missing).
+              Synced automatically in the background; sets are re-checked every 30 days. Re-sync all
+              queues every one of them now.
             </p>
           </div>
           <Button
@@ -175,7 +176,7 @@ export function SyncPanel({
             disabled={state.running || synced.length === 0}
           >
             <RefreshCw className={`h-4 w-4 ${state.running ? "animate-spin" : ""}`} />
-            {state.running ? "Syncing…" : "Refresh prices"}
+            {state.running ? "Queuing…" : "Re-sync all"}
           </Button>
         </div>
         {synced.length > 0 ? (
@@ -299,7 +300,7 @@ function Progress({ state }: { state: RunState }) {
                     {p.phase === "fetching"
                       ? "Fetching card data…"
                       : p.done < p.total
-                        ? "Saving cards & images…"
+                        ? "Saving cards…"
                         : "Done"}
                   </span>
                 </span>

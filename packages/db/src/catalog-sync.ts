@@ -330,8 +330,10 @@ async function writeSet(
             })
           : null;
 
-        const imageUrls = printing.imageUrls && printing.imageUrls.length > 0 ? printing.imageUrls : null;
-        if (!imageUrls) counters.imagesMissing.push(`${printing.cardName} ${printing.collectorNumber}`);
+        const imageUrls =
+          printing.imageUrls && printing.imageUrls.length > 0 ? printing.imageUrls : null;
+        if (!imageUrls)
+          counters.imagesMissing.push(`${printing.cardName} ${printing.collectorNumber}`);
 
         const printingData = {
           cardId: card.id,
@@ -352,20 +354,34 @@ async function writeSet(
         let dbPrinting = existing
           ? await tx.printing.update({ where: { id: existing.id }, data: printingData })
           : await tx.printing.create({
-              data: { setId: set.id, collectorNumber: printing.collectorNumber, isAltArt, ...printingData },
+              data: {
+                setId: set.id,
+                collectorNumber: printing.collectorNumber,
+                isAltArt,
+                ...printingData,
+              },
             });
         if (existing) counters.printingsUpdated++;
         else counters.printingsCreated++;
 
         const imageKey = await imageKeyFor(existing?.imageKey, dbPrinting.id, imageUrls !== null);
         if (imageKey !== dbPrinting.imageKey) {
-          dbPrinting = await tx.printing.update({ where: { id: dbPrinting.id }, data: { imageKey } });
+          dbPrinting = await tx.printing.update({
+            where: { id: dbPrinting.id },
+            data: { imageKey },
+          });
         }
 
         await tx.externalRef.upsert({
-          where: { source_externalId: { source: adapter.slug, externalId: printing.externalCardId } },
+          where: {
+            source_externalId: { source: adapter.slug, externalId: printing.externalCardId },
+          },
           update: { printingId: dbPrinting.id },
-          create: { source: adapter.slug, externalId: printing.externalCardId, printingId: dbPrinting.id },
+          create: {
+            source: adapter.slug,
+            externalId: printing.externalCardId,
+            printingId: dbPrinting.id,
+          },
         });
 
         await syncVariants(tx, dbPrinting.id, languageCode, printing, counters);
@@ -464,7 +480,8 @@ export async function runCatalogSync(
     },
     { concurrency: 2, delayMs: 1_000, ...options },
   );
-  for (const failure of run.failed) totals.errors.push({ setCode: failure.key, message: failure.error });
+  for (const failure of run.failed)
+    totals.errors.push({ setCode: failure.key, message: failure.error });
 
   let valuationsWritten = 0;
   if (run.succeeded.length > 0 && options.updateValuations !== false) {
@@ -501,7 +518,11 @@ export async function syncCatalogSets(
     MANUAL_PRIORITY,
   );
 
-  const result = await runCatalogSync(adapter, { ...options, onlyKeys: codes, skipDiscovery: true });
+  const result = await runCatalogSync(adapter, {
+    ...options,
+    onlyKeys: codes,
+    skipDiscovery: true,
+  });
   if (result.run.status !== "locked") {
     return {
       ...result,
@@ -510,11 +531,19 @@ export async function syncCatalogSets(
   }
 
   // Someone else is running the catalog job: follow along until our sets are through.
-  options.log?.("a sync is already running — your sets were queued at the front and will be synced next.");
+  options.log?.(
+    "a sync is already running — your sets were queued at the front and will be synced next.",
+  );
   const totals = emptyCounters();
   const wanted = new Set(codes);
   const unsubscribe = onJobEvent((e) => {
-    if (e.job !== CATALOG_JOB || e.game !== adapter.game || e.type !== "detail" || !wanted.has(e.key)) return;
+    if (
+      e.job !== CATALOG_JOB ||
+      e.game !== adapter.game ||
+      e.type !== "detail" ||
+      !wanted.has(e.key)
+    )
+      return;
     const detail = e.data as CatalogDetail;
     if (detail.type === "set-counters") addCounters(totals, detail.counters);
     else options.onProgress?.(detail);
@@ -532,10 +561,13 @@ export async function syncCatalogSets(
       );
       if (finished.length === codes.length) {
         const failed = finished.filter((r) => r.status === "failed");
-        for (const r of failed) totals.errors.push({ setCode: r.itemKey, message: r.lastError ?? "failed" });
+        for (const r of failed)
+          totals.errors.push({ setCode: r.itemKey, message: r.lastError ?? "failed" });
         return {
           ...totals,
-          unknownCodes: failed.filter((r) => /has no set/.test(r.lastError ?? "")).map((r) => r.itemKey),
+          unknownCodes: failed
+            .filter((r) => /has no set/.test(r.lastError ?? ""))
+            .map((r) => r.itemKey),
           valuationsWritten: 0,
         };
       }
@@ -613,8 +645,9 @@ export function formatSyncSummary(result: SyncResult): string[] {
     `Errors:             ${result.errors.length}`,
   );
   for (const e of result.errors) {
-    lines.push(`  - [${e.setCode}${e.collectorNumber ? ` ${e.collectorNumber}` : ""}] ${e.cardName ? `${e.cardName}: ` : ""}${e.message}`);
+    lines.push(
+      `  - [${e.setCode}${e.collectorNumber ? ` ${e.collectorNumber}` : ""}] ${e.cardName ? `${e.cardName}: ` : ""}${e.message}`,
+    );
   }
   return lines;
 }
-

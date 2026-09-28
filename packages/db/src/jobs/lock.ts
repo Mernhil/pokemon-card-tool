@@ -26,8 +26,15 @@ export async function acquireLock(
   return takeover.count === 1;
 }
 
-export async function heartbeatLock(name: string, holder: string, now = new Date()): Promise<boolean> {
-  const res = await prisma.jobLock.updateMany({ where: { name, holder }, data: { heartbeatAt: now } });
+export async function heartbeatLock(
+  name: string,
+  holder: string,
+  now = new Date(),
+): Promise<boolean> {
+  const res = await prisma.jobLock.updateMany({
+    where: { name, holder },
+    data: { heartbeatAt: now },
+  });
   return res.count === 1;
 }
 

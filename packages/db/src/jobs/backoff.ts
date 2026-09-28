@@ -30,7 +30,8 @@ export function isRetryable(err: unknown): boolean {
 }
 
 export function retryAfterMs(err: unknown): number | undefined {
-  const value = err && typeof err === "object" ? (err as { retryAfterMs?: unknown }).retryAfterMs : undefined;
+  const value =
+    err && typeof err === "object" ? (err as { retryAfterMs?: unknown }).retryAfterMs : undefined;
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 

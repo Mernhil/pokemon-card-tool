@@ -86,7 +86,9 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const adapter = new TcgdexPokemonAdapter();
   if (args.obsoleteRefreshImages) {
-    log("--refresh-images is no longer needed: images are fetched on first view and cached (see apps/web/lib/image-cache.ts).");
+    log(
+      "--refresh-images is no longer needed: images are fetched on first view and cached (see apps/web/lib/image-cache.ts).",
+    );
   }
   const refreshAfterMs =
     args.refreshDays !== null && Number.isFinite(args.refreshDays) && args.refreshDays >= 0
@@ -108,7 +110,12 @@ async function main() {
 
   if (args.synced) {
     const codes = await syncedSetCodes(adapter.game);
-    await enqueueItems(CATALOG_JOB, adapter.game, codes.map((key) => ({ key })), MANUAL_PRIORITY - 1);
+    await enqueueItems(
+      CATALOG_JOB,
+      adapter.game,
+      codes.map((key) => ({ key })),
+      MANUAL_PRIORITY - 1,
+    );
     log(`queued ${codes.length} synced set(s) for a re-sync.`);
   } else if (args.retryFailed) {
     log(`queued ${await retryFailedItems(CATALOG_JOB, adapter.game)} failed set(s) again.`);
@@ -128,7 +135,9 @@ async function main() {
 
   const result = await runCatalogSync(adapter, { log, refreshAfterMs });
   if (result.run.status === "locked") {
-    log("another sync (probably the app) is already running; it will pick up anything queued above.");
+    log(
+      "another sync (probably the app) is already running; it will pick up anything queued above.",
+    );
     return;
   }
   console.log("\n=== sync-catalog summary ===");

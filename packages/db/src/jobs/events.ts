@@ -10,7 +10,14 @@ export type JobEvent = { job: string; game: string } & (
   | { type: "run-end"; status: JobRunStatus; succeeded: number; failed: number }
   | { type: "item-start"; key: string; label: string | null }
   | { type: "item-done"; key: string; label: string | null }
-  | { type: "item-retry"; key: string; label: string | null; attempt: number; waitMs: number; error: string }
+  | {
+      type: "item-retry";
+      key: string;
+      label: string | null;
+      attempt: number;
+      waitMs: number;
+      error: string;
+    }
   | { type: "item-failed"; key: string; label: string | null; error: string }
   /** Job-specific detail (e.g. catalog's per-card progress); `data` is the job's own shape. */
   | { type: "detail"; key: string; data: unknown }
@@ -73,12 +80,25 @@ function track(map: Map<string, JobProgress>, e: JobEvent): void {
   }
   switch (e.type) {
     case "run-start":
-      Object.assign(p, { running: true, startedAt: new Date(), finishedAt: null, succeeded: 0, failed: 0, current: [], recentErrors: [] });
+      Object.assign(p, {
+        running: true,
+        startedAt: new Date(),
+        finishedAt: null,
+        succeeded: 0,
+        failed: 0,
+        current: [],
+        recentErrors: [],
+      });
       break;
     case "run-end":
       // A "locked" run never started; don't clobber the real run's state.
       if (e.status === "locked") break;
-      Object.assign(p, { running: false, finishedAt: new Date(), lastStatus: e.status, current: [] });
+      Object.assign(p, {
+        running: false,
+        finishedAt: new Date(),
+        lastStatus: e.status,
+        current: [],
+      });
       break;
     case "item-start":
       p.current = [...p.current.filter((c) => c.key !== e.key), { key: e.key, label: e.label }];
@@ -90,7 +110,10 @@ function track(map: Map<string, JobProgress>, e: JobEvent): void {
     case "item-failed":
       p.failed++;
       p.current = p.current.filter((c) => c.key !== e.key);
-      p.recentErrors = [{ key: e.key, label: e.label, error: e.error, at: new Date() }, ...p.recentErrors].slice(0, 20);
+      p.recentErrors = [
+        { key: e.key, label: e.label, error: e.error, at: new Date() },
+        ...p.recentErrors,
+      ].slice(0, 20);
       break;
     default:
       break;

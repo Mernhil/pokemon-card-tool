@@ -37,7 +37,12 @@ export async function runSync(
         emit({ type: "error", message: "No sets synced yet." });
         return false;
       }
-      await enqueueItems(CATALOG_JOB, adapter.game, all.map((key) => ({ key })), MANUAL_PRIORITY - 1);
+      await enqueueItems(
+        CATALOG_JOB,
+        adapter.game,
+        all.map((key) => ({ key })),
+        MANUAL_PRIORITY - 1,
+      );
       requestCatalogSync();
       emit({
         type: "summary",

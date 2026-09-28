@@ -102,6 +102,8 @@ export interface JobRunOptions {
 
 export interface JobRunSummary {
   status: JobRunStatus;
+  /** Set when `discover` failed (the run still processed the items already known). */
+  discoveryError?: string;
   succeeded: string[];
   failed: Array<{ key: string; label: string | null; error: string }>;
 }
@@ -129,7 +131,9 @@ export async function upsertItems(job: string, game: string, items: JobItem[]): 
     const label = item.label ?? null;
     const priority = item.priority ?? 0;
     if (!row) {
-      ops.push(prisma.syncState.create({ data: { job, game, itemKey: item.key, label, priority } }));
+      ops.push(
+        prisma.syncState.create({ data: { job, game, itemKey: item.key, label, priority } }),
+      );
     } else if ((label !== null && row.label !== label) || row.priority !== priority) {
       ops.push(
         prisma.syncState.update({
@@ -159,7 +163,14 @@ export async function enqueueItems(
   for (const item of items) {
     await prisma.syncState.upsert({
       where: { job_game_itemKey: { job, game, itemKey: item.key } },
-      create: { job, game, itemKey: item.key, label: item.label ?? null, priority, status: "pending" },
+      create: {
+        job,
+        game,
+        itemKey: item.key,
+        label: item.label ?? null,
+        priority,
+        status: "pending",
+      },
       update: { status: "pending", priority, ...(item.label ? { label: item.label } : {}) },
     });
   }
@@ -174,7 +185,10 @@ export async function retryFailedItems(job: string, game: string): Promise<numbe
   return res.count;
 }
 
-export async function runJob(def: JobDefinition, options: JobRunOptions = {}): Promise<JobRunSummary> {
+export async function runJob(
+  def: JobDefinition,
+  options: JobRunOptions = {},
+): Promise<JobRunSummary> {
   const {
     concurrency = 2,
     delayMs = 500,
@@ -218,15 +232,22 @@ export async function runJob(def: JobDefinition, options: JobRunOptions = {}): P
     // simply needs doing again.
     const interrupted = await prisma.syncState.updateMany({
       where: { job, game, status: "syncing" },
-      data: { status: "failed", lastError: "Interrupted before it finished (app closed or crashed)." },
+      data: {
+        status: "failed",
+        lastError: "Interrupted before it finished (app closed or crashed).",
+      },
     });
-    if (interrupted.count > 0) log(`${interrupted.count} item(s) were interrupted last time; retrying them.`);
+    if (interrupted.count > 0)
+      log(`${interrupted.count} item(s) were interrupted last time; retrying them.`);
 
     if (def.discover && !options.skipDiscovery) {
       try {
         await upsertItems(job, game, await def.discover());
       } catch (err) {
-        log(`couldn't list items (${errorMessage(err)}); continuing with the ones already known.`);
+        summary.discoveryError = errorMessage(err);
+        log(
+          `couldn't list items (${summary.discoveryError}); continuing with the ones already known.`,
+        );
       }
     }
 
@@ -251,7 +272,10 @@ export async function runJob(def: JobDefinition, options: JobRunOptions = {}): P
               {
                 OR: [
                   { status: { in: ["pending", "failed"] } },
-                  { status: "done", OR: [{ lastSyncedAt: null }, { lastSyncedAt: { lt: staleBefore } }] },
+                  {
+                    status: "done",
+                    OR: [{ lastSyncedAt: null }, { lastSyncedAt: { lt: staleBefore } }],
+                  },
                 ],
               },
             ],
@@ -298,7 +322,8 @@ export async function runJob(def: JobDefinition, options: JobRunOptions = {}): P
           return;
         } catch (err) {
           const error = errorMessage(err);
-          const final = attempt >= maxAttempts || !defaultIsRetryable(err) || internal.signal.aborted;
+          const final =
+            attempt >= maxAttempts || !defaultIsRetryable(err) || internal.signal.aborted;
           await prisma.syncState.update({
             where: where(item.key),
             data: {
@@ -310,10 +335,19 @@ export async function runJob(def: JobDefinition, options: JobRunOptions = {}): P
           });
           if (final) {
             summary.failed.push({ key: item.key, label: item.label, error });
-            emitJobEvent({ job, game, type: "item-failed", key: item.key, label: item.label, error });
+            emitJobEvent({
+              job,
+              game,
+              type: "item-failed",
+              key: item.key,
+              label: item.label,
+              error,
+            });
             log(`${item.label ?? item.key} failed: ${error}`);
             if (++consecutiveFailures >= maxConsecutiveFailures) {
-              log(`${consecutiveFailures} items in a row failed — stopping this run; the rest stay queued.`);
+              log(
+                `${consecutiveFailures} items in a row failed — stopping this run; the rest stay queued.`,
+              );
               summary.status = "halted";
               internal.abort();
             }
@@ -321,8 +355,19 @@ export async function runJob(def: JobDefinition, options: JobRunOptions = {}): P
           }
           const waitMs =
             defaultRetryAfterMs(err) ?? backoffDelay(attempt, backoffBaseMs, backoffMaxMs, random);
-          emitJobEvent({ job, game, type: "item-retry", key: item.key, label: item.label, attempt, waitMs, error });
-          log(`${item.label ?? item.key}: attempt ${attempt} failed (${error}); retrying in ${Math.round(waitMs / 1000)}s`);
+          emitJobEvent({
+            job,
+            game,
+            type: "item-retry",
+            key: item.key,
+            label: item.label,
+            attempt,
+            waitMs,
+            error,
+          });
+          log(
+            `${item.label ?? item.key}: attempt ${attempt} failed (${error}); retrying in ${Math.round(waitMs / 1000)}s`,
+          );
           await sleep(waitMs);
         }
       }
@@ -343,7 +388,9 @@ export async function runJob(def: JobDefinition, options: JobRunOptions = {}): P
   } finally {
     clearInterval(heartbeat);
     options.signal?.removeEventListener("abort", abortRun);
-    await releaseLock(lock, holder).catch((err) => log(`couldn't release lock: ${errorMessage(err)}`));
+    await releaseLock(lock, holder).catch((err) =>
+      log(`couldn't release lock: ${errorMessage(err)}`),
+    );
     emitJobEvent({
       job,
       game,

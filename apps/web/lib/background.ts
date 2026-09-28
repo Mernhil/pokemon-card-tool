@@ -72,15 +72,44 @@ function catalogRefreshMs(): number {
   return (Number.isFinite(days) && days >= 0 ? days : 30) * 86_400_000;
 }
 
+const retryTimers = new Map<string, { timer: ReturnType<typeof setTimeout>; failures: number }>();
+
+/**
+ * When a run couldn't reach the source (set list failed, or it halted after
+ * a streak of failures), try again soon instead of waiting for the 6-hourly
+ * schedule: 5 min, doubling up to an hour. A clean run resets it.
+ */
+function scheduleRetry(name: string, unhealthy: boolean, run: () => void): void {
+  const previous = retryTimers.get(name);
+  if (previous) clearTimeout(previous.timer);
+  if (!unhealthy) {
+    retryTimers.delete(name);
+    return;
+  }
+  const failures = (previous?.failures ?? 0) + 1;
+  const delay = Math.min(60, 5 * 2 ** (failures - 1)) * 60_000;
+  const timer = setTimeout(run, delay);
+  timer.unref?.();
+  retryTimers.set(name, { timer, failures });
+  console.log(`[background] ${name}: source unreachable, trying again in ${delay / 60_000} min`);
+}
+
 /** Syncs every game's catalog: new, failed and stale sets, newest first. */
 export function requestCatalogSync(): void {
   for (const adapter of catalogAdapters()) {
-    requestRun(`catalog:${adapter.game}`, () =>
-      runCatalogSync(adapter, {
+    const name = `catalog:${adapter.game}`;
+    requestRun(name, async () => {
+      const result = await runCatalogSync(adapter, {
         refreshAfterMs: catalogRefreshMs(),
-        log: (line) => console.log(`[catalog:${adapter.game}] ${line}`),
-      }),
-    );
+        log: (line) => console.log(`[${name}] ${line}`),
+      });
+      if (result.run.status === "locked") return;
+      scheduleRetry(
+        name,
+        result.run.discoveryError !== undefined || result.run.status === "halted",
+        requestCatalogSync,
+      );
+    });
   }
 }
 

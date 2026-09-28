@@ -12,10 +12,16 @@ export async function register() {
     }
 
     // Base rows (games, languages) a fresh database needs before anything is synced.
-    const { ensureBaseData } = await import("@tcg-vault/db");
+    const { ensureBaseData, enableConcurrentReads } = await import("@tcg-vault/db");
+    await enableConcurrentReads();
     await ensureBaseData();
 
     const { startScheduler } = await import("./lib/scheduler");
     startScheduler();
+
+    // Catalog sync (and later price refresh) in the background, a few seconds
+    // after startup so the first page render never waits on it.
+    const { startBackgroundJobs } = await import("./lib/background");
+    startBackgroundJobs();
   }
 }
