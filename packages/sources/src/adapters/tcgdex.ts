@@ -302,9 +302,10 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 /**
- * Catalog adapter backed by the official TCGdex SDK, scoped to Pokemon in
- * English only. See packages/db/src/sync-catalog.ts for the CLI that drives
- * this to populate Set/Card/Printing/PrintVariant.
+ * Catalog adapter backed by the official TCGdex SDK, scoped to Pokemon. See
+ * packages/db/src/sync-catalog.ts for the CLI that drives this to populate
+ * Set/Card/Printing/PrintVariant. Defaults to English; construct with
+ * {@link TcgdexPokemonAdapter.forLanguage} for any other TCGdex language.
  */
 export class TcgdexPokemonAdapter implements CatalogSourceAdapter {
   readonly slug = "tcgdex-pokemon";
@@ -312,6 +313,11 @@ export class TcgdexPokemonAdapter implements CatalogSourceAdapter {
 
   constructor(client: TCGdex = new TCGdex("en")) {
     this.client = client;
+  }
+
+  /** `languageCode` is a TCGdex `SupportedLanguages` value, e.g. "it", "ja", "zh-tw". */
+  static forLanguage(languageCode: string): TcgdexPokemonAdapter {
+    return new TcgdexPokemonAdapter(new TCGdex(languageCode as ConstructorParameters<typeof TCGdex>[0]));
   }
 
   async listSets(): Promise<SourceSet[]> {

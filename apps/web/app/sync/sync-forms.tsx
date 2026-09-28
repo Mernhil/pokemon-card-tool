@@ -1,6 +1,7 @@
 "use client";
 
 import { mediaUrl } from "@tcg-vault/shared/src/media-url";
+import { SUPPORTED_LANGUAGES } from "@tcg-vault/shared";
 import { CheckCircle2, CircleAlert, RefreshCw, Search } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useRouter } from "next/navigation";
@@ -40,7 +41,7 @@ function useSyncRunner() {
   const toast = useToast();
   const [state, setState] = useState<RunState>(IDLE);
 
-  const start = async (body: { codes?: string[]; refresh?: boolean }) => {
+  const start = async (body: { codes?: string[]; refresh?: boolean; language?: string }) => {
     setState({ ...IDLE, running: true });
     const apply = (e: SyncEvent) =>
       setState((s) => {
@@ -137,6 +138,7 @@ export function SyncPanel({
   const [filter, setFilter] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [typed, setTyped] = useState("");
+  const [language, setLanguage] = useState<string>(SUPPORTED_LANGUAGES[0].code);
   const syncedCodes = new Set(synced.map((s) => s.code));
   const needle = filter.trim().toLowerCase();
   const shown = available.filter(
@@ -171,7 +173,7 @@ export function SyncPanel({
             </p>
           </div>
           <Button
-            onClick={() => start({ refresh: true })}
+            onClick={() => start({ refresh: true, language })}
             disabled={state.running || synced.length === 0}
           >
             <RefreshCw className={`h-4 w-4 ${state.running ? "animate-spin" : ""}`} />
@@ -204,7 +206,27 @@ export function SyncPanel({
       {state.running || state.summary || state.error ? <Progress state={state} /> : null}
 
       <section className="panel p-5">
-        <h2 className="text-sm font-semibold">Add sets</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold">Add sets</h2>
+          <label className="flex items-center gap-2 text-xs text-neutral-500">
+            Language
+            <select
+              className="field py-1 text-xs"
+              value={language}
+              onChange={(e) => setLanguage(e.target.value)}
+            >
+              {SUPPORTED_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <p className="mt-1 text-xs text-neutral-500">
+          A set already synced in another language adds this language&apos;s pricing/variants to
+          the same cards, rather than duplicating them.
+        </p>
         {available.length > 0 ? (
           <>
             <label className="relative mt-3 block">
@@ -253,7 +275,10 @@ export function SyncPanel({
           />
         </label>
         <div className="mt-4 flex items-center gap-3">
-          <Button onClick={() => start({ codes })} disabled={state.running || codes.length === 0}>
+          <Button
+            onClick={() => start({ codes, language })}
+            disabled={state.running || codes.length === 0}
+          >
             {state.running
               ? "Syncing…"
               : `Sync ${codes.length || ""} selected set${codes.length === 1 ? "" : "s"}`}

@@ -1,4 +1,11 @@
-import { canonicalKeyFor, hasFile, mediaUrl, putFile } from "@tcg-vault/shared";
+import {
+  canonicalKeyFor,
+  hasFile,
+  mediaUrl,
+  putFile,
+  REFERENCE_LANGUAGE_CODE,
+  SUPPORTED_LANGUAGES,
+} from "@tcg-vault/shared";
 import { TcgdexPokemonAdapter, type SourcePrinting, type SourceSet } from "@tcg-vault/sources";
 import { prisma } from "./client";
 import { recordPrices } from "./prices";
@@ -6,8 +13,19 @@ import { computeValuations, snapshotPortfolio } from "./valuations";
 
 /**
  * Populates Game/Set/Rarity/Artist/Card/Printing/PrintVariant (+ the market
- * prices TCGdex bundles with each card) from a live catalog source. Today
- * that's only TCGdex, Pokemon, English.
+ * prices TCGdex bundles with each card) from a live catalog source — TCGdex,
+ * Pokemon, any of SUPPORTED_LANGUAGES.
+ *
+ * A Set/Card/Printing row is shared across languages (one printing = one
+ * physical card slot in a set, whatever language it's held in); only
+ * PrintVariant is per-language. So a printing's identity is always resolved
+ * by (set, collector number) *first* — never by translated name/text — and
+ * only the REFERENCE_LANGUAGE_CODE sync is allowed to overwrite the shared
+ * display fields (Card.name/rulesText/attributes, Set.name, Printing's
+ * rarity/artist). Otherwise re-syncing e.g. Italian after English would
+ * flip those fields to Italian text, and the next English sync would flip
+ * them back — or worse, two languages racing to create the "same" printing
+ * from different translated names would create duplicate Card rows.
  *
  * Driven by the `pnpm db:sync-catalog` CLI (src/sync-catalog.ts) and by the
  * in-app Sync page (apps/web/app/sync). Safe to re-run: everything is an
@@ -18,8 +36,6 @@ import { computeValuations, snapshotPortfolio } from "./valuations";
 
 const GAME_SLUG = "pokemon";
 const GAME_NAME = "Pokémon";
-const LANGUAGE_CODE = "en";
-const LANGUAGE_NAME = "English";
 
 export interface Counters {
   setsProcessed: number;
@@ -97,17 +113,19 @@ async function downloadFirstImage(urls: string[]): Promise<{ bytes: Buffer; ext:
   return null;
 }
 
-async function ensureGameAndLanguage() {
+async function ensureGameAndLanguage(languageCode: string) {
   const game = await prisma.game.upsert({
     where: { slug: GAME_SLUG },
     update: {},
     create: { slug: GAME_SLUG, name: GAME_NAME },
   });
 
+  const languageName =
+    SUPPORTED_LANGUAGES.find((l) => l.code === languageCode)?.name ?? languageCode;
   await prisma.language.upsert({
-    where: { code: LANGUAGE_CODE },
+    where: { code: languageCode },
     update: {},
-    create: { code: LANGUAGE_CODE, name: LANGUAGE_NAME },
+    create: { code: languageCode, name: languageName },
   });
 
   return game;
@@ -131,14 +149,23 @@ async function localAsset(remote: string | undefined, key: string): Promise<stri
   }
 }
 
-async function upsertSet(gameId: number, sourceSet: SourceSet) {
+async function upsertSet(gameId: number, sourceSet: SourceSet, languageCode: string) {
+  const existing = await prisma.set.findUnique({
+    where: { gameId_code: { gameId, code: sourceSet.code } },
+  });
+  // A non-reference language just adds printings/variants to a set that
+  // already exists; its display fields (name, logo, ...) stay owned by
+  // whichever language created/last-refreshed it as the reference — see the
+  // module doc comment for why.
+  if (existing && languageCode !== REFERENCE_LANGUAGE_CODE) return existing;
+
   const safeCode = sourceSet.code.replace(/[^\w.-]/g, "_");
   const logoUrl = await localAsset(sourceSet.logoUrl, `pokemon/${safeCode}/logo.png`);
   const symbolUrl = await localAsset(sourceSet.symbolUrl, `pokemon/${safeCode}/symbol.png`);
   const data = {
     name: sourceSet.name,
     series: sourceSet.series ?? null,
-    primaryLangCode: LANGUAGE_CODE,
+    primaryLangCode: languageCode,
     releaseDate: sourceSet.releaseDate ? new Date(sourceSet.releaseDate) : null,
     printedTotal: sourceSet.printedTotal ?? null,
     totalCards: sourceSet.totalCards ?? null,
@@ -169,13 +196,23 @@ async function upsertArtist(name: string) {
   });
 }
 
+/**
+ * Resolves the Card for one printing. When this exact printing slot (set +
+ * collector number) already exists, its Card is reused directly — never
+ * re-resolved by name — so a translated name can never create a duplicate
+ * Card for a printing another language already synced; only the reference
+ * language's text is allowed to update the shared row. Only when the slot
+ * is genuinely new does `canonicalKeyFor` decide whether this is a reprint
+ * of a card already known from another set (its normal job).
+ */
 async function upsertCard(
   gameId: number,
   printing: SourcePrinting,
   rulesText: string | undefined,
+  existingPrintingCardId: string | null,
+  languageCode: string,
   counters: Counters,
 ) {
-  const canonicalKey = canonicalKeyFor(printing.cardName, rulesText);
   const data = {
     name: printing.cardName,
     cardType: printing.cardType,
@@ -184,6 +221,15 @@ async function upsertCard(
     attributes: JSON.stringify(printing.attributes),
   };
 
+  if (existingPrintingCardId) {
+    if (languageCode === REFERENCE_LANGUAGE_CODE) {
+      counters.cardsUpdated++;
+      return prisma.card.update({ where: { id: existingPrintingCardId }, data });
+    }
+    return prisma.card.findUniqueOrThrow({ where: { id: existingPrintingCardId } });
+  }
+
+  const canonicalKey = canonicalKeyFor(printing.cardName, rulesText);
   const existing = await prisma.card.findUnique({
     where: { gameId_canonicalKey: { gameId, canonicalKey } },
   });
@@ -205,12 +251,17 @@ async function upsertCard(
  * references them, so a variant the user owns, has in a binder, or has price
  * history for is never deleted.
  */
-async function syncVariants(printingId: string, printing: SourcePrinting, counters: Counters) {
+async function syncVariants(
+  printingId: string,
+  printing: SourcePrinting,
+  languageCode: string,
+  counters: Counters,
+) {
   const reported = printing.finishes ?? [];
   const finishes = reported.length > 0 ? reported : ["NON_FOIL"];
 
   for (const finish of finishes) {
-    const key = { printingId, finish, edition: "UNLIMITED", languageCode: LANGUAGE_CODE };
+    const key = { printingId, finish, edition: "UNLIMITED", languageCode };
     const existing = await prisma.printVariant.findUnique({
       where: { printingId_finish_edition_languageCode: key },
     });
@@ -228,7 +279,7 @@ async function syncVariants(printingId: string, printing: SourcePrinting, counte
     where: {
       printingId,
       edition: "UNLIMITED",
-      languageCode: LANGUAGE_CODE,
+      languageCode,
       finish: { notIn: finishes },
     },
     include: {
@@ -272,6 +323,7 @@ async function syncSet(
   game: { id: number },
   sourceSet: SourceSet,
   adapter: TcgdexPokemonAdapter,
+  languageCode: string,
   counters: Counters,
   options: SyncOptions,
 ) {
@@ -282,7 +334,7 @@ async function syncSet(
     total: sourceSet.totalCards ?? 0,
     phase: "fetching",
   });
-  const set = await upsertSet(game.id, sourceSet);
+  const set = await upsertSet(game.id, sourceSet, languageCode);
   const printings = await adapter.listPrintings(sourceSet.code);
 
   // TCGdex assigns each printing (including alt arts) its own localId, so
@@ -349,15 +401,30 @@ async function syncSet(
     let ok = true;
     try {
       const isAltArt = isAltArtFor[index]!;
-
-      const rulesText = deriveRulesText(printing.attributes);
-      const card = await upsertCard(game.id, printing, rulesText, counters);
-
-      const rarity = printing.rarityName ? await upsertRarity(game.id, printing.rarityName) : null;
-      const artist = printing.artistName ? await upsertArtist(printing.artistName) : null;
-
       const existingPrinting =
         existingByKey.get(`${printing.collectorNumber}\u0000${isAltArt}`) ?? null;
+
+      const rulesText = deriveRulesText(printing.attributes);
+      const card = await upsertCard(
+        game.id,
+        printing,
+        rulesText,
+        existingPrinting?.cardId ?? null,
+        languageCode,
+        counters,
+      );
+
+      // Rarity/artist are single FKs on Printing (not per-language), so once
+      // a printing exists, only the reference language may repoint them —
+      // otherwise languages would keep flipping e.g. "Rare Holo" to its
+      // translated name and back on alternating syncs (see module doc).
+      const ownsSharedFields = !existingPrinting || languageCode === REFERENCE_LANGUAGE_CODE;
+      const rarity =
+        ownsSharedFields && printing.rarityName
+          ? await upsertRarity(game.id, printing.rarityName)
+          : null;
+      const artist =
+        ownsSharedFields && printing.artistName ? await upsertArtist(printing.artistName) : null;
 
       let imageKey: string | null = null;
       const downloaded = downloadedImages.get(index);
@@ -380,8 +447,7 @@ async function syncSet(
       const printingData = {
         cardId: card.id,
         sortNumber: sortNumberFor(printing.collectorNumber),
-        rarityId: rarity?.id ?? null,
-        artistId: artist?.id ?? null,
+        ...(ownsSharedFields ? { rarityId: rarity?.id ?? null, artistId: artist?.id ?? null } : {}),
         ...(imageKey ? { imageKey } : {}),
       };
 
@@ -405,7 +471,7 @@ async function syncSet(
             });
           })();
 
-      await syncVariants(dbPrinting.id, printing, counters);
+      await syncVariants(dbPrinting.id, printing, languageCode, counters);
       counters.priceObservations += await recordPrices(dbPrinting.id, printing.prices ?? []);
       shownImage = dbPrinting.imageKey;
     } catch (err) {
@@ -469,15 +535,22 @@ export interface SyncResult extends Counters {
 
 /**
  * Syncs the given TCGdex set codes (e.g. ["sv06.5", "sv03.5"]), then
- * recomputes valuations and today's portfolio snapshot.
+ * recomputes valuations and today's portfolio snapshot. `languageCode`
+ * (default English — see SUPPORTED_LANGUAGES) picks which TCGdex language
+ * edition to pull; the same set code re-synced in a different language adds
+ * that language's PrintVariant rows to the same shared printings rather
+ * than duplicating them (see the module doc comment).
  */
 export async function syncCatalogSets(
   codes: string[],
   options: SyncOptions = {},
-  adapter = new TcgdexPokemonAdapter(),
+  languageCode: string = REFERENCE_LANGUAGE_CODE,
+  adapter: TcgdexPokemonAdapter = languageCode === REFERENCE_LANGUAGE_CODE
+    ? new TcgdexPokemonAdapter()
+    : TcgdexPokemonAdapter.forLanguage(languageCode),
 ): Promise<SyncResult> {
   const log = options.log ?? ((line: string) => console.log(line));
-  const game = await ensureGameAndLanguage();
+  const game = await ensureGameAndLanguage(languageCode);
 
   const counters: Counters = {
     setsProcessed: 0,
@@ -505,7 +578,7 @@ export async function syncCatalogSets(
     }
     log(`syncing ${sourceSet.code} (${sourceSet.name})...`);
     try {
-      await syncSet(game, sourceSet, adapter, counters, options);
+      await syncSet(game, sourceSet, adapter, languageCode, counters, options);
     } catch (err) {
       // Keep going: sets already synced stay synced, and the next set may work.
       const message = err instanceof Error ? err.message : String(err);

@@ -72,5 +72,25 @@ export const PRICE_SOURCE_KINDS = [
 ] as const;
 export type PriceSourceKind = (typeof PRICE_SOURCE_KINDS)[number];
 
+/**
+ * Languages the catalog can be synced/priced in (TCGdex's `SupportedLanguages`
+ * covers more; this is the subset we surface — the main collector markets
+ * plus the languages with their own exclusive sets, per the product ask).
+ * `code` is also the TCGdex language code, so it's what feeds the adapter
+ * directly (see packages/sources's TcgdexPokemonAdapter and
+ * packages/db/src/catalog-sync.ts).
+ */
+export const SUPPORTED_LANGUAGES = [
+  { code: "en", name: "English" },
+  { code: "it", name: "Italian" },
+  { code: "ja", name: "Japanese" },
+  { code: "zh-tw", name: "Chinese (Traditional)" },
+  { code: "zh-cn", name: "Chinese (Simplified)" },
+] as const;
+export type SupportedLanguageCode = (typeof SUPPORTED_LANGUAGES)[number]["code"];
+
+/** The language a printing's shared display text (Card.name, Set.name, ...) is authored in. */
+export const REFERENCE_LANGUAGE_CODE: SupportedLanguageCode = "en";
+
 export const MARKETPLACES = ["CARDMARKET", "CARDTRADER", "EBAY", "TCGPLAYER"] as const;
 export type Marketplace = (typeof MARKETPLACES)[number];

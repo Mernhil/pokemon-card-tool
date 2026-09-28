@@ -1,3 +1,4 @@
+import { REFERENCE_LANGUAGE_CODE, SUPPORTED_LANGUAGES } from "@tcg-vault/shared";
 import { prisma } from "./client";
 import { formatSyncSummary, syncCatalogSets, syncedSetCodes } from "./catalog-sync";
 import { TcgdexPokemonAdapter } from "@tcg-vault/sources";
@@ -10,6 +11,8 @@ import { TcgdexPokemonAdapter } from "@tcg-vault/sources";
  *   pnpm db:sync-catalog -- --synced               re-sync every set already in the DB (refreshes prices)
  *   pnpm db:sync-catalog -- --all                  every Pokemon set TCGdex has
  *   add --refresh-images to re-download images that are already on disk
+ *   add --lang it (see SUPPORTED_LANGUAGES) to sync that language's text/prices
+ *   into the same printings instead of English
  *
  * Deliberately refuses to run with none of --sets/--synced/--all: this hits a
  * live network API and downloads card images, so "the whole catalog" must be
@@ -21,6 +24,7 @@ interface Args {
   synced: boolean;
   refreshImages: boolean;
   sets: string[] | null;
+  lang: string;
 }
 
 function splitCodes(value: string | undefined): string[] {
@@ -32,7 +36,13 @@ function splitCodes(value: string | undefined): string[] {
 }
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { all: false, synced: false, refreshImages: false, sets: null };
+  const args: Args = {
+    all: false,
+    synced: false,
+    refreshImages: false,
+    sets: null,
+    lang: REFERENCE_LANGUAGE_CODE,
+  };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--all") args.all = true;
@@ -40,13 +50,25 @@ function parseArgs(argv: string[]): Args {
     else if (arg === "--refresh-images") args.refreshImages = true;
     else if (arg === "--sets") args.sets = splitCodes(argv[++i]);
     else if (arg?.startsWith("--sets=")) args.sets = splitCodes(arg.slice("--sets=".length));
+    else if (arg === "--lang") args.lang = argv[++i] ?? args.lang;
+    else if (arg?.startsWith("--lang=")) args.lang = arg.slice("--lang=".length);
   }
   return args;
 }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const adapter = new TcgdexPokemonAdapter();
+  if (!SUPPORTED_LANGUAGES.some((l) => l.code === args.lang)) {
+    console.error(
+      `sync-catalog: unknown --lang "${args.lang}". Supported: ${SUPPORTED_LANGUAGES.map((l) => l.code).join(", ")}`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+  const adapter =
+    args.lang === REFERENCE_LANGUAGE_CODE
+      ? new TcgdexPokemonAdapter()
+      : TcgdexPokemonAdapter.forLanguage(args.lang);
 
   let codes: string[];
   if (args.all) {
@@ -68,6 +90,7 @@ async function main() {
   const result = await syncCatalogSets(
     codes,
     { refreshImages: args.refreshImages, log: (line) => console.log(`sync-catalog: ${line}`) },
+    args.lang,
     adapter,
   );
 

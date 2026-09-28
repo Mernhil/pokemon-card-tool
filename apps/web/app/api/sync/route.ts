@@ -1,15 +1,22 @@
 import { revalidatePath } from "next/cache";
+import { REFERENCE_LANGUAGE_CODE, SUPPORTED_LANGUAGES } from "@tcg-vault/shared";
 import { runSync, type SyncEvent } from "../../../lib/sync-runner";
 
 export const dynamic = "force-dynamic";
 
 /**
  * POST { codes: string[] } syncs those sets; { refresh: true } re-syncs every
- * synced set (fresh prices). Streams newline-delimited JSON SyncEvents so the
- * Sync page can show live progress.
+ * synced set (fresh prices). { language: "it" } (see SUPPORTED_LANGUAGES,
+ * default English) syncs that language's text/prices into the same
+ * printings instead of duplicating them. Streams newline-delimited JSON
+ * SyncEvents so the Sync page can show live progress.
  */
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => ({}))) as { codes?: unknown; refresh?: unknown };
+  const body = (await request.json().catch(() => ({}))) as {
+    codes?: unknown;
+    refresh?: unknown;
+    language?: unknown;
+  };
   const codes = body.refresh
     ? null
     : Array.isArray(body.codes)
@@ -22,6 +29,9 @@ export async function POST(request: Request) {
           ),
         ]
       : [];
+  const language = SUPPORTED_LANGUAGES.some((l) => l.code === body.language)
+    ? (body.language as string)
+    : REFERENCE_LANGUAGE_CODE;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -35,7 +45,7 @@ export async function POST(request: Request) {
           open = false;
         }
       };
-      await runSync(codes, emit);
+      await runSync(codes, emit, language);
       revalidatePath("/", "layout");
       if (open) controller.close();
     },

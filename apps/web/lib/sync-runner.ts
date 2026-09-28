@@ -4,6 +4,7 @@ import {
   syncedSetCodes,
   type SyncProgress,
 } from "@tcg-vault/db";
+import { REFERENCE_LANGUAGE_CODE } from "@tcg-vault/shared";
 
 export type SyncEvent =
   | SyncProgress
@@ -27,6 +28,7 @@ export function syncInProgress(): boolean {
 export async function runSync(
   codes: string[] | null,
   emit: (e: SyncEvent) => void,
+  languageCode: string = REFERENCE_LANGUAGE_CODE,
 ): Promise<boolean> {
   if (running) {
     emit({ type: "error", message: "A sync is already running — wait for it to finish." });
@@ -42,10 +44,14 @@ export async function runSync(
       });
       return false;
     }
-    const result = await syncCatalogSets(targets, {
-      log: (line) => emit({ type: "log", line }),
-      onProgress: emit,
-    });
+    const result = await syncCatalogSets(
+      targets,
+      {
+        log: (line) => emit({ type: "log", line }),
+        onProgress: emit,
+      },
+      languageCode,
+    );
     const ok = result.errors.length === 0 && result.unknownCodes.length === 0;
     emit({ type: "summary", ok, lines: formatSyncSummary(result) });
     return ok;

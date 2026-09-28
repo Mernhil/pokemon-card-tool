@@ -39,7 +39,8 @@ export default async function SyncPage() {
             >
               TCGdex
             </a>
-            . Pokémon, English only for now. Needs an internet connection.
+            . Pokémon only for now, in English, Italian, Japanese, or Chinese — pick a language
+            below before adding sets. Needs an internet connection.
           </>
         }
       />
