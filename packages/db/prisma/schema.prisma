@@ -118,6 +118,9 @@ model Printing {
   artist          Artist?        @relation(fields: [artistId], references: [id])
   isAltArt        Boolean        @default(false)
   imageKey        String? // local storage key of the master HD scan (see packages/shared/src/local-storage.ts)
+  /// JSON-encoded string[]: remote scan URLs, best first. The media route
+  /// fetches these on first view into the image cache (apps/web/lib/image-cache.ts).
+  imageUrls       String?
   imageWidth      Int?
   imageHeight     Int?
   variants        PrintVariant[]
@@ -319,4 +322,52 @@ model PortfolioSnapshot {
   costBasis  Int?
   itemCount  Int
   breakdown  String // JSON-encoded object: by game, set, rarity for the dashboard
+}
+
+// ---------- BACKGROUND JOBS ----------
+
+/// Per-item state for every background job (packages/db/src/jobs/runner.ts):
+/// catalog sync (job "catalog", itemKey = set code) and price refresh
+/// (job "price:<provider>", itemKey = PrintVariant id). One row per item,
+/// so a run can stop anywhere and the next one picks up where it left off.
+model SyncState {
+  id            Int       @id @default(autoincrement())
+  job           String // "catalog", "price:cardtrader", "fx"
+  game          String // Game.slug ("pokemon"), or "*" for game-independent jobs
+  itemKey       String // set code, variant id, ...
+  label         String? // human-readable name for progress UI ("Shrouded Fable")
+  status        String    @default("pending") // SyncStatus: pending | syncing | done | failed
+  priority      Int       @default(0) // higher runs first
+  lastSyncedAt  DateTime?
+  lastAttemptAt DateTime?
+  attemptCount  Int       @default(0) // failed attempts since the last success
+  lastError     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([job, game, itemKey])
+  @@index([job, game, status])
+}
+
+/// Cross-process mutex for a job run (the CLI and the app share one DB).
+/// Held rows are refreshed by a heartbeat; a stale heartbeat means the holder died.
+model JobLock {
+  name        String   @id
+  holder      String
+  acquiredAt  DateTime
+  heartbeatAt DateTime
+}
+
+/// One card scan in the on-disk image cache (apps/web/lib/image-cache.ts).
+/// Tracked here rather than via file access times, which Windows often doesn't update.
+model ImageCacheEntry {
+  key            String   @id // file name inside the cache directory
+  printingId     String?
+  bytes          Int
+  contentType    String
+  createdAt      DateTime @default(now())
+  lastAccessedAt DateTime @default(now())
+
+  @@index([lastAccessedAt])
+  @@index([printingId])
 }

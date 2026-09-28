@@ -74,3 +74,7 @@ export type PriceSourceKind = (typeof PRICE_SOURCE_KINDS)[number];
 
 export const MARKETPLACES = ["CARDMARKET", "CARDTRADER", "EBAY", "TCGPLAYER"] as const;
 export type Marketplace = (typeof MARKETPLACES)[number];
+
+/** SyncState.status — see packages/db/src/jobs/runner.ts. */
+export const SYNC_STATUSES = ["pending", "syncing", "done", "failed"] as const;
+export type SyncStatus = (typeof SYNC_STATUSES)[number];
