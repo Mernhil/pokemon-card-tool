@@ -1,4 +1,5 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join, normalize, sep } from "node:path";
 
 /**
@@ -9,6 +10,16 @@ import { dirname, join, normalize, sep } from "node:path";
  */
 function mediaDir(): string {
   return process.env.MEDIA_DIR ?? "./.media";
+}
+
+/**
+ * Per-user app data directory for everything that isn't the database or
+ * MEDIA_DIR: the image cache, secrets.json. The desktop shell sets
+ * TCG_VAULT_DATA_DIR to the OS app-data folder (apps/desktop/src-tauri/src/main.rs);
+ * in development it defaults to ~/.tcg-vault, outside the repo.
+ */
+export function appDataDir(): string {
+  return process.env.TCG_VAULT_DATA_DIR || join(homedir(), ".tcg-vault");
 }
 
 /** Rejects `..` segments so a bad key can't escape MEDIA_DIR. */

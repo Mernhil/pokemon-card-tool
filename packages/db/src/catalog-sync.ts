@@ -23,7 +23,7 @@ import { computeValuations, snapshotPortfolio } from "./valuations";
  * Card *metadata* only: images are never downloaded here. Each printing gets
  * its remote image URLs plus a virtual `remote/<printingId>` imageKey, and
  * the media route fetches + caches the scan the first time it's viewed
- * (apps/web/lib/image-cache.ts).
+ * (packages/db/src/image-cache.ts).
  *
  * Nothing here is Pokémon-specific: the game, language and data all come
  * from the {@link CatalogSourceAdapter}. Driven by the app's background

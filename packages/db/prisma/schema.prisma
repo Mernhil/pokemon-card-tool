@@ -119,7 +119,7 @@ model Printing {
   isAltArt        Boolean        @default(false)
   imageKey        String? // local storage key of the master HD scan (see packages/shared/src/local-storage.ts)
   /// JSON-encoded string[]: remote scan URLs, best first. The media route
-  /// fetches these on first view into the image cache (apps/web/lib/image-cache.ts).
+  /// fetches these on first view into the image cache (packages/db/src/image-cache.ts).
   imageUrls       String?
   imageWidth      Int?
   imageHeight     Int?
@@ -358,7 +358,7 @@ model JobLock {
   heartbeatAt DateTime
 }
 
-/// One card scan in the on-disk image cache (apps/web/lib/image-cache.ts).
+/// One card scan in the on-disk image cache (packages/db/src/image-cache.ts).
 /// Tracked here rather than via file access times, which Windows often doesn't update.
 model ImageCacheEntry {
   key            String   @id // file name inside the cache directory

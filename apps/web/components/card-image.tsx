@@ -34,7 +34,7 @@ export function CardImage({
     <div
       role="img"
       aria-label={`${name} — image not available yet`}
-      title="TCGdex doesn't have an image for this card yet. It's downloaded automatically on a later sync."
+      title="The source doesn't have an image for this card yet. Every sync checks again."
       className={`${box} flex aspect-[5/7] flex-col items-center justify-center gap-1 rounded border-4 border-amber-200 dark:border-amber-900 bg-gradient-to-br from-neutral-50 to-neutral-200 p-2 text-center ${className}`}
     >
       {size === "thumb" ? (

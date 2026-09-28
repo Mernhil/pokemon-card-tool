@@ -87,7 +87,7 @@ async function main() {
   const adapter = new TcgdexPokemonAdapter();
   if (args.obsoleteRefreshImages) {
     log(
-      "--refresh-images is no longer needed: images are fetched on first view and cached (see apps/web/lib/image-cache.ts).",
+      "--refresh-images is no longer needed: images are fetched on first view and cached (see packages/db/src/image-cache.ts).",
     );
   }
   const refreshAfterMs =
