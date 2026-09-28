@@ -162,7 +162,15 @@ fn install(handle: &AppHandle) -> Result<(), String> {
     // doesn't outlive us and the installer can overwrite node.exe. (macOS and
     // Linux replace files in place while they're in use; no need there.)
     #[cfg(windows)]
-    crate::stop_server(handle);
+    {
+        crate::stop_server(handle);
+        // Killing the process doesn't mean Windows has released its file
+        // handles yet (node.exe itself and the Prisma query engine DLL it
+        // has loaded). The NSIS pre-install hook polls those exact files
+        // before extracting, but giving the OS a head start here means it's
+        // less likely to need the full poll.
+        std::thread::sleep(Duration::from_millis(500));
+    }
 
     if let Err(err) = update.install(&bytes) {
         // Put it back so the user can retry.

@@ -28,6 +28,41 @@
 ; tcg-vault-desktop.exe in place (as every update does) can leave the
 ; taskbar/desktop shortcut showing a stale or generic icon until Explorer's
 ; icon cache is invalidated.
+;
+; TCGV_WaitUnlocked: killing node.exe (above) doesn't mean Windows has
+; released its file handles yet -- the OS can take a little longer to
+; actually unmap a terminated process's loaded images than it takes for the
+; process to disappear from the process list. That gap used to fail
+; extraction with "Error opening file for writing" on node.exe itself and on
+; the Prisma query engine's native addon (query_engine-windows.dll.node,
+; loaded into node.exe the same way), every single update since neither
+; file lives under the `web` folder wiped above. Rather than trust "no
+; node.exe left in the process list" as a proxy for "the file is free",
+; this polls the exact file by trying to open it for writing, which is what
+; extraction itself needs.
+
+Function TCGV_WaitUnlocked
+  Exch $0 ; file path
+  Push $1
+  Push $2
+  StrCpy $1 0
+  tcgv_wu_loop:
+    IfFileExists "$0" 0 tcgv_wu_done
+    ClearErrors
+    FileOpen $2 "$0" a
+    IfErrors tcgv_wu_retry
+    FileClose $2
+    Goto tcgv_wu_done
+  tcgv_wu_retry:
+    IntOp $1 $1 + 1
+    IntCmp $1 40 tcgv_wu_done
+    Sleep 250
+    Goto tcgv_wu_loop
+  tcgv_wu_done:
+  Pop $2
+  Pop $1
+  Pop $0
+FunctionEnd
 
 !macro TCGV_STOP_RUNNING
   nsExec::Exec `taskkill /F /T /IM tcg-vault-desktop.exe`
@@ -51,6 +86,11 @@
 
 !macro NSIS_HOOK_PREINSTALL
   !insertmacro TCGV_STOP_RUNNING
+
+  Push "$INSTDIR\node.exe"
+  Call TCGV_WaitUnlocked
+  Push "$INSTDIR\web\node_modules\.prisma\client\query_engine-windows.dll.node"
+  Call TCGV_WaitUnlocked
 
   IfFileExists "$INSTDIR\web\*.*" 0 tcgv_no_stale_web
     RMDir /r "$INSTDIR\web"
