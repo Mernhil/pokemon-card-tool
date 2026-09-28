@@ -264,6 +264,13 @@ async function syncSet(
   counters: Counters,
   options: SyncOptions,
 ) {
+  options.onProgress?.({
+    type: "set",
+    code: sourceSet.code,
+    name: sourceSet.name,
+    total: sourceSet.totalCards ?? 0,
+    phase: "fetching",
+  });
   const set = await upsertSet(game.id, sourceSet);
   const printings = await adapter.listPrintings(sourceSet.code);
 
@@ -273,7 +280,17 @@ async function syncSet(
   // two rows with the same pair, so defend against it anyway.
   const seenCollectorNumbers = new Set<string>();
 
-  for (const printing of printings) {
+  options.onProgress?.({
+    type: "set",
+    code: sourceSet.code,
+    name: sourceSet.name,
+    total: printings.length,
+    phase: "saving",
+  });
+
+  for (const [index, printing] of printings.entries()) {
+    let shownImage: string | null = null;
+    let ok = true;
     try {
       const isAltArt = seenCollectorNumbers.has(printing.collectorNumber);
       seenCollectorNumbers.add(printing.collectorNumber);
@@ -352,7 +369,9 @@ async function syncSet(
 
       await syncVariants(dbPrinting.id, printing, counters);
       counters.priceObservations += await recordPrices(dbPrinting.id, printing.prices ?? []);
+      shownImage = dbPrinting.imageKey;
     } catch (err) {
+      ok = false;
       counters.errors.push({
         setCode: sourceSet.code,
         collectorNumber: printing.collectorNumber,
@@ -360,6 +379,16 @@ async function syncSet(
         message: err instanceof Error ? err.message : String(err),
       });
     }
+    options.onProgress?.({
+      type: "card",
+      code: sourceSet.code,
+      done: index + 1,
+      total: printings.length,
+      name: printing.cardName,
+      number: printing.collectorNumber,
+      imageKey: shownImage,
+      ok,
+    });
   }
 
   counters.setsProcessed++;
@@ -370,7 +399,29 @@ export interface SyncOptions {
   refreshImages?: boolean;
   /** Progress lines; defaults to console.log. */
   log?: (line: string) => void;
+  /** Structured progress, e.g. for the Sync page's live progress bars. */
+  onProgress?: (event: SyncProgress) => void;
 }
+
+export type SyncProgress =
+  | {
+      type: "set";
+      code: string;
+      name: string;
+      total: number;
+      /** "fetching": downloading card data from the source; "saving": writing cards + images. */
+      phase: "fetching" | "saving";
+    }
+  | {
+      type: "card";
+      code: string;
+      done: number;
+      total: number;
+      name: string;
+      number: string;
+      imageKey: string | null;
+      ok: boolean;
+    };
 
 export interface SyncResult extends Counters {
   /** Requested codes TCGdex doesn't know. */
