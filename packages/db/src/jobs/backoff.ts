@@ -29,6 +29,11 @@ export function isRetryable(err: unknown): boolean {
   return !(err && typeof err === "object" && (err as { retryable?: unknown }).retryable === false);
 }
 
+/** `fatal: true` — every other item would fail the same way (bad credentials): stop the run. */
+export function isFatal(err: unknown): boolean {
+  return !!(err && typeof err === "object" && (err as { fatal?: unknown }).fatal === true);
+}
+
 export function retryAfterMs(err: unknown): number | undefined {
   const value =
     err && typeof err === "object" ? (err as { retryAfterMs?: unknown }).retryAfterMs : undefined;

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCardImage } from "@tcg-vault/db";
+import { getCardImage, getSettingsCached } from "@tcg-vault/db";
 import { REMOTE_IMAGE_PREFIX, getFile } from "@tcg-vault/shared";
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -40,7 +40,11 @@ export async function GET(_req: Request, { params }: { params: { key: string[] }
   if (key.startsWith(REMOTE_IMAGE_PREFIX)) {
     const printingId = key.slice(REMOTE_IMAGE_PREFIX.length);
     if (!printingId || printingId.includes("/")) return placeholder();
-    const image = await getCardImage(printingId).catch(() => null);
+    const image = await getSettingsCached()
+      .then((settings) =>
+        getCardImage(printingId, { maxBytes: settings.imageCacheMaxMb * 1024 * 1024 }),
+      )
+      .catch(() => null);
     if (!image) return placeholder();
     return new NextResponse(new Uint8Array(image.body), {
       headers: {

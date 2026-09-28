@@ -4,6 +4,7 @@ import { prisma } from "../client";
 import {
   backoffDelay,
   errorMessage,
+  isFatal,
   isRetryable as defaultIsRetryable,
   retryAfterMs as defaultRetryAfterMs,
   sleep as defaultSleep,
@@ -322,8 +323,9 @@ export async function runJob(
           return;
         } catch (err) {
           const error = errorMessage(err);
+          const fatal = isFatal(err);
           const final =
-            attempt >= maxAttempts || !defaultIsRetryable(err) || internal.signal.aborted;
+            fatal || attempt >= maxAttempts || !defaultIsRetryable(err) || internal.signal.aborted;
           await prisma.syncState.update({
             where: where(item.key),
             data: {
@@ -344,7 +346,12 @@ export async function runJob(
               error,
             });
             log(`${item.label ?? item.key} failed: ${error}`);
-            if (++consecutiveFailures >= maxConsecutiveFailures) {
+            if (fatal) {
+              // e.g. bad credentials: every other item would fail the same way.
+              log(`stopping this run: ${error}`);
+              summary.status = "halted";
+              internal.abort();
+            } else if (++consecutiveFailures >= maxConsecutiveFailures) {
               log(
                 `${consecutiveFailures} items in a row failed — stopping this run; the rest stay queued.`,
               );

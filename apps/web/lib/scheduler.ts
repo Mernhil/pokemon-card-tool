@@ -1,5 +1,5 @@
 import cron from "node-cron";
-import { requestCatalogSync } from "./background";
+import { requestCatalogSync, requestFxRefresh, requestPriceRefresh } from "./background";
 import { computeValuations } from "./jobs/compute-valuations";
 import { snapshotPortfolios } from "./jobs/snapshot-portfolios";
 
@@ -13,6 +13,13 @@ export function startScheduler(): void {
   // Cheap when there's nothing to do (one set-list request): picks up new
   // sets, retries failed ones, and refreshes sets older than 30 days.
   cron.schedule("17 */6 * * *", () => requestCatalogSync());
+
+  // Hourly: only collection / recently viewed cards whose prices are older
+  // than the refresh interval (24 h by default) are fetched.
+  cron.schedule("7 * * * *", () => requestPriceRefresh());
+
+  // ECB publishes around 16:00 CET on working days; the job skips fresh rates.
+  cron.schedule("37 */6 * * *", () => requestFxRefresh());
 
   // Snapshot at least once a day even when nothing else ran.
   cron.schedule("0 4 * * *", () =>

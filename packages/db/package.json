@@ -12,7 +12,7 @@
     "sync-catalog": "dotenv -e ../../.env -- tsx src/sync-catalog.ts",
     "validate": "prisma validate",
     "studio": "dotenv -e ../../.env -- prisma studio",
-    "sync-prices": "dotenv -e ../../.env -- tsx src/sync-catalog.ts --synced",
+    "sync-prices": "dotenv -e ../../.env -- tsx src/sync-prices.ts",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit -p ."
   },

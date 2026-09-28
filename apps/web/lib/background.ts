@@ -1,5 +1,20 @@
-import { runCatalogSync } from "@tcg-vault/db";
-import { TcgdexPokemonAdapter, type CatalogSourceAdapter } from "@tcg-vault/sources";
+import {
+  computeValuations,
+  getSettings,
+  readSecrets,
+  refreshFxRates,
+  runCatalogSync,
+  runPriceRefresh,
+  snapshotPortfolio,
+  type AppSettings,
+} from "@tcg-vault/db";
+import { PRICE_PROVIDERS, type PriceProviderId } from "@tcg-vault/shared";
+import {
+  TcgdexPokemonAdapter,
+  createPriceProviders,
+  type CatalogSourceAdapter,
+  type PriceProvider,
+} from "@tcg-vault/sources";
 
 /**
  * Background jobs inside the Next.js server (the desktop app has no separate
@@ -7,7 +22,8 @@ import { TcgdexPokemonAdapter, type CatalogSourceAdapter } from "@tcg-vault/sour
  * DB lock, so these helpers only need to avoid piling up runs in-process:
  * asking for a run while one is going just schedules one more afterwards.
  *
- * New games plug in by adding their catalog adapter to CATALOG_ADAPTERS.
+ * New games plug in by adding their catalog adapter to CATALOG_ADAPTERS;
+ * their prices then refresh through every provider that supports the game.
  */
 
 const CATALOG_ADAPTERS: Array<() => CatalogSourceAdapter> = [() => new TcgdexPokemonAdapter()];
@@ -67,11 +83,6 @@ export function isRunning(name: string): boolean {
   return loops.get(name)?.running ?? false;
 }
 
-function catalogRefreshMs(): number {
-  const days = Number(process.env.CATALOG_REFRESH_DAYS ?? 30);
-  return (Number.isFinite(days) && days >= 0 ? days : 30) * 86_400_000;
-}
-
 const retryTimers = new Map<string, { timer: ReturnType<typeof setTimeout>; failures: number }>();
 
 /**
@@ -99,8 +110,9 @@ export function requestCatalogSync(): void {
   for (const adapter of catalogAdapters()) {
     const name = `catalog:${adapter.game}`;
     requestRun(name, async () => {
+      const settings = await getSettings();
       const result = await runCatalogSync(adapter, {
-        refreshAfterMs: catalogRefreshMs(),
+        refreshAfterMs: settings.catalogRefreshDays * 86_400_000,
         log: (line) => console.log(`[${name}] ${line}`),
       });
       if (result.run.status === "locked") return;
@@ -113,6 +125,74 @@ export function requestCatalogSync(): void {
   }
 }
 
+let providerCache: { key: string; providers: Record<PriceProviderId, PriceProvider> } | null = null;
+
+/**
+ * Price providers with the current credentials and settings. Reused while
+ * those don't change, so provider-side caches (CardTrader's expansion list,
+ * eBay's token, the shared TCGdex fetch) survive between runs.
+ */
+export async function priceProviders(): Promise<{
+  settings: AppSettings;
+  providers: Record<PriceProviderId, PriceProvider>;
+}> {
+  const [settings, secrets] = await Promise.all([getSettings(), readSecrets()]);
+  const credentials = {
+    cardtraderToken: secrets.cardtraderToken,
+    ebayClientId: secrets.ebayClientId,
+    ebayClientSecret: secrets.ebayClientSecret,
+    ebayMarketplaceId: settings.ebay.marketplaceId,
+    ebayEnvironment: settings.ebay.environment,
+  };
+  const key = JSON.stringify(credentials);
+  if (providerCache?.key !== key)
+    providerCache = { key, providers: createPriceProviders(credentials) };
+  return { settings, providers: providerCache.providers };
+}
+
+let valuationTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Recomputes values + today's portfolio snapshot once price runs settle (debounced). */
+export function scheduleValuations(delayMs = 30_000): void {
+  if (valuationTimer) clearTimeout(valuationTimer);
+  valuationTimer = setTimeout(() => {
+    valuationTimer = null;
+    requestRun("valuations", async () => {
+      await computeValuations();
+      await snapshotPortfolio();
+    });
+  }, delayMs);
+  valuationTimer.unref?.();
+}
+
+/**
+ * Refreshes prices for every game x enabled provider, each provider as its
+ * own run (own lock, own throttle): one failing or rate-limited provider
+ * never holds up the others. Only stale collection / recently viewed /
+ * requested cards are priced — never the whole catalog.
+ */
+export function requestPriceRefresh(only?: PriceProviderId[]): void {
+  for (const { game } of catalogAdapters()) {
+    for (const id of only ?? PRICE_PROVIDERS) {
+      const name = `price:${id}:${game}`;
+      requestRun(name, async () => {
+        const { settings, providers } = await priceProviders();
+        if (!settings.providers[id].enabled) return;
+        const result = await runPriceRefresh(providers[id], game, {
+          refreshAfterMs: settings.priceRefreshHours * 3_600_000,
+          log: (line) => console.log(`[${name}] ${line}`),
+        });
+        if (result.succeeded.length > 0) scheduleValuations();
+      });
+    }
+  }
+}
+
+/** Daily ECB exchange rates (skipped when today's are already stored). */
+export function requestFxRefresh(): void {
+  requestRun("fx", () => refreshFxRates({ log: (line) => console.log(`[fx] ${line}`) }));
+}
+
 /**
  * Called once from instrumentation.ts. Waits a little so the first page
  * render never competes with the first sync for the DB or the network.
@@ -120,6 +200,12 @@ export function requestCatalogSync(): void {
 export function startBackgroundJobs(delayMs = 10_000): void {
   if (state.__tcgVaultStarted) return;
   state.__tcgVaultStarted = true;
-  const timer = setTimeout(() => requestCatalogSync(), delayMs);
+  const timer = setTimeout(() => {
+    requestCatalogSync();
+    requestFxRefresh();
+    requestPriceRefresh();
+    // Today's portfolio point exists even when no price changed.
+    scheduleValuations(5_000);
+  }, delayMs);
   timer.unref?.();
 }
