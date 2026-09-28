@@ -461,16 +461,21 @@ textarea {
     opacity: calc(var(--energy) * 0.9);
   }
 
-  /* Foil sheen. Pattern from the preset, area (where it sits) from foilFor. */
+  /*
+   * Foil sheen. Pattern from the preset, area (where it sits) from foilFor.
+   * The blend mode lives on .card3d__foil itself; the pattern, gradients and
+   * `filter` live on its ::before. Chromium/WebView drop mix-blend-mode
+   * whenever `filter` sits on the *same* element as the blend (the layer
+   * stops blending with the art underneath and just paints as an opaque
+   * rectangle), so the filtered pattern is rendered on a child first and the
+   * blend is applied to that already-filtered result one level up.
+   */
   .card3d__foil {
     position: absolute;
     inset: 0;
     pointer-events: none;
     mix-blend-mode: color-dodge;
     opacity: calc(var(--intensity) * var(--energy) * 0.9);
-    filter: brightness(0.85) contrast(1.5) saturate(1.35);
-    background-size: 280% 280%;
-    background-position: var(--foil-x) var(--foil-y);
     --rainbow: repeating-linear-gradient(
       115deg,
       hsl(0 95% 62%) 0%,
@@ -481,9 +486,17 @@ textarea {
       hsl(290 90% 64%) 30%,
       hsl(360 95% 62%) 36%
     );
+  }
+  .card3d__foil::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    filter: brightness(0.85) contrast(1.5) saturate(1.35);
+    background-size: 280% 280%;
+    background-position: var(--foil-x) var(--foil-y);
     background-image: var(--rainbow);
   }
-  .card3d--glitter .card3d__foil {
+  .card3d--glitter .card3d__foil::before {
     background-image:
       radial-gradient(circle, rgb(255 255 255 / 0.9) 0 0.6px, transparent 1.2px),
       radial-gradient(circle, rgb(255 255 255 / 0.7) 0 0.5px, transparent 1px), var(--rainbow);
@@ -496,7 +509,7 @@ textarea {
       3px 4px,
       var(--foil-x) var(--foil-y);
   }
-  .card3d--sparkle-noise .card3d__foil {
+  .card3d--sparkle-noise .card3d__foil::before {
     background-image:
       repeating-linear-gradient(45deg, rgb(255 255 255 / 0.22) 0 1px, transparent 1px 5px),
       radial-gradient(circle, rgb(255 255 255 / 0.85) 0 0.6px, transparent 1.3px), var(--rainbow);
@@ -509,7 +522,7 @@ textarea {
       calc(var(--foil-x) / 8) calc(var(--foil-y) / 8),
       var(--foil-x) var(--foil-y);
   }
-  .card3d--voronoi .card3d__foil {
+  .card3d--voronoi .card3d__foil::before {
     background-image:
       radial-gradient(circle at 30% 30%, rgb(255 255 255 / 0.5) 0 12%, transparent 13%),
       radial-gradient(circle at 70% 65%, rgb(255 255 255 / 0.4) 0 9%, transparent 10%),
@@ -521,6 +534,10 @@ textarea {
   }
   /* Gold: warm metallic sweep instead of a rainbow. */
   .card3d--preset-gold .card3d__foil {
+    mix-blend-mode: soft-light;
+    opacity: calc(var(--energy) * 0.95);
+  }
+  .card3d--preset-gold .card3d__foil::before {
     background-image:
       radial-gradient(circle, rgb(255 255 255 / 0.85) 0 0.6px, transparent 1.3px),
       linear-gradient(
@@ -539,8 +556,6 @@ textarea {
     background-position:
       0 0,
       var(--foil-x) var(--foil-y);
-    mix-blend-mode: soft-light;
-    opacity: calc(var(--energy) * 0.95);
   }
 
   /* Areas. Art window of a Pokémon card: see POKEMON_ART_WINDOW in card-fx. */
@@ -558,7 +573,7 @@ textarea {
   }
 
   /* Classic holo: fine vertical foil lines under the rainbow. */
-  .card3d--linear-rainbow .card3d__foil {
+  .card3d--linear-rainbow .card3d__foil::before {
     background-image:
       repeating-linear-gradient(90deg, rgb(255 255 255 / 0.18) 0 1px, transparent 1px 3px),
       var(--rainbow);
