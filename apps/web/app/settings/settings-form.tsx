@@ -5,6 +5,7 @@ import { PRICE_KIND_LABELS, type PriceKind } from "@tcg-vault/shared/src/enums";
 import { CheckCircle2, CircleAlert, KeyRound, PlugZap, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { CheckForUpdatesButton } from "../../components/check-for-updates-button";
 import { Button } from "../../components/ui/button";
 import { useToast } from "../../components/ui/toast";
 import {
@@ -365,6 +366,17 @@ export function SettingsForm({
           cards in your collection, which are never removed). Least recently viewed images are
           removed first. Stored in {storage.cacheDir}.
         </p>
+      </section>
+
+      <section className="panel p-5">
+        <h2 className="text-sm font-semibold">Software update</h2>
+        <p className="mt-2 text-xs text-neutral-500">
+          TCG Vault checks for a new version automatically every few hours. Use this to check right
+          now instead of waiting. Does nothing in a browser — only the desktop app.
+        </p>
+        <div className="mt-3">
+          <CheckForUpdatesButton />
+        </div>
       </section>
     </div>
   );

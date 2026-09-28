@@ -115,7 +115,8 @@ fn main() {
         .manage(updater::UpdateState::default())
         .invoke_handler(tauri::generate_handler![
             updater::update_status,
-            updater::install_update
+            updater::install_update,
+            updater::check_for_updates
         ])
         .setup(|app| {
             let handle = app.handle().clone();

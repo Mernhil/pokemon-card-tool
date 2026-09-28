@@ -2,13 +2,16 @@
 //! download + verify the signed installer in the background, then let the
 //! user choose when to install.
 //!
-//! The UI lives in the web app (apps/web/components/update-banner.tsx). It
-//! asks `update_status` on load and listens for a `tcgvault:update-ready`
-//! DOM event we dispatch when a download finishes; its "Restart & install"
-//! button calls `install_update`. Both commands are exposed to the local
-//! server's origin by capabilities/local-app-updater.json. If the app's pages
-//! aren't up (the server failed to start), a native dialog asks instead, so a
-//! broken install can still receive the fix.
+//! The UI lives in the web app (apps/web/components/update-banner.tsx and
+//! check-for-updates-button.tsx). It asks `update_status` on load and
+//! listens for a `tcgvault:update-ready` DOM event we dispatch when a
+//! download finishes; its "Restart & install" button calls `install_update`,
+//! and a settings button calls `check_for_updates` to check right away
+//! instead of waiting for the background loop. All three commands are
+//! exposed to the local server's origin by
+//! capabilities/local-app-updater.json. If the app's pages aren't up (the
+//! server failed to start), a native dialog asks instead, so a broken
+//! install can still receive the fix.
 
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -174,15 +177,40 @@ fn install(handle: &AppHandle) -> Result<(), String> {
     handle.restart();
 }
 
-/// For the web UI: the update waiting to be installed, if any.
-#[tauri::command]
-pub fn update_status(state: tauri::State<'_, UpdateState>) -> Option<UpdateInfo> {
+fn pending_info(state: &UpdateState) -> Option<UpdateInfo> {
     state
         .pending
         .lock()
         .unwrap()
         .as_ref()
         .map(|(update, _)| UpdateInfo::of(update))
+}
+
+/// For the web UI: the update waiting to be installed, if any.
+#[tauri::command]
+pub fn update_status(state: tauri::State<'_, UpdateState>) -> Option<UpdateInfo> {
+    pending_info(&state)
+}
+
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum CheckResult {
+    UpToDate,
+    Ready { info: UpdateInfo },
+}
+
+/// For the web UI's "Check for updates" button: runs a check right away
+/// (rather than waiting for the background loop) and reports the outcome.
+#[tauri::command]
+pub async fn check_for_updates(handle: AppHandle) -> Result<CheckResult, String> {
+    if let Some(info) = pending_info(&handle.state::<UpdateState>()) {
+        return Ok(CheckResult::Ready { info });
+    }
+    check_and_download(&handle).await?;
+    Ok(match pending_info(&handle.state::<UpdateState>()) {
+        Some(info) => CheckResult::Ready { info },
+        None => CheckResult::UpToDate,
+    })
 }
 
 /// For the web UI's "Restart & install" button.
