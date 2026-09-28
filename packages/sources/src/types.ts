@@ -46,6 +46,8 @@ export interface SourcePriceQuote {
   trend?: number;
   /** When the source last refreshed this price (ISO string), if it says. */
   observedAt?: string;
+  /** The marketplace's own product id, when the source relays it (Cardmarket idProduct, TCGplayer productId). */
+  externalId?: string;
 }
 
 export interface VariantRef {
@@ -69,13 +71,30 @@ export interface FetchedPrice {
   observedAt: string;
 }
 
+/** A set as listed by a source's cheap "all sets" call (no per-set details). */
+export interface SourceSetSummary {
+  code: string;
+  name: string;
+  totalCards?: number;
+}
+
 /**
  * Catalog-side source: sets and printings (card metadata, art, rarities).
- * Implemented by e.g. TCGdex, YGOPRODeck, the OPTCG API.
+ * Implemented by e.g. TCGdex, YGOPRODeck, the OPTCG API. The background
+ * catalog sync (packages/db/src/catalog-sync.ts) only talks to this
+ * interface, so a new game is a new adapter, not a new sync.
  */
 export interface CatalogSourceAdapter {
   readonly slug: string;
+  /** Game.slug this source fills ("pokemon", "yugioh", "one-piece"). */
+  readonly game: string;
+  /** Language.code of the printings it returns. */
+  readonly languageCode: string;
   listSets(): Promise<SourceSet[]>;
+  /** Every set, newest first, from as few requests as possible. */
+  listSetSummaries(): Promise<SourceSetSummary[]>;
+  /** One set's details, or null when the source has no such set. */
+  getSet(setCode: string): Promise<SourceSet | null>;
   listPrintings(setCode: string): Promise<SourcePrinting[]>;
 }
 

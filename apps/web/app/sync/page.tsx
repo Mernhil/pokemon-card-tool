@@ -1,6 +1,7 @@
 import { prisma } from "@tcg-vault/db";
 import { TcgdexPokemonAdapter } from "@tcg-vault/sources";
 import { PageHeader } from "../../components/ui/page-header";
+import { CatalogStatusPanel } from "./catalog-status";
 import { SyncPanel } from "./sync-forms";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +31,7 @@ export default async function SyncPage() {
         title="Sync"
         subtitle={
           <>
-            Cards, images and market prices (Cardmarket &amp; TCGplayer) come from{" "}
+            Card data and market prices (Cardmarket &amp; TCGplayer) come from{" "}
             <a
               href="https://tcgdex.dev"
               className="text-accent underline"
@@ -39,7 +40,8 @@ export default async function SyncPage() {
             >
               TCGdex
             </a>
-            . Pokémon, English only for now. Needs an internet connection.
+            . Every set is synced automatically in the background, newest first; pick sets below to
+            sync them right away. Pokémon, English only for now. Needs an internet connection.
           </>
         }
       />
@@ -49,6 +51,9 @@ export default async function SyncPage() {
           codes below.
         </p>
       ) : null}
+      <div className="mb-6">
+        <CatalogStatusPanel />
+      </div>
       <SyncPanel
         synced={synced.map((s) => ({
           code: s.code,

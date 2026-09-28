@@ -10,6 +10,7 @@ import {
   PanelLeftOpen,
   RefreshCw,
   Search,
+  Settings,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -18,6 +19,7 @@ import { useState } from "react";
 import logo from "../assets/logo.png";
 import type { Theme } from "../lib/theme";
 import { SIDEBAR_COOKIE } from "../lib/ui-cookies";
+import { SyncIndicator } from "./sync-indicator";
 import { ThemeToggle } from "./theme-toggle";
 
 const NAV: Array<{ href: string; label: string; icon: LucideIcon; match?: RegExp }> = [
@@ -33,6 +35,7 @@ const NAV: Array<{ href: string; label: string; icon: LucideIcon; match?: RegExp
   { href: "/binders", label: "Binders", icon: BookOpen },
   { href: "/dashboard", label: "Dashboard", icon: ChartLine },
   { href: "/sync", label: "Sync", icon: RefreshCw },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 /** App navigation for the desktop window: logo, quick search, sections, theme. Collapsible. */
@@ -120,6 +123,8 @@ export function Sidebar({ initialCollapsed, theme }: { initialCollapsed: boolean
           );
         })}
       </nav>
+
+      <SyncIndicator collapsed={collapsed} />
 
       <div
         className={`flex items-center gap-2 border-t p-3 ${collapsed ? "flex-col" : "justify-between"}`}

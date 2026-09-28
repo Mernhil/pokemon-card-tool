@@ -118,6 +118,9 @@ model Printing {
   artist          Artist?        @relation(fields: [artistId], references: [id])
   isAltArt        Boolean        @default(false)
   imageKey        String? // local storage key of the master HD scan (see packages/shared/src/local-storage.ts)
+  /// JSON-encoded string[]: remote scan URLs, best first. The media route
+  /// fetches these on first view into the image cache (packages/db/src/image-cache.ts).
+  imageUrls       String?
   imageWidth      Int?
   imageHeight     Int?
   variants        PrintVariant[]
@@ -145,6 +148,7 @@ model PrintVariant {
   sales         SaleRecord[]
   valuations    VariantValuation[]
   mappings      MarketplaceMapping[]
+  providerMaps  ProviderMapping[]
 
   @@unique([printingId, finish, edition, languageCode])
   @@index([languageCode])
@@ -245,6 +249,9 @@ model BinderSlot {
 
 // ---------- PRICING ----------
 
+/// @deprecated Never written; superseded by ProviderMapping (whose external id
+/// can be empty for search-based providers). Kept so no migration has to
+/// rebuild or drop a table.
 model MarketplaceMapping {
   id          Int          @id @default(autoincrement())
   variantId   String
@@ -257,12 +264,46 @@ model MarketplaceMapping {
   @@unique([variantId, marketplace])
 }
 
-/// Raw, append-only observations.
+/// Our variant <-> one price provider's identifier for it. Resolved
+/// automatically by the provider adapter (packages/sources/src/pricing), or
+/// set by hand (manualOverride) from the card page's "Wrong match?" form.
+model ProviderMapping {
+  id             Int          @id @default(autoincrement())
+  variantId      String
+  variant        PrintVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  provider       String // PriceProviderId, see packages/shared/src/enums.ts
+  /// CardTrader blueprint id, Cardmarket idProduct, TCGplayer productId, eBay EPID.
+  externalId     String?
+  /// Search query, for search-based providers (eBay).
+  query          String?
+  url            String?
+  /// 0..1: how sure the automatic match is. Below 0.8 it's "low_confidence":
+  /// shown with a warning and left out of valuations and "Best value".
+  confidence     Float        @default(0)
+  status         String       @default("matched") // MappingStatus: matched | low_confidence | not_found
+  manualOverride Boolean      @default(false) // set by the user; never re-resolved automatically
+  notes          String? // why it matched (or didn't), shown on the card page
+  resolvedAt     DateTime     @default(now())
+
+  @@unique([variantId, provider])
+  @@index([provider, status])
+}
+
+/// Raw, append-only observations. Since the pricing pipeline, each row is
+/// one number: `provider` + `kind` + `amount` (+ condition, listing count).
+/// Older rows (kind = null) carry low/mid/market/trend instead and are read
+/// through normalizeObservation() in packages/db/src/prices.ts.
 model PriceObservation {
   id             Int          @id @default(autoincrement())
   variantId      String
   variant        PrintVariant @relation(fields: [variantId], references: [id])
   source         String // PriceSourceKind, see packages/shared/src/enums.ts
+  /// PriceProviderId: cardmarket | tcgplayer | cardtrader | ebay
+  provider       String?
+  /// PriceKind: sold | asking | market_average | trend | lowest_listing
+  kind           String?
+  /// Minor units of `currency` (cents; whole yen for JPY).
+  amount         Int?
   condition      String? // Condition, null = source doesn't split by condition
   gradingCompany String? // GradingCompany
   grade          Float?
@@ -272,9 +313,14 @@ model PriceObservation {
   market         Int?
   trend          Int?
   sampleSize     Int?
+  /// Listings (asking/lowest_listing) or sales (sold) the number is based on, if known.
+  listingCount   Int?
+  /// sha256 of the provider response this came from, to trace odd numbers back.
+  payloadHash    String?
   observedAt     DateTime
 
   @@index([variantId, observedAt(sort: Desc)])
+  @@index([variantId, provider, observedAt(sort: Desc)])
 }
 
 /// Individual completed sales (eBay sold, CardTrader completed orders).
@@ -319,4 +365,91 @@ model PortfolioSnapshot {
   costBasis  Int?
   itemCount  Int
   breakdown  String // JSON-encoded object: by game, set, rarity for the dashboard
+}
+
+// ---------- BACKGROUND JOBS ----------
+
+/// Per-item state for every background job (packages/db/src/jobs/runner.ts):
+/// catalog sync (job "catalog", itemKey = set code) and price refresh
+/// (job "price:<provider>", itemKey = PrintVariant id). One row per item,
+/// so a run can stop anywhere and the next one picks up where it left off.
+model SyncState {
+  id            Int       @id @default(autoincrement())
+  job           String // "catalog", "price:cardtrader", "fx"
+  game          String // Game.slug ("pokemon"), or "*" for game-independent jobs
+  itemKey       String // set code, variant id, ...
+  label         String? // human-readable name for progress UI ("Shrouded Fable")
+  status        String    @default("pending") // SyncStatus: pending | syncing | done | failed
+  priority      Int       @default(0) // higher runs first
+  lastSyncedAt  DateTime?
+  lastAttemptAt DateTime?
+  attemptCount  Int       @default(0) // failed attempts since the last success
+  lastError     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([job, game, itemKey])
+  @@index([job, game, status])
+}
+
+/// Cross-process mutex for a job run (the CLI and the app share one DB).
+/// Held rows are refreshed by a heartbeat; a stale heartbeat means the holder died.
+model JobLock {
+  name        String   @id
+  holder      String
+  acquiredAt  DateTime
+  heartbeatAt DateTime
+}
+
+/// One card scan in the on-disk image cache (packages/db/src/image-cache.ts).
+/// Tracked here rather than via file access times, which Windows often doesn't update.
+model ImageCacheEntry {
+  key            String   @id // file name inside the cache directory
+  printingId     String?
+  bytes          Int
+  contentType    String
+  createdAt      DateTime @default(now())
+  lastAccessedAt DateTime @default(now())
+
+  @@index([lastAccessedAt])
+  @@index([printingId])
+}
+
+/// Health of each price provider, for Settings and the card page's panels.
+model ProviderStatus {
+  provider         String    @id // PriceProviderId
+  lastSuccessAt    DateTime?
+  lastErrorAt      DateTime?
+  lastError        String?
+  rateLimitedUntil DateTime?
+  updatedAt        DateTime  @updatedAt
+}
+
+/// Non-secret app settings (display currency, refresh cadence, enabled
+/// providers) as JSON values. API keys are NOT here: they live in
+/// secrets.json in the app data directory (packages/db/src/settings.ts).
+model AppSetting {
+  key       String   @id
+  value     String // JSON
+  updatedAt DateTime @updatedAt
+}
+
+/// Last time each card page was opened: "recently viewed" cards get their
+/// prices refreshed after the collection's.
+model CardView {
+  printingId   String   @id
+  lastViewedAt DateTime
+  viewCount    Int      @default(1)
+
+  @@index([lastViewedAt])
+}
+
+/// Exchange rates as units of `currency` per 1 EUR (the ECB's convention),
+/// refreshed daily in the background. Built-in approximate rates
+/// (packages/shared/src/currency.ts) cover the time before the first fetch.
+model ExchangeRate {
+  currency String   @id
+  perEur   Float
+  asOf     DateTime
+  source   String // "ecb"
 }

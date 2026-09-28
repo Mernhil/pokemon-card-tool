@@ -1,5 +1,11 @@
 import TCGdex from "@tcgdex/sdk";
-import type { CatalogSourceAdapter, SourcePriceQuote, SourcePrinting, SourceSet } from "../types";
+import type {
+  CatalogSourceAdapter,
+  SourcePriceQuote,
+  SourcePrinting,
+  SourceSet,
+  SourceSetSummary,
+} from "../types";
 
 /**
  * The SDK maps every non-200 response (a proxy's 403, a 429 rate limit, a
@@ -20,8 +26,12 @@ export async function strictTcgdexFetch(
 }
 TCGdex.fetch = strictTcgdexFetch as typeof fetch;
 
-/** How many set/card detail requests to have in flight at once. */
-const CONCURRENCY = 10;
+/**
+ * Default number of card detail requests in flight at once, per set. The
+ * background sync runs 2 sets at a time, so this is kept low: TCGdex is a
+ * free community API, and we'd rather be slow than rate-limited.
+ */
+const DEFAULT_CONCURRENCY = 4;
 
 /**
  * The subset of TCGdex's `Set` shape our mapping needs. Deliberately not the
@@ -103,6 +113,8 @@ export function mapTcgdexSetToSourceSet(set: TcgdexSetInput): SourceSet {
 export interface TcgdexCardmarketPrice {
   updated?: string;
   unit?: string;
+  /** Cardmarket's own product id for this printing. */
+  idProduct?: number | string | null;
   avg?: number | null;
   low?: number | null;
   trend?: number | null;
@@ -122,9 +134,9 @@ export interface TcgdexTcgplayerRow {
 export interface TcgdexPricing {
   cardmarket?: TcgdexCardmarketPrice | null;
   tcgplayer?:
-    | ({ updated?: string; unit?: string } & Record<
+    | ({ updated?: string; unit?: string; productId?: number | string | null } & Record<
         string,
-        TcgdexTcgplayerRow | string | undefined
+        TcgdexTcgplayerRow | string | number | null | undefined
       >)
     | null;
 }
@@ -165,6 +177,7 @@ export function pricesFor(
       : known.includes("HOLO")
         ? "HOLO"
         : known[0]!;
+    const externalId = cm.idProduct != null ? String(cm.idProduct) : undefined;
     quotes.push({
       finish: primary,
       source: "CARDMARKET",
@@ -173,6 +186,7 @@ export function pricesFor(
       mid: toMinor(cm.avg),
       trend: toMinor(cm.trend),
       observedAt: cm.updated,
+      externalId,
     });
     if (known.includes("REVERSE_HOLO") && primary !== "REVERSE_HOLO") {
       quotes.push({
@@ -183,6 +197,7 @@ export function pricesFor(
         mid: toMinor(cm["avg-holo"]),
         trend: toMinor(cm["trend-holo"]),
         observedAt: cm.updated,
+        externalId,
       });
     }
   }
@@ -209,6 +224,7 @@ export function pricesFor(
         mid: toMinor(row.midPrice),
         market: toMinor(row.marketPrice),
         observedAt: tp.updated,
+        externalId: tp.productId != null ? String(tp.productId) : undefined,
       });
     }
   }
@@ -308,17 +324,21 @@ function chunk<T>(items: T[], size: number): T[][] {
  */
 export class TcgdexPokemonAdapter implements CatalogSourceAdapter {
   readonly slug = "tcgdex-pokemon";
+  readonly game = "pokemon";
+  readonly languageCode = "en";
   private readonly client: TCGdex;
+  private readonly concurrency: number;
 
-  constructor(client: TCGdex = new TCGdex("en")) {
+  constructor(client: TCGdex = new TCGdex("en"), options: { concurrency?: number } = {}) {
     this.client = client;
+    this.concurrency = Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY);
   }
 
   async listSets(): Promise<SourceSet[]> {
     const resumes = await this.client.set.list();
     const results: SourceSet[] = [];
 
-    for (const batch of chunk(resumes, CONCURRENCY)) {
+    for (const batch of chunk(resumes, this.concurrency)) {
       const details = await Promise.all(
         batch.map(async (resume) => {
           try {
@@ -348,7 +368,7 @@ export class TcgdexPokemonAdapter implements CatalogSourceAdapter {
    * {@link listSets}, which loads each set's details) — newest first, for
    * pickers.
    */
-  async listSetSummaries(): Promise<Array<{ code: string; name: string; totalCards?: number }>> {
+  async listSetSummaries(): Promise<SourceSetSummary[]> {
     const resumes = await this.client.set.list();
     if (resumes.length === 0) throw new Error("TCGdex returned an empty set list");
     return resumes
@@ -362,7 +382,7 @@ export class TcgdexPokemonAdapter implements CatalogSourceAdapter {
 
     const results: SourcePrinting[] = [];
 
-    for (const batch of chunk(set.cards, CONCURRENCY)) {
+    for (const batch of chunk(set.cards, this.concurrency)) {
       const details = await Promise.all(
         batch.map(async (resume) => {
           // One retry for transient failures, then fail the set loudly rather

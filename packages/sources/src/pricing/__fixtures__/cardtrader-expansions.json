@@ -1,0 +1,5 @@
+[
+  { "id": 3001, "game_id": 1, "code": "sfa", "name": "Shrouded Fable" },
+  { "id": 4101, "game_id": 5, "code": "sfa", "name": "Shrouded Fable" },
+  { "id": 4102, "game_id": 5, "code": "sv6", "name": "Twilight Masquerade" }
+]

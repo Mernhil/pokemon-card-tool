@@ -3,8 +3,16 @@ import type { SourceAdapter, VariantRef } from "./types";
 
 const stubAdapter: SourceAdapter = {
   slug: "stub",
+  game: "pokemon",
+  languageCode: "en",
   async listSets() {
     return [];
+  },
+  async listSetSummaries() {
+    return [];
+  },
+  async getSet() {
+    return null;
   },
   async listPrintings() {
     return [];

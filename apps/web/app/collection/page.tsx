@@ -9,12 +9,14 @@ import { EmptyState } from "../../components/ui/empty-state";
 import { PageHeader } from "../../components/ui/page-header";
 import { StatTile } from "../../components/ui/stat-tile";
 import { cardHref } from "../../lib/cards";
+import { loadMoneyDisplay } from "../../lib/money-config";
 
 // No DATABASE_URL at build time (only set at runtime by the desktop sidecar) —
 // prerendering this page would fail, so it must render on request instead.
 export const dynamic = "force-dynamic";
 
 export default async function CollectionPage() {
+  await loadMoneyDisplay();
   const items = await prisma.collectionItem.findMany({
     orderBy: { createdAt: "desc" },
     include: {

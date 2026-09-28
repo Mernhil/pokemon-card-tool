@@ -1,21 +1,27 @@
 import cron from "node-cron";
-import { syncPrices } from "./jobs/sync-prices";
+import { requestCatalogSync, requestFxRefresh, requestPriceRefresh } from "./background";
 import { computeValuations } from "./jobs/compute-valuations";
 import { snapshotPortfolios } from "./jobs/snapshot-portfolios";
 
 /**
  * Desktop build has no separate worker process or queue: everything runs as
  * scheduled tasks inside the same Next.js server the Tauri shell spawns.
- * Registered once from instrumentation.ts on server start.
- *
- * New sets are added by hand from the Sync page (apps/web/app/sync); the
- * nightly job only refreshes what's already there.
+ * Registered once from instrumentation.ts on server start (which also kicks
+ * off the first catalog sync shortly after startup — lib/background.ts).
  */
 export function startScheduler(): void {
-  // 03:30 local time: re-sync known sets for fresh prices (also recomputes valuations).
-  cron.schedule("30 3 * * *", () => runSafely("sync-prices", syncPrices));
+  // Cheap when there's nothing to do (one set-list request): picks up new
+  // sets, retries failed ones, and refreshes sets older than 30 days.
+  cron.schedule("17 */6 * * *", () => requestCatalogSync());
 
-  // Snapshot at least once a day even when the price sync failed or had nothing to do.
+  // Hourly: only collection / recently viewed cards whose prices are older
+  // than the refresh interval (24 h by default) are fetched.
+  cron.schedule("7 * * * *", () => requestPriceRefresh());
+
+  // ECB publishes around 16:00 CET on working days; the job skips fresh rates.
+  cron.schedule("37 */6 * * *", () => requestFxRefresh());
+
+  // Snapshot at least once a day even when nothing else ran.
   cron.schedule("0 4 * * *", () =>
     runSafely("valuations", async () => {
       await computeValuations();

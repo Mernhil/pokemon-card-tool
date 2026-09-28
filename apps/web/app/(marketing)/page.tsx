@@ -6,10 +6,12 @@ import { CardTile } from "../../components/card-tile";
 import { cardHref } from "../../lib/cards";
 import { ButtonLink } from "../../components/ui/button";
 import { CountUp } from "../../components/ui/count-up";
+import { loadMoneyDisplay } from "../../lib/money-config";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
+  await loadMoneyDisplay();
   const [items, catalogCards, binders] = await Promise.all([
     prisma.collectionItem.findMany({
       orderBy: { createdAt: "desc" },

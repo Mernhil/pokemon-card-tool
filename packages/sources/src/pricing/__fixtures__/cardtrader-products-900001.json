@@ -1,0 +1,88 @@
+{
+  "900001": [
+    {
+      "id": 1,
+      "blueprint_id": 900001,
+      "quantity": 3,
+      "price": { "cents": 12, "currency": "EUR" },
+      "graded": false,
+      "properties_hash": {
+        "condition": "Near Mint",
+        "pokemon_language": "en",
+        "pokemon_reverse": false
+      }
+    },
+    {
+      "id": 2,
+      "blueprint_id": 900001,
+      "quantity": 1,
+      "price": { "cents": 9, "currency": "EUR" },
+      "graded": false,
+      "properties_hash": {
+        "condition": "Near Mint",
+        "pokemon_language": "en",
+        "pokemon_reverse": false
+      }
+    },
+    {
+      "id": 3,
+      "blueprint_id": 900001,
+      "quantity": 1,
+      "price": { "cents": 5, "currency": "EUR" },
+      "graded": false,
+      "properties_hash": {
+        "condition": "Slightly Played",
+        "pokemon_language": "en",
+        "pokemon_reverse": false
+      }
+    },
+    {
+      "id": 4,
+      "blueprint_id": 900001,
+      "quantity": 2,
+      "price": { "cents": 45, "currency": "EUR" },
+      "graded": false,
+      "properties_hash": {
+        "condition": "Near Mint",
+        "pokemon_language": "en",
+        "pokemon_reverse": true
+      }
+    },
+    {
+      "id": 5,
+      "blueprint_id": 900001,
+      "quantity": 1,
+      "price": { "cents": 3, "currency": "EUR" },
+      "graded": false,
+      "properties_hash": {
+        "condition": "Near Mint",
+        "pokemon_language": "jp",
+        "pokemon_reverse": false
+      }
+    },
+    {
+      "id": 6,
+      "blueprint_id": 900001,
+      "quantity": 1,
+      "price": { "cents": 2500, "currency": "EUR" },
+      "graded": true,
+      "properties_hash": {
+        "condition": "Near Mint",
+        "pokemon_language": "en",
+        "pokemon_reverse": false
+      }
+    },
+    {
+      "id": 7,
+      "blueprint_id": 900001,
+      "quantity": 0,
+      "price": { "cents": 1, "currency": "EUR" },
+      "graded": false,
+      "properties_hash": {
+        "condition": "Near Mint",
+        "pokemon_language": "en",
+        "pokemon_reverse": false
+      }
+    }
+  ]
+}

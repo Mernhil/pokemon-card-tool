@@ -32,3 +32,16 @@ export async function ensureBaseData(): Promise<void> {
     });
   }
 }
+
+/**
+ * WAL journal mode: pages keep reading while a background sync writes (in
+ * the default rollback mode a writer blocks readers). Persistent per DB
+ * file; harmless to repeat. Best-effort — never blocks startup.
+ */
+export async function enableConcurrentReads(): Promise<void> {
+  try {
+    await prisma.$queryRawUnsafe("PRAGMA journal_mode = WAL");
+  } catch (err) {
+    console.warn("[db] couldn't enable WAL mode:", err);
+  }
+}

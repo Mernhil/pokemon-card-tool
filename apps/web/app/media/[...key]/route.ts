@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getFile } from "@tcg-vault/shared";
+import { getCardImage, getSettingsCached } from "@tcg-vault/db";
+import { REMOTE_IMAGE_PREFIX, getFile } from "@tcg-vault/shared";
 
 const CONTENT_TYPES: Record<string, string> = {
   png: "image/png",
@@ -9,10 +10,54 @@ const CONTENT_TYPES: Record<string, string> = {
   avif: "image/avif",
 };
 
+/** Card-shaped stand-in when a scan can't be fetched right now. Never cached. */
+const PLACEHOLDER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="500" height="700" viewBox="0 0 500 700">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f5f5f4"/><stop offset="1" stop-color="#d6d3d1"/></linearGradient></defs>
+<rect x="8" y="8" width="484" height="684" rx="24" fill="url(#g)" stroke="#fcd34d" stroke-width="16"/>
+<text x="250" y="340" font-family="system-ui,sans-serif" font-size="28" fill="#57534e" text-anchor="middle">Image unavailable</text>
+<text x="250" y="380" font-family="system-ui,sans-serif" font-size="20" fill="#a8a29e" text-anchor="middle">Tried again next time you open it</text>
+</svg>`;
+
+function placeholder() {
+  return new NextResponse(PLACEHOLDER_SVG, {
+    headers: {
+      "Content-Type": "image/svg+xml",
+      "Cache-Control": "no-store",
+      "X-Image-Status": "unavailable",
+    },
+  });
+}
+
+/**
+ * Local media: set logos, user photos, scans from older syncs — and card
+ * scans behind `remote/<printingId>` keys, which go through the lazy image
+ * cache (packages/db/src/image-cache.ts): served from disk, or fetched once
+ * and cached. A scan that can't be fetched gets a placeholder, not an error.
+ */
 export async function GET(_req: Request, { params }: { params: { key: string[] } }) {
   const key = params.key.join("/");
-  const ext = key.split(".").pop()?.toLowerCase() ?? "";
 
+  if (key.startsWith(REMOTE_IMAGE_PREFIX)) {
+    const printingId = key.slice(REMOTE_IMAGE_PREFIX.length);
+    if (!printingId || printingId.includes("/")) return placeholder();
+    const image = await getSettingsCached()
+      .then((settings) =>
+        getCardImage(printingId, { maxBytes: settings.imageCacheMaxMb * 1024 * 1024 }),
+      )
+      .catch(() => null);
+    if (!image) return placeholder();
+    return new NextResponse(new Uint8Array(image.body), {
+      headers: {
+        "Content-Type": image.contentType,
+        // Not "immutable": the cache may evict it, and a re-sync may point
+        // the printing at a better scan.
+        "Cache-Control": "public, max-age=604800",
+        "X-Image-Status": image.from,
+      },
+    });
+  }
+
+  const ext = key.split(".").pop()?.toLowerCase() ?? "";
   try {
     const file = await getFile(key);
     return new NextResponse(new Uint8Array(file), {

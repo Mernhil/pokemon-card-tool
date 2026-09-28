@@ -2,6 +2,7 @@
 
 import { animate, useInView, useReducedMotion } from "motion/react";
 import { useEffect, useRef } from "react";
+import { formatEur } from "../money";
 
 /** A number that counts up to its value the first time it scrolls into view. */
 export function CountUp({
@@ -17,9 +18,7 @@ export function CountUp({
   const inView = useInView(ref, { once: true });
   const reduced = useReducedMotion();
   const fmt = (v: number) =>
-    format === "eur"
-      ? new Intl.NumberFormat("en-US", { style: "currency", currency: "EUR" }).format(v / 100)
-      : Math.round(v).toLocaleString("en-US");
+    format === "eur" ? formatEur(Math.round(v)) : Math.round(v).toLocaleString("en-US");
 
   useEffect(() => {
     const el = ref.current;

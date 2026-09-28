@@ -157,6 +157,8 @@ fn main() {
                 .env("HOSTNAME", "127.0.0.1")
                 .env("DATABASE_URL", database_url)
                 .env("MEDIA_DIR", media_dir)
+                // Image cache + secrets.json (API keys) live here, never in the install dir.
+                .env("TCG_VAULT_DATA_DIR", app_data_dir.to_string_lossy().to_string())
                 .env("TCG_VAULT_DESKTOP", "1")
                 // Lets the server exit on its own if this process dies without
                 // killing it (apps/web/lib/parent-watchdog.ts).
