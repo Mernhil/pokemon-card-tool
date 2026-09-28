@@ -28,8 +28,9 @@ export type SyncEvent =
 export async function runSync(
   codes: string[] | null,
   emit: (e: SyncEvent) => void,
+  game?: string,
 ): Promise<boolean> {
-  const adapter = catalogAdapter();
+  const adapter = catalogAdapter(game);
   try {
     if (codes === null) {
       const all = await syncedSetCodes(adapter.game);
@@ -67,7 +68,7 @@ export async function runSync(
     const message = err instanceof Error ? err.message : String(err);
     emit({
       type: "error",
-      message: `Sync failed: ${message}. Check your internet connection — sets come from api.tcgdex.net.`,
+      message: `Sync failed: ${message}. Check your internet connection.`,
     });
     return false;
   }

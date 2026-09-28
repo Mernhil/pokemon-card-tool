@@ -10,7 +10,9 @@ import {
 } from "@tcg-vault/db";
 import { PRICE_PROVIDERS, type PriceProviderId } from "@tcg-vault/shared";
 import {
+  OptcgAdapter,
   TcgdexPokemonAdapter,
+  YgoprodeckAdapter,
   createPriceProviders,
   type CatalogSourceAdapter,
   type PriceProvider,
@@ -26,7 +28,11 @@ import {
  * their prices then refresh through every provider that supports the game.
  */
 
-const CATALOG_ADAPTERS: Array<() => CatalogSourceAdapter> = [() => new TcgdexPokemonAdapter()];
+const CATALOG_ADAPTERS: Array<() => CatalogSourceAdapter> = [
+  () => new TcgdexPokemonAdapter(),
+  () => new YgoprodeckAdapter(),
+  () => new OptcgAdapter(),
+];
 
 interface Loop {
   running: boolean;
