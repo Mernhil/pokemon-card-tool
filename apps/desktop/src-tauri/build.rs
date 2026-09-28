@@ -3,7 +3,11 @@ fn main() {
     // `allow-<command>` permissions for them, granted to the local server's
     // origin in capabilities/local-app-updater.json.
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
-        tauri_build::AppManifest::new().commands(&["update_status", "install_update"]),
+        tauri_build::AppManifest::new().commands(&[
+            "update_status",
+            "install_update",
+            "check_for_updates",
+        ]),
     ))
     .expect("failed to run tauri-build");
 }
