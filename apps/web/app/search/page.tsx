@@ -26,6 +26,7 @@ export default async function SearchPage({
   const owned_ = searchParams.owned === "1";
   const lang = searchParams.lang || undefined;
   const sort: Sort = (searchParams.sort as Sort) in SORTS ? (searchParams.sort as Sort) : "value";
+  const page = Math.max(1, Number(searchParams.page) || 1);
 
   const [sets, rarities, languages] = await Promise.all([
     prisma.set.findMany({ orderBy: { releaseDate: "desc" }, select: { id: true, name: true } }),
@@ -69,7 +70,22 @@ export default async function SearchPage({
   const bestValue = (p: (typeof printings)[number]) =>
     Math.max(-1, ...p.variants.map((v) => values.get(v.id)?.valueEur ?? -1));
   if (sort === "value") printings.sort((a, b) => bestValue(b) - bestValue(a));
-  const shown = printings.slice(0, LIMIT);
+  const pageCount = Math.max(1, Math.ceil(printings.length / LIMIT));
+  const currentPage = Math.min(page, pageCount);
+  const shown = printings.slice((currentPage - 1) * LIMIT, currentPage * LIMIT);
+  const pageHref = (p: number) => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (setId) params.set("set", String(setId));
+    if (rarityId) params.set("rarity", String(rarityId));
+    if (finish) params.set("finish", finish);
+    if (owned_) params.set("owned", "1");
+    if (lang) params.set("lang", lang);
+    if (sort !== "value") params.set("sort", sort);
+    if (p > 1) params.set("page", String(p));
+    const qs = params.toString();
+    return qs ? `/search?${qs}` : "/search";
+  };
 
   const select = "field";
   const owned = await prisma.collectionItem.groupBy({
@@ -94,7 +110,7 @@ export default async function SearchPage({
               first.
             </>
           ) : (
-            `${printings.length} result${printings.length === 1 ? "" : "s"}${printings.length > LIMIT ? ` — showing the first ${LIMIT}` : ""}`
+            `${printings.length} result${printings.length === 1 ? "" : "s"}${pageCount > 1 ? ` — page ${currentPage} of ${pageCount}` : ""}`
           )
         }
       />
@@ -200,6 +216,24 @@ export default async function SearchPage({
           );
         })}
       </ul>
+
+      {pageCount > 1 ? (
+        <nav className="mt-6 flex items-center justify-center gap-3 text-sm" aria-label="Pagination">
+          {currentPage > 1 ? (
+            <Link href={pageHref(currentPage - 1)} className={buttonClass("secondary", "sm")}>
+              Previous
+            </Link>
+          ) : null}
+          <span className="text-neutral-500">
+            Page {currentPage} of {pageCount}
+          </span>
+          {currentPage < pageCount ? (
+            <Link href={pageHref(currentPage + 1)} className={buttonClass("secondary", "sm")}>
+              Next
+            </Link>
+          ) : null}
+        </nav>
+      ) : null}
     </main>
   );
 }
