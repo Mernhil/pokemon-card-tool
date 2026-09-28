@@ -10,16 +10,24 @@ database — single profile, no server, no login, no account. See
 - **Browse & Search** the synced catalog: sets by series with logos and your
   completion, card grids with owned/missing filters, prices per finish.
 - **Card page:** a 3D card you can tilt, inspect full-screen, rotate and zoom,
-  with holo / reverse-holo / full-art foil; price history; one-click add.
+  with holo / reverse-holo / full-art foil; prices from Cardmarket, TCGplayer,
+  CardTrader and eBay side by side (each labelled Sold / Asking / Market avg /
+  Trend / Lowest listing), best value, condition estimate, price history
+  chart; one-click add.
 - **Collection:** grid or list, filters, quantity/condition edits in place,
   value and profit/loss.
 - **Binders:** a shelf of leather binders; open one to turn real 3D pages
   (drag the corner), drag cards from "Your cards" into pockets, move/swap
   them, or build a binder from a set with the missing cards greyed out.
-- **Dashboard:** collection value over time, value by set and rarity, set
-  completion, top cards.
-- **Sync:** pick sets, watch them download with live progress; prices refresh
-  nightly. Light / dark / auto theme; updates install from inside the app.
+- **Dashboard:** collection value over time, top movers, value by set and
+  rarity, set completion, top cards.
+- **Sync:** every set syncs by itself in the background (card data only;
+  images download when first viewed and are cached, max 500 MB). Pick sets to
+  sync them first. **Settings:** price-source keys, display currency, refresh
+  cadence. Light / dark / auto theme; updates install from inside the app.
+
+**Setting up price sources, keys, and a fresh machine: see
+[docs/setup.md](docs/setup.md).**
 
 ## Dev setup
 ```bash
@@ -27,26 +35,23 @@ pnpm i
 cp .env.example .env
 pnpm db:migrate:dev
 pnpm db:seed
-pnpm db:sync-catalog -- --sets sv06.5,sv03.5   # or use the Sync page in the app
-pnpm dev
+pnpm dev            # starts syncing every set in the background after ~10 s
+pnpm db:seed-demo   # optional: a sample card with made-up prices, no network needed
 ```
 Web: http://localhost:3000
 
 ## Getting cards and prices in
-Everything comes from [TCGdex](https://tcgdex.dev) (Pokémon, English): card
-data, images, and the Cardmarket (EUR) + TCGplayer (USD) prices it bundles
-with each card. Needs internet.
-
-- **In the app:** the **Sync** page lists every set; tick some and press
-  *Sync selected sets*. *Refresh prices* re-syncs the sets you already have.
-- **CLI:** `pnpm db:sync-catalog -- --sets <codes>`, or
-  `pnpm db:sync-prices` to refresh every synced set.
-- The app also refreshes prices nightly at 03:30 while it's running.
-
-Re-syncing is safe: images already on disk aren't downloaded again, and each
-run appends new price observations. A card's value is the near-mint price
-combined from both sources (`packages/db/src/valuations.ts`), scaled by
-condition in your collection.
+- **Catalog:** [TCGdex](https://tcgdex.dev) (Pokémon, English), synced set by
+  set in the background, newest first, resumable (`packages/db/src/catalog-sync.ts`
+  on the shared job runner in `packages/db/src/jobs`). One failing set never
+  blocks the others; failed sets are retried on the next run. CLI:
+  `pnpm db:sync-catalog -- --all | --sets <codes> | --retry-failed | --status`.
+- **Prices:** one background job per provider (`packages/db/src/price-refresh.ts`,
+  adapters in `packages/sources/src/pricing`): cards in your collection every
+  24 h, then recently viewed cards; any other card when you open it. Card
+  pages only read stored prices. CLI: `pnpm db:sync-prices`.
+- A card's value is the near-mint price combined across providers
+  (`packages/db/src/valuations.ts`), scaled by condition in your collection.
 
 ## Desktop build
 ```bash

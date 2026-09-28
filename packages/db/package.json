@@ -14,7 +14,8 @@
     "studio": "dotenv -e ../../.env -- prisma studio",
     "sync-prices": "dotenv -e ../../.env -- tsx src/sync-prices.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "seed-demo": "dotenv -e ../../.env -- tsx prisma/seed-demo.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",

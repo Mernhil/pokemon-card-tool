@@ -373,7 +373,7 @@ export async function runJob(
             error,
           });
           log(
-            `${item.label ?? item.key}: attempt ${attempt} failed (${error}); retrying in ${Math.round(waitMs / 1000)}s`,
+            `${item.label ?? item.key}: attempt ${attempt} failed (${error}); retrying in ${(waitMs / 1000).toFixed(1)}s`,
           );
           await sleep(waitMs);
         }
