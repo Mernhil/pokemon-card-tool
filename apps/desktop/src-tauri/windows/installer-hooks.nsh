@@ -12,6 +12,22 @@
 ;      whose path is inside $INSTDIR are touched, never other Node programs.
 ; 0.1.6+ also ties the server to the app with a Windows job object, so this
 ; is mostly a safety net from then on.
+;
+; NSIS_HOOK_PREINSTALL also wipes $INSTDIR\web (tauri.conf.json's
+; bundle.resources maps resources/web -> web) before extraction. NSIS only
+; ever adds/overwrites files on an upgrade; it never removes ones that
+; existed in an older version but not the new one, so the Next.js build's
+; content-hashed JS/CSS chunks (and anything else dropped from a later
+; release) used to accumulate forever. Deleting the whole tree first makes
+; every install start clean; the app itself is never taken from here (it's
+; installed under $INSTDIR directly), so nothing but bundled web assets is
+; touched.
+;
+; NSIS_HOOK_POSTINSTALL notifies the shell that the exe (and therefore its
+; icon) changed. Windows caches shell icons per file; overwriting
+; tcg-vault-desktop.exe in place (as every update does) can leave the
+; taskbar/desktop shortcut showing a stale or generic icon until Explorer's
+; icon cache is invalidated.
 
 !macro TCGV_STOP_RUNNING
   nsExec::Exec `taskkill /F /T /IM tcg-vault-desktop.exe`
@@ -35,8 +51,19 @@
 
 !macro NSIS_HOOK_PREINSTALL
   !insertmacro TCGV_STOP_RUNNING
+
+  IfFileExists "$INSTDIR\web\*.*" 0 tcgv_no_stale_web
+    RMDir /r "$INSTDIR\web"
+  tcgv_no_stale_web:
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
   !insertmacro TCGV_STOP_RUNNING
+!macroend
+
+!macro NSIS_HOOK_POSTINSTALL
+  ; SHCNE_ASSOCCHANGED + SHCNF_IDLIST: broadcast that file associations/icons
+  ; changed, forcing Explorer to drop its cached icon for the exe we just
+  ; overwrote instead of continuing to show the previous (or default) one.
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x0000, i 0, i 0)'
 !macroend
