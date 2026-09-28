@@ -434,18 +434,6 @@ function Card3D({
     const el = ref.current;
     if (!el) return;
     const s = state.current;
-    if (drag.current) {
-      const dx = e.clientX - drag.current.x;
-      const dy = e.clientY - drag.current.y;
-      if (Math.abs(dx) + Math.abs(dy) > 3) drag.current.moved = true;
-      drag.current.x = e.clientX;
-      drag.current.y = e.clientY;
-      s.rotY += dx * 0.6;
-      s.rotX = clamp(s.rotX - dy * 0.6, -75, 75);
-      stiffness.current = 0.35;
-      apply();
-      return;
-    }
     // Measure the untransformed stage, not `el` itself: `el` carries the
     // live rotateX/rotateY/scale transform, so its own bounding rect is the
     // foreshortened, skewed *screen-space* box of the rotated card, not its
@@ -453,6 +441,25 @@ function Card3D({
     // (and the reset-drag glitch after releasing a rotated/zoomed card)
     // wildly unstable in inspect mode. The stage wrapper never transforms.
     const rect = (el.parentElement ?? el).getBoundingClientRect();
+    if (drag.current) {
+      const dx = e.clientX - drag.current.x;
+      const dy = e.clientY - drag.current.y;
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.current.moved = true;
+      drag.current.x = e.clientX;
+      drag.current.y = e.clientY;
+      // Normalized by the stage's own box, not raw CSS pixels: dragging
+      // across the full width/height always produces the same rotation
+      // regardless of any mismatch between reported pointer deltas and the
+      // rendered box (seen on some WebView2/Windows display-scaling setups,
+      // where a full mouse drag barely rotated the card and, since the
+      // foil sheen position is also driven by rotation, made the holo
+      // effect look inert too).
+      s.rotY += (dx / rect.width) * 320;
+      s.rotX = clamp(s.rotX - (dy / rect.height) * 320, -75, 75);
+      stiffness.current = 0.35;
+      apply();
+      return;
+    }
     const px = clamp((e.clientX - rect.left) / rect.width, 0, 1);
     const py = clamp((e.clientY - rect.top) / rect.height, 0, 1);
     s.tiltY = (px - 0.5) * 2 * maxTilt;
