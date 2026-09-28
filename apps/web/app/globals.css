@@ -533,6 +533,22 @@ textarea {
       calc(var(--foil-x) / 8) calc(var(--foil-y) / 8),
       var(--foil-x) var(--foil-y);
   }
+  /*
+   * Full-art / ex foil (area: "full", unclipped over the whole illustration):
+   * color-dodge with the base holo filter is tuned for a small window over a
+   * dark backing (classic holo rare). Applied unclipped over a full-color
+   * photographic illustration it blows out to a flat, opaque pink/blue wash
+   * that hides the art instead of reading as a sheen. pokemon-cards-css's own
+   * full-bleed treatments (v-full-art.css, secret-rare.css) never use plain
+   * color-dodge for this case either — soft-light and a lower ceiling keep
+   * the rainbow as a sweep instead of a tint.
+   */
+  .card3d--preset-full-art-textured .card3d__foil,
+  .card3d--preset-op-parallel .card3d__foil {
+    mix-blend-mode: soft-light;
+    filter: brightness(1) contrast(1.05) saturate(1.15);
+    opacity: calc(var(--intensity) * var(--energy) * 0.35);
+  }
   /* Cosmos: filter tuned per pokemon-cards-css's cosmos-holo.css. */
   .card3d--voronoi .card3d__foil {
     filter: brightness(1) contrast(1) saturate(0.8);
@@ -1183,14 +1199,23 @@ textarea {
   .pocket__foil--art {
     clip-path: inset(11% 8% 50% 8%);
   }
+  /* Same mask-composite -> clip-path fix as .card3d--frame above: a webview
+     that doesn't honor mask-composite: xor/exclude renders the un-excluded
+     full rectangle instead, which is this "strange rectangle" bug again, just
+     in the binder/grid thumbnail rather than the inspector. */
   .pocket__foil--frame {
-    -webkit-mask:
-      linear-gradient(#000 0 0) 0 0 / 100% 100% no-repeat,
-      linear-gradient(#000 0 0) 50% 18.03% / 84% 39% no-repeat;
-    -webkit-mask-composite: xor;
-    mask:
-      linear-gradient(#000 0 0) 0 0 / 100% 100% no-repeat exclude,
-      linear-gradient(#000 0 0) 50% 18.03% / 84% 39% no-repeat;
+    clip-path: polygon(
+      0% 0%,
+      100% 0%,
+      100% 100%,
+      0% 100%,
+      0% 50%,
+      92% 50%,
+      92% 11%,
+      8% 11%,
+      8% 50%,
+      0% 50.6%
+    );
   }
   @media (prefers-reduced-motion: reduce) {
     .pocket__card,
