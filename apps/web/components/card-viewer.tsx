@@ -23,12 +23,15 @@ const FINISH_LABELS: Record<string, string> = {
  */
 export function CardViewer({
   imageSrc,
+  imageIsFallback = false,
   name,
   number,
   rarityName,
   variants,
 }: {
   imageSrc: string | null;
+  /** `imageSrc` is another printing's art (this printing has no scan yet). */
+  imageIsFallback?: boolean;
   name: string;
   number: string;
   rarityName: string | null;
@@ -63,6 +66,11 @@ export function CardViewer({
           onActivate={inspect}
         />
       </div>
+      {imageIsFallback ? (
+        <p className="text-center text-[11px] text-neutral-400">
+          No scan for this printing yet — showing the original printing&apos;s art
+        </p>
+      ) : null}
       <FinishPicker finishes={finishes} value={finish} onChange={setFinish} />
       <button
         type="button"
@@ -75,6 +83,7 @@ export function CardViewer({
       {inspecting ? (
         <CardInspector
           imageSrc={imageSrc}
+          imageIsFallback={imageIsFallback}
           name={name}
           number={number}
           rarityName={rarityName}
@@ -132,6 +141,7 @@ function FinishPicker({
 
 export function CardInspector({
   imageSrc,
+  imageIsFallback = false,
   name,
   number,
   rarityName,
@@ -142,6 +152,7 @@ export function CardInspector({
   onClose,
 }: {
   imageSrc: string | null;
+  imageIsFallback?: boolean;
   name: string;
   number: string;
   rarityName: string | null;
@@ -251,6 +262,11 @@ export function CardInspector({
       <p className="relative z-10 text-sm text-white/80">
         {name} <span className="text-white/50">· {number}</span>
       </p>
+      {imageIsFallback ? (
+        <p className="relative z-10 -mt-2 text-xs text-white/40">
+          No scan for this printing yet — showing the original printing&apos;s art
+        </p>
+      ) : null}
 
       <div
         className="relative z-0 flex min-h-0 flex-1 items-center justify-center [perspective:1600px]"
