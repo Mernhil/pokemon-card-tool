@@ -10,6 +10,7 @@ import {
   PanelLeftOpen,
   RefreshCw,
   Search,
+  Settings,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -34,6 +35,7 @@ const NAV: Array<{ href: string; label: string; icon: LucideIcon; match?: RegExp
   { href: "/binders", label: "Binders", icon: BookOpen },
   { href: "/dashboard", label: "Dashboard", icon: ChartLine },
   { href: "/sync", label: "Sync", icon: RefreshCw },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 /** App navigation for the desktop window: logo, quick search, sections, theme. Collapsible. */
