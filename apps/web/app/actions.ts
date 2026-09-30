@@ -3,7 +3,10 @@
 import { revalidatePath } from "next/cache";
 import {
   adjustCopies,
+  createAlert,
+  deleteAlert,
   deleteCollectionItem,
+  evaluateAlerts,
   prisma,
   releaseBinderCopies,
   snapshotPortfolio,
@@ -138,4 +141,27 @@ export async function settleQuickAddAction(): Promise<ActionResult> {
   return attempt(async () => {
     await snapshotPortfolio();
   });
+}
+
+/** Alerts: "tell me when this finish goes above / below X" (X in whole euros or cents, as EUR minor units). */
+export async function createPriceAlertAction(input: {
+  variantId: string;
+  direction: "ABOVE" | "BELOW";
+  thresholdEur: number;
+}): Promise<ActionResult> {
+  const result = await attempt(async () => {
+    await createAlert(input);
+    // The card may already be past the line: check right away, not at the next price sync.
+    await evaluateAlerts();
+  });
+  if (result.ok) {
+    revalidatePath("/dashboard");
+  }
+  return result;
+}
+
+export async function deletePriceAlertAction(id: string): Promise<ActionResult> {
+  const result = await attempt(() => deleteAlert(id));
+  if (result.ok) revalidatePath("/dashboard");
+  return result;
 }

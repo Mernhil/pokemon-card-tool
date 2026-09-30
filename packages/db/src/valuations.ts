@@ -1,3 +1,4 @@
+import { evaluateAlerts } from "./alerts";
 import {
   derivedValue,
   headlinePrice,
@@ -86,10 +87,7 @@ export function valueFromPoints(
  * today's VariantValuation "NM" bucket (EUR and USD at today's rates).
  * Returns rows written.
  */
-export async function computeValuations(
-  now = new Date(),
-  language?: string,
-): Promise<number> {
+export async function computeValuations(now = new Date(), language?: string): Promise<number> {
   const priceLanguage = language ?? (await getSettings()).priceLanguage;
   const day = utcDay(now);
   const since = new Date(now.getTime() - LOOKBACK_DAYS * 86_400_000);
@@ -148,6 +146,8 @@ export async function computeValuations(
       where: { day, bucket: "NM", variantId: { in: stale.slice(i, i + 500) } },
     });
   }
+  // Fresh values may have crossed someone's price alert.
+  await evaluateAlerts(now).catch(() => 0);
   return written;
 }
 

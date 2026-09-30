@@ -5,6 +5,7 @@ import {
   enqueueStalePrices,
   getCardImageResult,
   latestValuations,
+  listAlerts,
   prisma,
   recordCardView,
   runnableProviders,
@@ -15,6 +16,7 @@ import { CardViewer } from "../../../../components/card-viewer";
 import { FinishBadge, PriceChip, finishLabel } from "../../../../components/money";
 import { PriceHistory } from "../../../../components/prices/price-history";
 import { CustomImageControl } from "../../../../components/custom-image-control";
+import { PriceAlerts } from "../../../../components/price-alerts";
 import { PriceRefresh } from "../../../../components/prices/price-refresh";
 import { PriceLanguageSelect } from "../../../../components/prices/price-language-select";
 import { PricesSection } from "../../../../components/prices/prices-section";
@@ -133,7 +135,7 @@ export default async function CardPage({
   if (langQueued) requestPriceRefresh(["ebay"]);
   const langParam = language !== settings.priceLanguage ? `&lang=${language}` : "";
 
-  const [values, neighbours, prices] = await Promise.all([
+  const [values, neighbours, prices, alertRows] = await Promise.all([
     latestValuations(variantIds),
     prisma.printing.findMany({
       where: { setId: set.id },
@@ -141,12 +143,18 @@ export default async function CardPage({
       select: { id: true, collectorNumber: true },
     }),
     selected
-      ? loadCardPrices(selected.id, variantIds, {
-          name: printing.card.name,
-          number: printing.collectorNumber,
-          game: game.slug,
-        }, language)
+      ? loadCardPrices(
+          selected.id,
+          variantIds,
+          {
+            name: printing.card.name,
+            number: printing.collectorNumber,
+            game: game.slug,
+          },
+          language,
+        )
       : null,
+    listAlerts(variantIds),
   ]);
   const owned = variants.map((v) => ({
     finish: v.finish,
@@ -239,6 +247,22 @@ export default async function CardPage({
               value: values.get(v.id)?.valueEur ?? null,
             }))}
           />
+
+          {selected ? (
+            <PriceAlerts
+              variantId={selected.id}
+              currentValueEur={values.get(selected.id)?.valueEur ?? null}
+              alerts={alertRows
+                .filter((a) => a.variantId === selected.id)
+                .map((a) => ({
+                  id: a.id,
+                  direction: a.direction,
+                  thresholdEur: a.thresholdEur,
+                  triggered: a.triggeredAt !== null,
+                  triggeredValueEur: a.triggeredValueEur,
+                }))}
+            />
+          ) : null}
 
           {selected && prices ? (
             <>

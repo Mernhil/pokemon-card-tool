@@ -410,6 +410,12 @@ export function SettingsForm({
 
       <section className="panel p-5">
         <h2 className="text-sm font-semibold">Image cache</h2>
+        <p className="mt-2 text-xs text-neutral-500">
+          <a className="underline" href="/missing-images">
+            Cards without a scan
+          </a>{" "}
+          lists what the sources have no image for.
+        </p>
         <label className="mt-3 flex items-center gap-3 text-sm">
           Maximum size (MB)
           <input {...number("imageCacheMaxMb", 50, 100000)} />
