@@ -102,7 +102,11 @@ export async function setCustomImage(
 export async function removeCustomImage(printingId: string): Promise<boolean> {
   const printing = await prisma.printing.findUnique({
     where: { id: printingId },
-    select: { customImageKey: true, imageUrls: true, set: { select: { game: { select: { slug: true } } } } },
+    select: {
+      customImageKey: true,
+      imageUrls: true,
+      set: { select: { game: { select: { slug: true } } } },
+    },
   });
   if (!printing?.customImageKey) return false;
   // Back to the normal sources; Pokémon printings keep the lazy key (constructed CDN candidates).

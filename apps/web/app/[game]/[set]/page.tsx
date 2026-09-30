@@ -74,6 +74,12 @@ export default async function SetCardGridPage({
     };
   });
   const ownedDistinct = cards.filter((c) => c.owned > 0).length;
+  // What's still missing, priciest first, and what it would cost to fill the gaps.
+  const missing = cards
+    .filter((c) => c.owned === 0)
+    .sort((a, b) => (b.price ?? -1) - (a.price ?? -1));
+  const costToComplete = missing.reduce((sum, c) => sum + (c.price ?? 0), 0);
+  const unpricedMissing = missing.filter((c) => c.price === null).length;
 
   return (
     <main className="page">
@@ -114,6 +120,26 @@ export default async function SetCardGridPage({
           </div>
         </div>
       </header>
+      {missing.length > 0 && ownedDistinct > 0 ? (
+        <details className="panel mb-5 p-4">
+          <summary className="cursor-pointer text-sm font-medium">
+            {missing.length} missing · about {formatEur(costToComplete)} to complete
+            {unpricedMissing > 0 ? ` (${unpricedMissing} unpriced)` : ""}
+          </summary>
+          <ul className="mt-3 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2 lg:grid-cols-3">
+            {missing.map((c) => (
+              <li key={c.id} className="flex justify-between gap-3">
+                <Link href={c.href} className="truncate hover:text-accent">
+                  {c.name} <span className="text-neutral-500">{c.number}</span>
+                </Link>
+                <span className="tabular-nums text-neutral-500">
+                  {c.price !== null ? formatEur(c.price) : "—"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
       <SetGrid cards={cards} subsets={subsetsForSet(set.code)} />
     </main>
   );

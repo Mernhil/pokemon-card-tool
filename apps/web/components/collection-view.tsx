@@ -1,5 +1,6 @@
 "use client";
 
+import { partitionBulk } from "@tcg-vault/shared/src/bulk";
 import { CONDITIONS } from "@tcg-vault/shared/src/enums";
 import { ChevronRight, LayoutGrid, List, Minus, Plus, Search, Trash2 } from "lucide-react";
 import Link from "next/link";
@@ -40,9 +41,6 @@ const CONDITION_SHORT: Record<string, string> = {
   DAMAGED: "DMG",
 };
 
-/** Per-card value (EUR minor units) under which a card counts as bulk: €2. */
-const BULK_THRESHOLD = 200;
-
 type Sort = "value" | "recent" | "name" | "set";
 
 interface CollectionFilters {
@@ -57,9 +55,12 @@ const DEFAULT_FILTERS: CollectionFilters = { query: "", setFilter: "", finish: "
 export function CollectionView({
   rows,
   initialView,
+  bulkThreshold,
 }: {
   rows: CollectionRow[];
   initialView: "grid" | "list";
+  /** Per-copy value (EUR minor units) under which a card is bulk; 0 = off. */
+  bulkThreshold: number;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -100,10 +101,7 @@ export function CollectionView({
   // section. Unpriced cards stay in the main list so they get noticed, and any
   // active filter searches everything so nothing is hidden from a lookup.
   const filtering = Boolean(q || setFilter || finish);
-  const isBulk = (r: CollectionRow) =>
-    !filtering && r.value !== null && r.value / r.quantity < BULK_THRESHOLD;
-  const main = shown.filter((r) => !isBulk(r));
-  const bulk = shown.filter(isBulk);
+  const { main, bulk } = partitionBulk(shown, filtering ? 0 : bulkThreshold);
   const bulkCards = bulk.reduce((n, r) => n + r.quantity, 0);
   const bulkValue = bulk.reduce((n, r) => n + (r.value ?? 0), 0);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -338,7 +336,7 @@ export function CollectionView({
                 />
                 <span className="font-medium">Bulk</span>
                 <span className="text-sm text-neutral-500">
-                  {bulkCards} cards under {formatEur(BULK_THRESHOLD)} · {formatEur(bulkValue)}
+                  {bulkCards} cards under {formatEur(bulkThreshold)} · {formatEur(bulkValue)}
                 </span>
               </button>
               {bulkOpen ? <div className="border-t p-4">{renderRows(bulk)}</div> : null}

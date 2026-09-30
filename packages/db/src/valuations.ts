@@ -1,3 +1,4 @@
+import { evaluateAlerts } from "./alerts";
 import {
   derivedValue,
   headlinePrice,
@@ -86,10 +87,7 @@ export function valueFromPoints(
  * today's VariantValuation "NM" bucket (EUR and USD at today's rates).
  * Returns rows written.
  */
-export async function computeValuations(
-  now = new Date(),
-  language?: string,
-): Promise<number> {
+export async function computeValuations(now = new Date(), language?: string): Promise<number> {
   const priceLanguage = language ?? (await getSettings()).priceLanguage;
   const day = utcDay(now);
   const since = new Date(now.getTime() - LOOKBACK_DAYS * 86_400_000);
@@ -148,22 +146,54 @@ export async function computeValuations(
       where: { day, bucket: "NM", variantId: { in: stale.slice(i, i + 500) } },
     });
   }
+  // Fresh values may have crossed someone's price alert.
+  await evaluateAlerts(now).catch(() => 0);
   return written;
 }
 
-/** variantId -> latest NM valuation (EUR/USD minor units). */
-export async function latestValuations(
-  variantIds?: string[],
-): Promise<Map<string, { valueEur: number; valueUsd: number; day: Date }>> {
+type LatestValue = { valueEur: number; valueUsd: number; day: Date };
+
+/** Valuations are written daily, so the latest one is almost always in this window. */
+const RECENT_WINDOW_DAYS = 7;
+
+async function readLatest(
+  variantIds: string[] | undefined,
+  since: Date | null,
+  into: Map<string, LatestValue>,
+): Promise<void> {
   const rows = await prisma.variantValuation.findMany({
-    where: { bucket: "NM", ...(variantIds ? { variantId: { in: variantIds } } : {}) },
+    where: {
+      bucket: "NM",
+      ...(variantIds ? { variantId: { in: variantIds } } : {}),
+      ...(since ? { day: { gte: since } } : {}),
+    },
     orderBy: { day: "desc" },
+    select: { variantId: true, valueEur: true, valueUsd: true, day: true },
   });
-  const map = new Map<string, { valueEur: number; valueUsd: number; day: Date }>();
   for (const row of rows) {
-    if (!map.has(row.variantId)) {
-      map.set(row.variantId, { valueEur: row.valueEur, valueUsd: row.valueUsd, day: row.day });
+    if (!into.has(row.variantId)) {
+      into.set(row.variantId, { valueEur: row.valueEur, valueUsd: row.valueUsd, day: row.day });
     }
+  }
+}
+
+/**
+ * variantId -> latest NM valuation (EUR/USD minor units).
+ *
+ * Reads only the last week of history first instead of every day ever stored
+ * (which grows without bound and made wide searches slow), then looks further
+ * back just for the variants that had nothing recent.
+ */
+export async function latestValuations(variantIds?: string[]): Promise<Map<string, LatestValue>> {
+  const map = new Map<string, LatestValue>();
+  const since = new Date(Date.now() - RECENT_WINDOW_DAYS * 86_400_000);
+  await readLatest(variantIds, since, map);
+  if (variantIds) {
+    const missing = variantIds.filter((id) => !map.has(id));
+    if (missing.length > 0) await readLatest(missing, null, map);
+  } else {
+    // No id list: stale variants need the full history to be found at all.
+    await readLatest(undefined, null, map);
   }
   return map;
 }

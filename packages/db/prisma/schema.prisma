@@ -174,6 +174,7 @@ model PrintVariant {
   valuations    VariantValuation[]
   mappings      MarketplaceMapping[]
   providerMaps  ProviderMapping[]
+  alerts        PriceAlert[]
 
   @@unique([printingId, finish, edition, languageCode])
   @@index([languageCode])
@@ -480,4 +481,20 @@ model ExchangeRate {
   perEur   Float
   asOf     DateTime
   source   String // "ecb"
+}
+
+/// "Tell me when this card's value goes above / below X". Checked after every
+/// valuation run (packages/db/src/alerts.ts); once crossed it stays triggered
+/// until the user dismisses (deletes) it.
+model PriceAlert {
+  id                String       @id @default(cuid())
+  variantId         String
+  variant           PrintVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  direction         String // "ABOVE" | "BELOW"
+  thresholdEur      Int // EUR minor units, per card
+  createdAt         DateTime     @default(now())
+  triggeredAt       DateTime?
+  triggeredValueEur Int?
+
+  @@index([variantId])
 }

@@ -137,7 +137,11 @@ interface OneTry {
   retryAfterMs?: number;
 }
 
-async function tryOnce(url: string, options: FetchImageOptions, timeoutMs: number): Promise<OneTry> {
+async function tryOnce(
+  url: string,
+  options: FetchImageOptions,
+  timeoutMs: number,
+): Promise<OneTry> {
   const fetchImpl = options.fetch ?? fetch;
   const method = options.method ?? "GET";
   try {
@@ -152,10 +156,7 @@ async function tryOnce(url: string, options: FetchImageOptions, timeoutMs: numbe
       return { outcome: "server-error", status: res.status, retryAfterMs: parseRetryAfter(res) };
     }
     if (!res.ok) return { outcome: "http-error", status: res.status };
-    const contentType = (res.headers.get("content-type") ?? "")
-      .split(";")[0]!
-      .trim()
-      .toLowerCase();
+    const contentType = (res.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
     if (!contentType.startsWith("image/")) return { outcome: "not-image", status: res.status };
     if (method === "HEAD") {
       return {
@@ -211,7 +212,8 @@ export async function fetchFirstImage(
     attempts.push({ url, outcome: result.outcome, status: result.status, tries });
     if (result.outcome === "not-found") notFound.set(url, now() + ttl);
     if (isTransient(result.outcome)) transient = true;
-    if (result.outcome === "ok" && result.image) return { image: result.image, attempts, transient };
+    if (result.outcome === "ok" && result.image)
+      return { image: result.image, attempts, transient };
   }
   return { image: null, attempts, transient };
 }
