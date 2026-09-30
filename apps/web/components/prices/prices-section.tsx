@@ -111,12 +111,10 @@ const STATE_TITLE: Record<string, string> = {
   error: "Couldn't fetch prices",
 };
 
-/** Graded listings are stored with a condition like "PSA_10" (none of the providers fills these yet). */
-const isGraded = (condition: string | null) => !!condition && /^(PSA|BGS|CGC|SGC|TAG|ACE)/i.test(condition);
-
 /**
- * The three numbers worth seeing without opening the panel: lowest and highest ungraded price
- * (compared in the display currency, across conditions/kinds) and the PSA 10 price.
+ * The numbers worth seeing without opening the panel: near mint (for providers that split by
+ * condition), lowest and highest price (compared in the display currency, across
+ * conditions/kinds). Graded slabs have their own table.
  */
 function KeyNumbers({ panel, prices }: { panel: ProviderPanelData; prices: CardPrices }) {
   const { displayCurrency } = prices.settings;
@@ -124,12 +122,10 @@ function KeyNumbers({ panel, prices }: { panel: ProviderPanelData; prices: CardP
   const inDisplay = (p: SerializedPoint) =>
     convertMinor(p.amount, p.currency, displayCurrency, prices.rates);
   const ungraded = all
-    .filter((p) => !isGraded(p.condition))
     .map((p) => ({ p, v: inDisplay(p) }))
     .filter((x): x is { p: SerializedPoint; v: number } => x.v !== null);
   const lowest = ungraded.length ? ungraded.reduce((a, b) => (b.v < a.v ? b : a)) : null;
   const highest = ungraded.length > 1 ? ungraded.reduce((a, b) => (b.v > a.v ? b : a)) : null;
-  const psa10 = all.find((p) => p.condition?.toUpperCase().replace(/[s_-]/g, "") === "PSA10");
   // Only a provider that splits by condition can say "no near mint": an unsplit number is
   // already the near-mint-ish headline, so a missing row there would be misleading.
   const splitsByCondition = ungraded.some((x) => x.p.condition !== null);
@@ -140,7 +136,6 @@ function KeyNumbers({ panel, prices }: { panel: ProviderPanelData; prices: CardP
       : []),
     { label: "Lowest", p: lowest?.p ?? null, empty: "—" },
     { label: "Highest", p: highest?.p ?? null, empty: "—" },
-    { label: "PSA 10", p: psa10 ?? null, empty: "no data" },
   ];
   return (
     <dl className="mt-3 flex flex-col gap-1 border-t pt-2 text-xs">
