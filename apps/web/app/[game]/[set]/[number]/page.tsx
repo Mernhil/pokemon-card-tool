@@ -9,7 +9,7 @@ import {
   recordCardView,
   runnableProviders,
 } from "@tcg-vault/db";
-import { isPriceLanguage, mediaUrl } from "@tcg-vault/shared";
+import { collectorNumberCandidates, isPriceLanguage, mediaUrl } from "@tcg-vault/shared";
 import { AddToCollection } from "../../../../components/add-to-collection";
 import { CardViewer } from "../../../../components/card-viewer";
 import { FinishBadge, PriceChip, finishLabel } from "../../../../components/money";
@@ -38,6 +38,13 @@ async function findPrinting(setId: number, slug: string) {
       },
     },
   };
+  // The exact number first ("002-30" -> "002/30"): a set can hold "002/128" and
+  // "002/30" at once, so the bare-number match below is only for old links.
+  const exact = await prisma.printing.findFirst({
+    where: { setId, collectorNumber: { in: collectorNumberCandidates(slug) } },
+    include,
+  });
+  if (exact) return exact;
   const bySlug = await prisma.printing.findFirst({
     where: {
       setId,

@@ -1,3 +1,4 @@
+import { cardSlug } from "@tcg-vault/shared";
 import { prisma } from "./client";
 import { BINDER_LAYOUTS } from "./binder-options";
 import { collectionItemValue, latestValuations } from "./valuations";
@@ -131,8 +132,7 @@ export async function listBinders(): Promise<BinderSummary[]> {
 }
 
 function cardHref(p: { collectorNumber: string; set: { code: string; game: { slug: string } } }) {
-  const slug = p.collectorNumber.split("/")[0]!;
-  return `/${p.set.game.slug}/${encodeURIComponent(p.set.code)}/${encodeURIComponent(slug)}`;
+  return `/${p.set.game.slug}/${encodeURIComponent(p.set.code)}/${encodeURIComponent(cardSlug(p.collectorNumber))}`;
 }
 
 type VariantWithPrinting = {

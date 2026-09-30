@@ -9,10 +9,9 @@ export function sortByFinish<T extends { finish: string }>(variants: T[]): T[] {
   return [...variants].sort((a, b) => rank(a.finish) - rank(b.finish));
 }
 
-/** URL segment for a printing: the printed number without the "/total" part ("001", "TG01"). */
-export function cardSlug(collectorNumber: string): string {
-  return collectorNumber.split("/")[0]!;
-}
+import { cardSlug } from "@tcg-vault/shared";
+
+export { cardSlug };
 
 export function cardHref(gameSlug: string, setCode: string, collectorNumber: string): string {
   return `/${gameSlug}/${encodeURIComponent(setCode)}/${encodeURIComponent(cardSlug(collectorNumber))}`;
