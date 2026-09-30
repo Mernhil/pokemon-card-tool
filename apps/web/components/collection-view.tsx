@@ -1,7 +1,7 @@
 "use client";
 
 import { CONDITIONS } from "@tcg-vault/shared/src/enums";
-import { LayoutGrid, List, Minus, Plus, Search, Trash2 } from "lucide-react";
+import { ChevronRight, LayoutGrid, List, Minus, Plus, Search, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
@@ -39,6 +39,9 @@ const CONDITION_SHORT: Record<string, string> = {
   HEAVILY_PLAYED: "HP",
   DAMAGED: "DMG",
 };
+
+/** Per-card value (EUR minor units) under which a card counts as bulk: €2. */
+const BULK_THRESHOLD = 200;
 
 type Sort = "value" | "recent" | "name" | "set";
 
@@ -93,6 +96,18 @@ export function CollectionView({
       }[sort],
     );
 
+  // Cheap cards (per copy, under the threshold) fold into a collapsed Bulk
+  // section. Unpriced cards stay in the main list so they get noticed, and any
+  // active filter searches everything so nothing is hidden from a lookup.
+  const filtering = Boolean(q || setFilter || finish);
+  const isBulk = (r: CollectionRow) =>
+    !filtering && r.value !== null && r.value / r.quantity < BULK_THRESHOLD;
+  const main = shown.filter((r) => !isBulk(r));
+  const bulk = shown.filter(isBulk);
+  const bulkCards = bulk.reduce((n, r) => n + r.quantity, 0);
+  const bulkValue = bulk.reduce((n, r) => n + (r.value ?? 0), 0);
+  const [bulkOpen, setBulkOpen] = useState(false);
+
   const changeView = (v: "grid" | "list") => {
     setView(v);
     document.cookie = `${COLLECTION_VIEW_COOKIE}=${v}; path=/; max-age=31536000; samesite=lax`;
@@ -145,6 +160,105 @@ export function CollectionView({
       <Icon className="h-4 w-4" />
     </button>
   );
+
+  const renderRows = (list: typeof shown) =>
+    view === "grid" ? (
+      <ul className="stagger grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-6">
+        {list.map((r) => (
+          <li key={r.id}>
+            <CardTile
+              href={r.href}
+              imageKey={r.imageKey}
+              name={r.name}
+              number={r.number}
+              subtitle={`${r.setName} · ${r.graded ?? CONDITION_SHORT[r.condition ?? ""] ?? "—"}`}
+              finishes={[r.finish]}
+              price={r.value}
+              owned={r.quantity}
+            />
+          </li>
+        ))}
+      </ul>
+    ) : (
+      <ul className="panel divide-y">
+        {list.map((r) => (
+          <li key={r.id} className="flex items-center gap-4 px-4 py-3">
+            <Link href={r.href} className="shrink-0">
+              <CardImage imageKey={r.imageKey} name={r.name} size="thumb" />
+            </Link>
+            <div className="min-w-0 flex-1">
+              <Link href={r.href} className="font-medium hover:text-accent">
+                {r.name}
+              </Link>
+              <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+                {r.setName} · {r.number}
+                <FinishBadge finish={r.finish} />
+                {r.paidPerCard !== null ? <span>paid {formatEur(r.paidPerCard)}/card</span> : null}
+              </p>
+            </div>
+            {r.graded ? (
+              <span className="rounded-md bg-surface-2 px-2 py-1 text-xs font-medium">
+                {r.graded}
+              </span>
+            ) : (
+              <select
+                className="field py-1 text-xs"
+                value={r.condition ?? ""}
+                onChange={(e) => update(r, { condition: e.target.value || null })}
+                aria-label={`Condition of ${r.name}`}
+              >
+                <option value="">—</option>
+                {CONDITIONS.map((c) => (
+                  <option key={c} value={c}>
+                    {CONDITION_SHORT[c]}
+                  </option>
+                ))}
+              </select>
+            )}
+            <div
+              className="flex items-center rounded-lg border"
+              aria-label={`Quantity of ${r.name}`}
+            >
+              <button
+                type="button"
+                className="grid h-8 w-8 place-items-center text-neutral-500 hover:text-neutral-900"
+                onClick={() => update(r, { quantity: r.quantity - 1 })}
+                aria-label="One less"
+              >
+                <Minus className="h-3.5 w-3.5" />
+              </button>
+              <span className="w-7 text-center text-sm tabular-nums">{r.quantity}</span>
+              <button
+                type="button"
+                className="grid h-8 w-8 place-items-center text-neutral-500 hover:text-neutral-900"
+                onClick={() => update(r, { quantity: r.quantity + 1 })}
+                aria-label="One more"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <span className="w-28 text-right tabular-nums">
+              <span className="block text-sm font-semibold">
+                {r.value !== null ? formatEur(r.value) : "—"}
+              </span>
+              <GainLoss
+                value={r.value}
+                paid={r.paidPerCard !== null ? r.paidPerCard * r.quantity : null}
+              />
+            </span>
+            <button
+              type="button"
+              onClick={() => remove(r)}
+              className="rounded-md p-2 text-neutral-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
+              aria-label={`Remove ${r.name}`}
+              title="Remove from collection"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    );
 
   return (
     <>
@@ -208,104 +322,29 @@ export function CollectionView({
 
       {shown.length === 0 ? (
         <p className="py-10 text-center text-sm text-neutral-500">No cards match.</p>
-      ) : view === "grid" ? (
-        <ul className="stagger grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-6">
-          {shown.map((r) => (
-            <li key={r.id}>
-              <CardTile
-                href={r.href}
-                imageKey={r.imageKey}
-                name={r.name}
-                number={r.number}
-                subtitle={`${r.setName} · ${r.graded ?? CONDITION_SHORT[r.condition ?? ""] ?? "—"}`}
-                finishes={[r.finish]}
-                price={r.value}
-                owned={r.quantity}
-              />
-            </li>
-          ))}
-        </ul>
       ) : (
-        <ul className="panel divide-y">
-          {shown.map((r) => (
-            <li key={r.id} className="flex items-center gap-4 px-4 py-3">
-              <Link href={r.href} className="shrink-0">
-                <CardImage imageKey={r.imageKey} name={r.name} size="thumb" />
-              </Link>
-              <div className="min-w-0 flex-1">
-                <Link href={r.href} className="font-medium hover:text-accent">
-                  {r.name}
-                </Link>
-                <p className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
-                  {r.setName} · {r.number}
-                  <FinishBadge finish={r.finish} />
-                  {r.paidPerCard !== null ? (
-                    <span>paid {formatEur(r.paidPerCard)}/card</span>
-                  ) : null}
-                </p>
-              </div>
-              {r.graded ? (
-                <span className="rounded-md bg-surface-2 px-2 py-1 text-xs font-medium">
-                  {r.graded}
-                </span>
-              ) : (
-                <select
-                  className="field py-1 text-xs"
-                  value={r.condition ?? ""}
-                  onChange={(e) => update(r, { condition: e.target.value || null })}
-                  aria-label={`Condition of ${r.name}`}
-                >
-                  <option value="">—</option>
-                  {CONDITIONS.map((c) => (
-                    <option key={c} value={c}>
-                      {CONDITION_SHORT[c]}
-                    </option>
-                  ))}
-                </select>
-              )}
-              <div
-                className="flex items-center rounded-lg border"
-                aria-label={`Quantity of ${r.name}`}
-              >
-                <button
-                  type="button"
-                  className="grid h-8 w-8 place-items-center text-neutral-500 hover:text-neutral-900"
-                  onClick={() => update(r, { quantity: r.quantity - 1 })}
-                  aria-label="One less"
-                >
-                  <Minus className="h-3.5 w-3.5" />
-                </button>
-                <span className="w-7 text-center text-sm tabular-nums">{r.quantity}</span>
-                <button
-                  type="button"
-                  className="grid h-8 w-8 place-items-center text-neutral-500 hover:text-neutral-900"
-                  onClick={() => update(r, { quantity: r.quantity + 1 })}
-                  aria-label="One more"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              <span className="w-28 text-right tabular-nums">
-                <span className="block text-sm font-semibold">
-                  {r.value !== null ? formatEur(r.value) : "—"}
-                </span>
-                <GainLoss
-                  value={r.value}
-                  paid={r.paidPerCard !== null ? r.paidPerCard * r.quantity : null}
-                />
-              </span>
+        <>
+          {main.length > 0 ? renderRows(main) : null}
+          {bulk.length > 0 ? (
+            <section className={`panel ${main.length > 0 ? "mt-6" : ""}`}>
               <button
                 type="button"
-                onClick={() => remove(r)}
-                className="rounded-md p-2 text-neutral-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"
-                aria-label={`Remove ${r.name}`}
-                title="Remove from collection"
+                onClick={() => setBulkOpen((o) => !o)}
+                aria-expanded={bulkOpen}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left"
               >
-                <Trash2 className="h-4 w-4" />
+                <ChevronRight
+                  className={`h-4 w-4 text-neutral-500 transition-transform ${bulkOpen ? "rotate-90" : ""}`}
+                />
+                <span className="font-medium">Bulk</span>
+                <span className="text-sm text-neutral-500">
+                  {bulkCards} cards under {formatEur(BULK_THRESHOLD)} · {formatEur(bulkValue)}
+                </span>
               </button>
-            </li>
-          ))}
-        </ul>
+              {bulkOpen ? <div className="border-t p-4">{renderRows(bulk)}</div> : null}
+            </section>
+          ) : null}
+        </>
       )}
     </>
   );
