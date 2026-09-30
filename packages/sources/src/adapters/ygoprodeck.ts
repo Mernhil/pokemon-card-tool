@@ -18,6 +18,14 @@ export interface YgoprodeckSet {
   set_code: string;
   num_of_cards: number;
   tcg_date?: string;
+  /** cardsets.php: URL of the set's pack/box art. */
+  set_image?: string;
+  /**
+   * Our unique set code. cardsets.php reuses `set_code` for several sets
+   * (every "Sneak Peek" / "Special Edition" / tin variant shares its parent's),
+   * which broke the (game, code) uniqueness; see {@link withUniqueSetCodes}.
+   */
+  code?: string;
 }
 
 export interface YgoprodeckCardSetEntry {
@@ -53,15 +61,40 @@ export interface YgoprodeckCard {
   card_images?: YgoprodeckCardImage[];
 }
 
+/**
+ * Pure: gives every cardsets.php row a unique `code`. Rows sharing a
+ * `set_code` are ordered by name length then name; the first keeps the plain
+ * code (it's the "main" set, e.g. "Absolute Powerforce"), the others become
+ * "CODE~slug-of-name". Deterministic, so re-syncs map to the same Set rows.
+ */
+export function withUniqueSetCodes(sets: YgoprodeckSet[]): YgoprodeckSet[] {
+  const groups = new Map<string, YgoprodeckSet[]>();
+  for (const s of sets) groups.set(s.set_code, [...(groups.get(s.set_code) ?? []), s]);
+  const codes = new Map<YgoprodeckSet, string>();
+  for (const [code, group] of groups) {
+    const sorted = [...group].sort(
+      (a, b) => a.set_name.length - b.set_name.length || a.set_name.localeCompare(b.set_name),
+    );
+    sorted.forEach((s, i) => {
+      const slug = s.set_name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      codes.set(s, i === 0 ? code : `${code}~${slug}`);
+    });
+  }
+  return sets.map((s) => ({ ...s, code: codes.get(s) }));
+}
+
 /** Pure, network-free: a cardsets.php row -> our SourceSetSummary. */
 export function mapYgoprodeckSetSummary(set: YgoprodeckSet): SourceSetSummary {
-  return { code: set.set_code, name: set.set_name, totalCards: set.num_of_cards };
+  return { code: set.code ?? set.set_code, name: set.set_name, totalCards: set.num_of_cards };
 }
 
 /** Pure, network-free: a cardsets.php row -> our SourceSet. */
 export function mapYgoprodeckSet(set: YgoprodeckSet): SourceSet {
   return {
-    code: set.set_code,
+    code: set.code ?? set.set_code,
     name: set.set_name,
     releaseDate: set.tcg_date,
     printedTotal: set.num_of_cards,
@@ -136,7 +169,9 @@ export class YgoprodeckAdapter implements CatalogSourceAdapter {
 
   private allSets(): Promise<YgoprodeckSet[]> {
     if (!this.setsCache) {
-      this.setsCache = this.fetchJson<YgoprodeckSet[]>(`${YGOPRODECK_BASE}/cardsets.php`);
+      this.setsCache = this.fetchJson<YgoprodeckSet[]>(`${YGOPRODECK_BASE}/cardsets.php`).then(
+        withUniqueSetCodes,
+      );
     }
     return this.setsCache;
   }
@@ -146,7 +181,7 @@ export class YgoprodeckAdapter implements CatalogSourceAdapter {
   }
 
   async getSet(setCode: string): Promise<SourceSet | null> {
-    const entry = (await this.allSets()).find((s) => s.set_code === setCode);
+    const entry = (await this.allSets()).find((s) => s.code === setCode);
     return entry ? mapYgoprodeckSet(entry) : null;
   }
 
@@ -160,7 +195,7 @@ export class YgoprodeckAdapter implements CatalogSourceAdapter {
   }
 
   async listPrintings(setCode: string): Promise<SourcePrinting[]> {
-    const entry = (await this.allSets()).find((s) => s.set_code === setCode);
+    const entry = (await this.allSets()).find((s) => s.code === setCode);
     if (!entry) return [];
 
     let cards: YgoprodeckCard[];

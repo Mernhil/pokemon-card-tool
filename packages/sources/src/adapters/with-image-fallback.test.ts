@@ -30,6 +30,32 @@ function baseAdapter(printings: SourcePrinting[]): CatalogSourceAdapter {
 }
 
 describe("withImageFallback", () => {
+  it("keeps the methods of a class-based adapter (getSet, listSetSummaries, ...)", async () => {
+    class ClassAdapter implements CatalogSourceAdapter {
+      readonly slug = "fake";
+      readonly game = "pokemon";
+      readonly languageCode = "en";
+      private readonly label = "instance state";
+      async listSets() {
+        return [SET];
+      }
+      async listSetSummaries() {
+        return [{ code: SET.code, name: `${SET.name} (${this.label})` }];
+      }
+      async getSet(code: string) {
+        return code === SET.code ? SET : null;
+      }
+      async listPrintings() {
+        return [printing({ imageUrls: ["https://x/y.webp"] })];
+      }
+    }
+    const wrapped = withImageFallback(new ClassAdapter(), { imageUrlsFor: vi.fn() });
+    expect(wrapped.game).toBe("pokemon");
+    expect(await wrapped.getSet(SET.code)).toEqual(SET);
+    expect((await wrapped.listSetSummaries())[0]?.name).toContain("instance state");
+    expect(await wrapped.listPrintings(SET.code)).toHaveLength(1);
+  });
+
   it("leaves printings that already have images untouched, without calling the fallback", async () => {
     const withImage = printing({ imageUrls: ["https://assets.tcgdex.net/x/high.webp"] });
     const fallback: ImageFallbackSource = { imageUrlsFor: vi.fn() };

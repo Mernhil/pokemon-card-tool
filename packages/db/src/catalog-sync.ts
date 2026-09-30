@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { canonicalKeyFor, hasFile, mediaUrl, putFile, remoteImageKey } from "@tcg-vault/shared";
 import type { CatalogSourceAdapter, SourcePrinting, SourceSet } from "@tcg-vault/sources";
 import { prisma } from "./client";
-import { NonRetryableError } from "./jobs/backoff";
+import { SourceUnavailableError } from "./jobs/backoff";
 import { onJobEvent } from "./jobs/events";
 import {
   enqueueItems,
@@ -419,11 +419,18 @@ async function processSet(
 
   // All network first, then all writes: a download failing halfway leaves the DB untouched.
   const sourceSet = await adapter.getSet(code);
-  if (!sourceSet) throw new NonRetryableError(`the source has no set "${code}"`);
-  const printings = await adapter.listPrintings(code);
+  if (!sourceSet) throw new SourceUnavailableError(`the source has no set "${code}"`);
+  let printings = await adapter.listPrintings(code);
   if (printings.length === 0 && (sourceSet.totalCards ?? 0) > 0) {
-    // Looks like a partial/blocked response rather than a genuinely empty set.
-    throw new Error(`the source returned no cards for ${code} (expected ${sourceSet.totalCards})`);
+    // One more look before believing it: a partial response can look the same.
+    printings = await adapter.listPrintings(code);
+    if (printings.length === 0) {
+      // The source lists the set (with a card count) but has no cards for it:
+      // a gap at the source, not a bug — parked as "unavailable", re-checked monthly.
+      throw new SourceUnavailableError(
+        `The source lists this set (${sourceSet.totalCards} cards) but has no card data for it yet.`,
+      );
+    }
   }
 
   const safeCode = sourceSet.code.replace(/[^\w.-]/g, "_");
@@ -482,6 +489,8 @@ export async function runCatalogSync(
   );
   for (const failure of run.failed)
     totals.errors.push({ setCode: failure.key, message: failure.error });
+  for (const gap of run.unavailable ?? [])
+    totals.errors.push({ setCode: gap.key, message: `unavailable at the source: ${gap.reason}` });
 
   let valuationsWritten = 0;
   if (run.succeeded.length > 0 && options.updateValuations !== false) {
@@ -526,7 +535,9 @@ export async function syncCatalogSets(
   if (result.run.status !== "locked") {
     return {
       ...result,
-      unknownCodes: result.run.failed.filter((f) => /has no set/.test(f.error)).map((f) => f.key),
+      unknownCodes: (result.run.unavailable ?? [])
+        .filter((f) => /has no set/.test(f.reason))
+        .map((f) => f.key),
     };
   }
 
@@ -555,18 +566,18 @@ export async function syncCatalogSets(
       });
       const finished = rows.filter(
         (r) =>
-          (r.status === "done" || r.status === "failed") &&
+          (r.status === "done" || r.status === "failed" || r.status === "unavailable") &&
           r.lastAttemptAt !== null &&
           r.lastAttemptAt >= requestedAt,
       );
       if (finished.length === codes.length) {
-        const failed = finished.filter((r) => r.status === "failed");
+        const failed = finished.filter((r) => r.status !== "done");
         for (const r of failed)
           totals.errors.push({ setCode: r.itemKey, message: r.lastError ?? "failed" });
         return {
           ...totals,
           unknownCodes: failed
-            .filter((r) => /has no set/.test(r.lastError ?? ""))
+            .filter((r) => r.status === "unavailable" && /has no set/.test(r.lastError ?? ""))
             .map((r) => r.itemKey),
           valuationsWritten: 0,
         };
@@ -596,26 +607,66 @@ export interface CatalogSyncStatus {
   pending: number;
   failed: number;
   syncing: number;
-  failures: Array<{ code: string; name: string | null; error: string | null; attempts: number }>;
+  /** Sets the source can't provide (parked, re-checked monthly; not failures). */
+  unavailable: number;
+  failures: CatalogSetIssue[];
+  unavailableSets: CatalogSetIssue[];
+}
+
+/** A set that isn't synced, with what to tell the user about it. */
+export interface CatalogSetIssue {
+  code: string;
+  name: string | null;
+  /** The raw error / reason. */
+  error: string | null;
+  /** The same in plain language. */
+  message: string;
+  attempts: number;
+  lastAttemptAt: Date | null;
+}
+
+/** Plain-language version of a sync error, for the sidebar and the Sync page. */
+export function plainSyncError(error: string | null | undefined): string {
+  const e = (error ?? "").trim();
+  if (!e) return "Unknown error.";
+  if (/interrupted/i.test(e)) return "The app was closed while this set was syncing. It will be retried.";
+  if (/getSet is not a function|is not a function/.test(e))
+    return `A bug in the app (${e}). Updating the app should fix it.`;
+  if (/429|rate.?limit|too many requests/i.test(e))
+    return "The source is rate-limiting requests. It will be retried later.";
+  if (/ENOTFOUND|ECONNRESET|ECONNREFUSED|ETIMEDOUT|timed? ?out|fetch failed|network|socket/i.test(e))
+    return `Couldn't reach the source (network problem or the source is down). It will be retried. (${e})`;
+  if (/HTTP 5[0-9][0-9]/.test(e)) return `The source had a server error. It will be retried. (${e})`;
+  if (/unique constraint/i.test(e))
+    return "A bug in the app: two cards clashed while saving this set. Updating the app should fix it.";
+  return e;
 }
 
 /** Sets done / total and the failed sets, from SyncState (works across processes). */
 export async function catalogSyncStatus(game: string): Promise<CatalogSyncStatus> {
   const counts = await jobStateCounts(CATALOG_JOB, game);
-  const failed = await prisma.syncState.findMany({
-    where: { job: CATALOG_JOB, game, status: "failed" },
-    orderBy: { priority: "desc" },
-    take: 50,
-  });
+  const issues = async (status: "failed" | "unavailable") =>
+    (
+      await prisma.syncState.findMany({
+        where: { job: CATALOG_JOB, game, status },
+        orderBy: { priority: "desc" },
+        take: 100,
+      })
+    ).map(
+      (f): CatalogSetIssue => ({
+        code: f.itemKey,
+        name: f.label,
+        error: f.lastError,
+        message: status === "unavailable" ? (f.lastError ?? "") : plainSyncError(f.lastError),
+        attempts: f.attemptCount,
+        lastAttemptAt: f.lastAttemptAt,
+      }),
+    );
   return {
     game,
     ...counts,
-    failures: failed.map((f) => ({
-      code: f.itemKey,
-      name: f.label,
-      error: f.lastError,
-      attempts: f.attemptCount,
-    })),
+    failures: await issues("failed"),
+    unavailableSets: await issues("unavailable"),
   };
 }
 

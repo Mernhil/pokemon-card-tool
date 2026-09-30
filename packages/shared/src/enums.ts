@@ -76,7 +76,11 @@ export const MARKETPLACES = ["CARDMARKET", "CARDTRADER", "EBAY", "TCGPLAYER"] as
 export type Marketplace = (typeof MARKETPLACES)[number];
 
 /** SyncState.status — see packages/db/src/jobs/runner.ts. */
-export const SYNC_STATUSES = ["pending", "syncing", "done", "failed"] as const;
+/**
+ * `unavailable` is terminal-ish: the source genuinely can't provide the item
+ * (404, empty set, removed). Retried rarely, never counted as a failure.
+ */
+export const SYNC_STATUSES = ["pending", "syncing", "done", "failed", "unavailable"] as const;
 export type SyncStatus = (typeof SYNC_STATUSES)[number];
 
 /**

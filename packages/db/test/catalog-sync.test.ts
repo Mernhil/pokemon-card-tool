@@ -3,6 +3,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import {
   CATALOG_JOB,
   catalogSyncStatus,
+  plainSyncError,
   runCatalogSync,
   syncCatalogSets,
 } from "../src/catalog-sync";
@@ -187,5 +188,86 @@ describe("runCatalogSync", () => {
     const result = await syncCatalogSets(["s1", "nope"], fast(), adapter);
     expect(result.unknownCodes).toEqual(["nope"]);
     expect(result.setsProcessed).toBe(1);
+  });
+});
+
+describe("sets the source can't provide", () => {
+  it("an empty set is parked as unavailable, not failed, with a plain reason", async () => {
+    const adapter = new FakeAdapter(["s1", "gap", "s3"]);
+    adapter.sets.find((s) => s.code === "gap")!.cards = []; // listed with 3 cards, none delivered
+    const result = await runCatalogSync(adapter, fast());
+
+    expect(await setStatuses()).toEqual({ s1: "done", gap: "unavailable", s3: "done" });
+    expect(result.run.failed).toEqual([]);
+    expect(result.run.unavailable?.map((u) => u.key)).toEqual(["gap"]);
+    const status = await catalogSyncStatus("pokemon");
+    expect(status).toMatchObject({ total: 3, done: 2, failed: 0, unavailable: 1 });
+    expect(status.failures).toEqual([]);
+    expect(status.unavailableSets[0]).toMatchObject({ code: "gap", attempts: 1 });
+    expect(status.unavailableSets[0]!.message).toMatch(/no card data/);
+    // Looked twice before believing it, never retried within the run.
+    expect(adapter.calls.filter((c) => c === "gap")).toHaveLength(2);
+  });
+
+  it("is checked again only after about a month, or on demand", async () => {
+    const clock = fakeClock();
+    const adapter = new FakeAdapter(["gap"]);
+    adapter.sets[0]!.cards = [];
+    await runCatalogSync(adapter, fast(clock));
+    const callsAfterFirst = adapter.calls.length;
+
+    clock.advance(7 * 86_400_000);
+    await runCatalogSync(adapter, fast(clock));
+    expect(adapter.calls.length).toBe(callsAfterFirst);
+
+    // The source catches up: a month later the set syncs.
+    adapter.sets[0]!.cards = [printing("gap", 1)];
+    clock.advance(30 * 86_400_000);
+    await runCatalogSync(adapter, fast(clock));
+    expect(await setStatuses()).toEqual({ gap: "done" });
+    expect(await printingCount("gap")).toBe(1);
+  });
+
+  it("a set the source no longer has is unavailable too, and the next sync doesn't double-count it", async () => {
+    const adapter = new FakeAdapter(["s1", "gone"]);
+    const summaries = adapter.listSetSummaries.bind(adapter);
+    adapter.getSet = async (code: string) =>
+      code === "gone" ? null : (adapter.sets.find((s) => s.code === code) ?? null);
+    adapter.listSetSummaries = summaries;
+    await runCatalogSync(adapter, fast());
+    expect(await setStatuses()).toEqual({ s1: "done", gone: "unavailable" });
+    expect((await catalogSyncStatus("pokemon")).unavailableSets[0]!.message).toMatch(
+      /no set "gone"/,
+    );
+  });
+
+  it("real failures stay failures (never hidden as unavailable)", async () => {
+    const adapter = new FakeAdapter(["s1", "bad"]);
+    adapter.fail.add("bad");
+    await runCatalogSync(adapter, fast());
+    expect(await setStatuses()).toEqual({ s1: "done", bad: "failed" });
+    const status = await catalogSyncStatus("pokemon");
+    expect(status.unavailable).toBe(0);
+    expect(status.failures[0]!.message).toMatch(/server error/);
+  });
+
+  it("a source listing the same set code twice doesn't break discovery", async () => {
+    const adapter = new FakeAdapter(["s1", "s2"]);
+    const summaries = await adapter.listSetSummaries();
+    adapter.listSetSummaries = async () => [...summaries, { code: "s1", name: "Set s1 (again)" }];
+    const result = await runCatalogSync(adapter, fast());
+    expect(result.run.discoveryError).toBeUndefined();
+    expect(await setStatuses()).toEqual({ s1: "done", s2: "done" });
+  });
+});
+
+describe("plainSyncError", () => {
+  it("explains the common errors in plain language", () => {
+    expect(plainSyncError("e.getSet is not a function")).toMatch(/bug in the app/);
+    expect(plainSyncError("fetch failed ECONNRESET")).toMatch(/Couldn't reach the source/);
+    expect(plainSyncError("Unique constraint failed on the fields: (`job`)")).toMatch(
+      /bug in the app/,
+    );
+    expect(plainSyncError("something odd")).toBe("something odd");
   });
 });

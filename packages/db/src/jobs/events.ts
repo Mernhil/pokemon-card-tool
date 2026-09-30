@@ -19,6 +19,7 @@ export type JobEvent = { job: string; game: string } & (
       error: string;
     }
   | { type: "item-failed"; key: string; label: string | null; error: string }
+  | { type: "item-unavailable"; key: string; label: string | null; reason: string }
   /** Job-specific detail (e.g. catalog's per-card progress); `data` is the job's own shape. */
   | { type: "detail"; key: string; data: unknown }
 );
@@ -114,6 +115,9 @@ function track(map: Map<string, JobProgress>, e: JobEvent): void {
         { key: e.key, label: e.label, error: e.error, at: new Date() },
         ...p.recentErrors,
       ].slice(0, 20);
+      break;
+    case "item-unavailable":
+      p.current = p.current.filter((c) => c.key !== e.key);
       break;
     default:
       break;
