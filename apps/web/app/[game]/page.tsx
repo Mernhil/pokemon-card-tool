@@ -2,6 +2,7 @@ import { Library } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@tcg-vault/db";
+import { RestoreScroll } from "../../components/restore-scroll";
 import { ButtonLink } from "../../components/ui/button";
 import { CompletionRing } from "../../components/ui/completion-ring";
 import { EmptyState } from "../../components/ui/empty-state";
@@ -45,6 +46,7 @@ export default async function GameSetListPage({ params }: { params: { game: stri
 
   return (
     <main className="page">
+      <RestoreScroll />
       <PageHeader
         eyebrow={
           <Link href="/browse" className="hover:underline">
