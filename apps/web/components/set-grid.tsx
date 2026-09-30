@@ -1,10 +1,11 @@
 "use client";
 
 import { Search } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { CardTile } from "./card-tile";
 import { CustomImageControl } from "./custom-image-control";
 import { useListState } from "../lib/list-state";
+import { useQuickAdd } from "../lib/use-quick-add";
 
 export interface SetGridCard {
   id: string;
@@ -21,6 +22,17 @@ export interface SetGridCard {
   owned: number;
   /** Subset inside the set ("Special Art"), null when it has none. */
   subset: string | null;
+  /** One per finish: what the tile's quick add/remove controls act on. */
+  variants: SetGridVariant[];
+}
+
+export interface SetGridVariant {
+  id: string;
+  finish: string;
+  /** All copies of this variant. */
+  owned: number;
+  /** Ungraded copies (no grading company, no cert). */
+  ownedPlain: number;
 }
 
 type Show = "all" | "owned" | "missing";
@@ -51,14 +63,7 @@ export function SetGrid({ cards, subsets = [] }: { cards: SetGridCard[]; subsets
   const tabs = useMemo(
     () =>
       subsets
-        .map((name) => {
-          const inSubset = cards.filter((c) => c.subset === name);
-          return {
-            name,
-            total: inSubset.length,
-            owned: inSubset.filter((c) => c.owned > 0).length,
-          };
-        })
+        .map((name) => ({ name, total: cards.filter((c) => c.subset === name).length }))
         .filter((t) => t.total > 0),
     [cards, subsets],
   );
@@ -69,7 +74,38 @@ export function SetGrid({ cards, subsets = [] }: { cards: SetGridCard[]; subsets
   const setShow = (show: Show) => setFilters((f) => ({ ...f, show }));
   const setSort = (sort: Sort) => setFilters((f) => ({ ...f, sort }));
   const setDim = (dim: boolean) => setFilters((f) => ({ ...f, dim }));
-  const anyOwned = cards.some((c) => c.owned > 0);
+
+  const variants = useMemo(
+    () =>
+      cards.flatMap((c) =>
+        c.variants.map((v) => ({ variantId: v.id, plain: v.ownedPlain, total: v.owned })),
+      ),
+    [cards],
+  );
+  const { counts, adjust } = useQuickAdd(variants);
+  const ownedOf = (c: SetGridCard) =>
+    c.variants.length === 0
+      ? c.owned
+      : c.variants.reduce((s, v) => s + (counts[v.id]?.total ?? 0), 0);
+  const anyOwned = cards.some((c) => ownedOf(c) > 0);
+
+  // With the Owned / Missing filter on, a card that changes status stays put
+  // until a filter changes, so the grid doesn't reshuffle under the cursor.
+  // The status is captured per filter combination; cards new to the list use
+  // their live status.
+  const filterKey = `${query}\u0000${show}\u0000${sort}\u0000${subset}`;
+  const statusSnap = useRef<{ key: string; owned: Map<string, boolean> }>({
+    key: filterKey,
+    owned: new Map(),
+  });
+  if (statusSnap.current.key !== filterKey) {
+    statusSnap.current = {
+      key: filterKey,
+      owned: new Map(cards.map((c) => [c.id, ownedOf(c) > 0])),
+    };
+  }
+  const snap = statusSnap.current.owned;
+  for (const c of cards) if (!snap.has(c.id)) snap.set(c.id, ownedOf(c) > 0);
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -77,7 +113,7 @@ export function SetGrid({ cards, subsets = [] }: { cards: SetGridCard[]; subsets
       (c) =>
         (!subset || c.subset === subset) &&
         (!q || c.name.toLowerCase().includes(q) || c.number.toLowerCase().includes(q)) &&
-        (show === "all" || (show === "owned" ? c.owned > 0 : c.owned === 0)),
+        (show === "all" || (show === "owned" ? snap.get(c.id) : !snap.get(c.id))),
     );
     const by: Record<Sort, (a: SetGridCard, b: SetGridCard) => number> = {
       number: (a, b) => a.sortNumber - b.sortNumber || a.number.localeCompare(b.number),
@@ -87,7 +123,9 @@ export function SetGrid({ cards, subsets = [] }: { cards: SetGridCard[]; subsets
         (a.rarity ?? "").localeCompare(b.rarity ?? "") || a.sortNumber - b.sortNumber,
     };
     return [...list].sort(by[sort]);
-  }, [cards, query, show, sort, subset]);
+    // `snap` is stable for a filter combination — see above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cards, query, show, sort, filterKey]);
 
   const seg = (value: Show, label: string) => (
     <button
@@ -130,8 +168,15 @@ export function SetGrid({ cards, subsets = [] }: { cards: SetGridCard[]; subsets
     <>
       {tabs.length > 0 ? (
         <div role="tablist" aria-label="Subsets" className="mb-3 flex flex-wrap gap-2">
-          {chip("", "See all", cards.filter((c) => c.owned > 0).length, cards.length)}
-          {tabs.map((t) => chip(t.name, t.name, t.owned, t.total))}
+          {chip("", "See all", cards.filter((c) => ownedOf(c) > 0).length, cards.length)}
+          {tabs.map((t) =>
+            chip(
+              t.name,
+              t.name,
+              cards.filter((c) => c.subset === t.name && ownedOf(c) > 0).length,
+              t.total,
+            ),
+          )}
         </div>
       ) : null}
       <div className="panel sticky top-3 z-20 mb-5 flex flex-wrap items-center gap-3 p-3">
@@ -182,23 +227,35 @@ export function SetGrid({ cards, subsets = [] }: { cards: SetGridCard[]; subsets
         <p className="py-10 text-center text-sm text-neutral-500">No cards match.</p>
       ) : (
         <ul className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-6">
-          {shown.map((c) => (
-            <li key={c.id}>
-              <CardTile
-                href={c.href}
-                imageKey={c.imageKey}
-                name={c.name}
-                number={c.number}
-                subtitle={`${c.number}${c.rarity ? ` · ${c.rarity}` : ""}`}
-                finishes={c.finishes}
-                price={c.price}
-                pricePrefix={c.multiPrice ? "from " : ""}
-                owned={c.owned}
-                dimmed={dim && anyOwned && c.owned === 0}
-                imageAction={<CustomImageControl printingId={c.id} compact />}
-              />
-            </li>
-          ))}
+          {shown.map((c) => {
+            const owned = ownedOf(c);
+            return (
+              <li key={c.id}>
+                <CardTile
+                  href={c.href}
+                  imageKey={c.imageKey}
+                  name={c.name}
+                  number={c.number}
+                  subtitle={`${c.number}${c.rarity ? ` · ${c.rarity}` : ""}`}
+                  finishes={c.finishes}
+                  price={c.price}
+                  pricePrefix={c.multiPrice ? "from " : ""}
+                  owned={owned}
+                  dimmed={dim && anyOwned && owned === 0}
+                  imageAction={<CustomImageControl printingId={c.id} compact />}
+                  quickAdd={{
+                    rows: c.variants.map((v) => ({
+                      variantId: v.id,
+                      finish: v.finish,
+                      plain: counts[v.id]?.plain ?? 0,
+                      total: counts[v.id]?.total ?? 0,
+                    })),
+                    onAdjust: adjust,
+                  }}
+                />
+              </li>
+            );
+          })}
         </ul>
       )}
     </>

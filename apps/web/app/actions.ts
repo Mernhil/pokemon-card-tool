@@ -1,20 +1,36 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { prisma, snapshotPortfolio } from "@tcg-vault/db";
+import {
+  adjustCopies,
+  deleteCollectionItem,
+  prisma,
+  releaseBinderCopies,
+  snapshotPortfolio,
+} from "@tcg-vault/db";
 import { CONDITIONS, GRADING_COMPANIES } from "@tcg-vault/shared";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
-async function run(fn: () => Promise<void>): Promise<ActionResult> {
+async function attempt(fn: () => Promise<void>): Promise<ActionResult> {
   try {
     await fn();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+async function run(fn: () => Promise<void>): Promise<ActionResult> {
+  const result = await attempt(fn);
+  if (!result.ok) return result;
+  try {
     // Today's dashboard point reflects the collection as it is now, not as
     // it was at the last price sync.
     await snapshotPortfolio();
     // Card pages, collection, binders, dashboard and home all show this data.
     revalidatePath("/", "layout");
-    return { ok: true };
+    return result;
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -69,35 +85,16 @@ export async function addToCollectionAction(input: AddToCollectionInput): Promis
   });
 }
 
-/**
- * Copies of an item beyond `keep` come out of binder pockets (newest first);
- * a pocket's "want" stays, an otherwise-empty pocket row is removed.
- */
-async function releaseBinderCopies(collectionItemId: string, keep: number) {
-  const slots = await prisma.binderSlot.findMany({
-    where: { collectionItemId },
-    orderBy: { id: "desc" },
-  });
-  for (const slot of slots.slice(0, Math.max(0, slots.length - keep))) {
-    if (slot.placeholderVariantId) {
-      await prisma.binderSlot.update({ where: { id: slot.id }, data: { collectionItemId: null } });
-    } else {
-      await prisma.binderSlot.delete({ where: { id: slot.id } });
-    }
-  }
-}
-
 export async function updateCollectionItemAction(
   id: string,
   data: { quantity?: number; condition?: string | null },
 ): Promise<ActionResult> {
   return run(async () => {
     if (data.quantity !== undefined && data.quantity <= 0) {
-      await releaseBinderCopies(id, 0);
-      await prisma.collectionItem.delete({ where: { id } });
+      await deleteCollectionItem(id);
       return;
     }
-    if (data.quantity !== undefined) await releaseBinderCopies(id, data.quantity);
+    if (data.quantity !== undefined) await releaseBinderCopies(prisma, id, data.quantity);
     await prisma.collectionItem.update({
       where: { id },
       data: {
@@ -117,7 +114,28 @@ export async function updateCollectionItemAction(
 
 export async function deleteCollectionItemAction(id: string): Promise<ActionResult> {
   return run(async () => {
-    await releaseBinderCopies(id, 0);
-    await prisma.collectionItem.delete({ where: { id } });
+    await deleteCollectionItem(id);
+  });
+}
+
+/**
+ * Tile quick add/remove: +1 / -1 (or a coalesced net delta) of ungraded copies.
+ * Deliberately skips run()'s portfolio snapshot and layout revalidation — the
+ * grid clicks this rapidly and calls settleQuickAddAction once the burst ends.
+ */
+export async function adjustCopiesAction(variantId: string, delta: number): Promise<ActionResult> {
+  return attempt(async () => {
+    if (typeof variantId !== "string" || !variantId) throw new Error("Missing variant");
+    if (!Number.isInteger(delta) || delta === 0 || Math.abs(delta) > 999) {
+      throw new Error("Invalid quantity change");
+    }
+    await adjustCopies(variantId, delta);
+  });
+}
+
+/** One dashboard snapshot after a burst of quick adds (the client then refreshes the route). */
+export async function settleQuickAddAction(): Promise<ActionResult> {
+  return attempt(async () => {
+    await snapshotPortfolio();
   });
 }

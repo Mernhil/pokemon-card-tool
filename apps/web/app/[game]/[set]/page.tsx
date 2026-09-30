@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { latestValuations, prisma } from "@tcg-vault/db";
 import { subsetsForSet } from "@tcg-vault/shared";
 import { formatEur } from "../../../components/money";
-import { SetGrid, type SetGridCard } from "../../../components/set-grid";
+import { SetGrid, type SetGridCard, type SetGridVariant } from "../../../components/set-grid";
 import { CompletionRing } from "../../../components/ui/completion-ring";
 import { cardHref, sortByFinish } from "../../../lib/cards";
 import { loadMoneyDisplay } from "../../../lib/money-config";
@@ -25,7 +25,11 @@ export default async function SetCardGridPage({
         include: {
           card: true,
           rarity: true,
-          variants: { include: { collection: { select: { quantity: true } } } },
+          variants: {
+            include: {
+              collection: { select: { quantity: true, gradingCompany: true, certNumber: true } },
+            },
+          },
         },
       },
     },
@@ -43,8 +47,13 @@ export default async function SetCardGridPage({
       .filter((v): v is number => v !== undefined);
     masterValue += Math.max(0, ...prices);
     let owned = 0;
+    const gridVariants: SetGridVariant[] = [];
     for (const v of variants) {
       const qty = v.collection.reduce((s, c) => s + c.quantity, 0);
+      const plain = v.collection
+        .filter((c) => c.gradingCompany === null && c.certNumber === null)
+        .reduce((s, c) => s + c.quantity, 0);
+      gridVariants.push({ id: v.id, finish: v.finish, owned: qty, ownedPlain: plain });
       owned += qty;
       ownedValue += qty * (values.get(v.id)?.valueEur ?? 0);
     }
@@ -61,6 +70,7 @@ export default async function SetCardGridPage({
       multiPrice: prices.length > 1,
       owned,
       subset: printing.subset,
+      variants: gridVariants,
     };
   });
   const ownedDistinct = cards.filter((c) => c.owned > 0).length;
