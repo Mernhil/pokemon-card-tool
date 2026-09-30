@@ -256,3 +256,31 @@ describe("withUniqueSetCodes", () => {
     expect((await adapter.getSet("ABPF~absolute-powerforce-special-edition"))?.totalCards).toBe(3);
   });
 });
+
+describe("set logos", () => {
+  const row: YgoprodeckSet = {
+    set_name: "Legend of Blue Eyes White Dragon",
+    set_code: "LOB",
+    num_of_cards: 355,
+    set_image: "https://images.ygoprodeck.com/images/sets/LOB.jpg",
+  };
+
+  it("uses cardsets.php's set_image as the logo", () => {
+    expect(mapYgoprodeckSet(row).logoUrl).toBe("https://images.ygoprodeck.com/images/sets/LOB.jpg");
+    expect(mapYgoprodeckSet({ ...row, set_image: undefined })).not.toHaveProperty("logoUrl");
+  });
+
+  it("lists every set's logo from the one cached request", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(JSON.stringify([row, { ...row, set_code: "X", set_image: undefined }]), {
+          status: 200,
+        }),
+    );
+    const adapter = new YgoprodeckAdapter(fetchImpl as unknown as typeof fetch);
+    expect(await adapter.listSetAssets()).toEqual([
+      { code: "LOB", logoUrl: "https://images.ygoprodeck.com/images/sets/LOB.jpg" },
+    ]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});

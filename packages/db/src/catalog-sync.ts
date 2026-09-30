@@ -138,6 +138,9 @@ async function ensureGameAndLanguage(adapter: CatalogSourceAdapter) {
  */
 async function localAsset(remote: string | undefined, key: string): Promise<string | null> {
   if (!remote) return null;
+  // Keep the file's real extension (YGOPRODeck's pack art is a .jpg).
+  const ext = remote.match(/\.(jpe?g|webp|png)(?:\?|$)/i)?.[1]?.toLowerCase();
+  if (ext && ext !== "png") key = key.replace(/\.png$/, `.${ext === "jpeg" ? "jpg" : ext}`);
   if (await hasFile(key)) return mediaUrl(key);
   try {
     const res = await fetch(remote);
@@ -465,6 +468,40 @@ async function processSet(
   emit({ type: "set-counters", code, counters });
 }
 
+/**
+ * Gives sets that have no logo yet their logo from the source (one request,
+ * no card data), for sets synced before the source provided any. Best-effort.
+ */
+export async function backfillSetLogos(
+  adapter: CatalogSourceAdapter,
+  log: (line: string) => void = () => {},
+): Promise<number> {
+  if (!adapter.listSetAssets) return 0;
+  try {
+    const missing = await prisma.set.findMany({
+      where: { game: { slug: adapter.game }, logoUrl: null },
+      select: { id: true, code: true },
+    });
+    if (missing.length === 0) return 0;
+    const assets = new Map((await adapter.listSetAssets()).map((a) => [a.code, a]));
+    let filled = 0;
+    for (const set of missing) {
+      const asset = assets.get(set.code);
+      if (!asset?.logoUrl) continue;
+      const safeCode = set.code.replace(/[^\w.-]/g, "_");
+      const logoUrl = await localAsset(asset.logoUrl, `${adapter.game}/${safeCode}/logo.png`);
+      if (!logoUrl) continue;
+      await prisma.set.update({ where: { id: set.id }, data: { logoUrl } });
+      filled++;
+    }
+    if (filled > 0) log(`added logos to ${filled} set(s)`);
+    return filled;
+  } catch (err) {
+    log(`couldn't fetch set logos: ${err instanceof Error ? err.message : String(err)}`);
+    return 0;
+  }
+}
+
 export interface CatalogSyncOptions extends JobRunOptions {
   /** Structured progress, e.g. for the Sync page's live progress bars. */
   onProgress?: (event: SyncProgress) => void;
@@ -508,6 +545,7 @@ export async function runCatalogSync(
     },
     { concurrency: 2, delayMs: 1_000, ...options },
   );
+  await backfillSetLogos(adapter, options.log);
   for (const failure of run.failed)
     totals.errors.push({ setCode: failure.key, message: failure.error });
   for (const gap of run.unavailable ?? [])

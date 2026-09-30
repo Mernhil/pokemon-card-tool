@@ -96,6 +96,11 @@ export interface CatalogSourceAdapter {
   /** One set's details, or null when the source has no such set. */
   getSet(setCode: string): Promise<SourceSet | null>;
   listPrintings(setCode: string): Promise<SourcePrinting[]>;
+  /**
+   * Optional: set logos/symbols for every set from one cheap request, so
+   * sets synced before a source had any can get them without a full re-sync.
+   */
+  listSetAssets?(): Promise<Array<{ code: string; logoUrl?: string; symbolUrl?: string }>>;
 }
 
 /**

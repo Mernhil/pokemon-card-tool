@@ -13,6 +13,19 @@ export interface SetTileData {
   badge?: string | null;
 }
 
+/** Base hue per game, so fallback tiles read as "this game" at a glance. */
+const GAME_HUES: Record<string, number> = { pokemon: 45, yugioh: 270, "one-piece": 350 };
+
+/** Deterministic: the same set always gets the same tile. */
+export function fallbackTileStyle(game: string, code: string): { background: string } {
+  let h = 0;
+  for (const ch of code) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const base = GAME_HUES[game] ?? 210;
+  const a = (base + (h % 40) - 20 + 360) % 360;
+  const b = (a + 25) % 360;
+  return { background: `linear-gradient(135deg, hsl(${a} 60% 40%), hsl(${b} 65% 26%))` };
+}
+
 /** One set on the game page: logo, name, year, card count and a completion ring. */
 export function SetTile({ game, set }: { game: string; set: SetTileData }) {
   return (
@@ -30,7 +43,16 @@ export function SetTile({ game, set }: { game: string; set: SetTileData }) {
             className="max-h-16 max-w-full object-contain drop-shadow"
           />
         ) : (
-          <span className="font-display text-xl font-semibold text-neutral-400">{set.name}</span>
+          <div
+            aria-hidden
+            style={fallbackTileStyle(game, set.code)}
+            className="flex h-16 w-full flex-col items-center justify-center overflow-hidden rounded-md px-2 text-center text-white shadow-inner"
+          >
+            <span className="font-display text-lg font-semibold leading-none">{set.code}</span>
+            <span className="mt-1 line-clamp-1 w-full text-[10px] leading-tight opacity-85">
+              {set.name}
+            </span>
+          </div>
         )}
       </div>
       <div className="flex items-center justify-between gap-3">

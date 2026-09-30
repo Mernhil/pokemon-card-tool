@@ -2,6 +2,7 @@ import type { CatalogSourceAdapter, SourcePrinting, SourceSet } from "@tcg-vault
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import {
   CATALOG_JOB,
+  backfillSetLogos,
   catalogSyncStatus,
   plainSyncError,
   runCatalogSync,
@@ -34,6 +35,7 @@ class FakeAdapter implements CatalogSourceAdapter {
   calls: string[] = [];
   fail = new Set<string>();
   sets: Array<SourceSet & { cards: SourcePrinting[] }> = [];
+  listSetAssets?: CatalogSourceAdapter["listSetAssets"];
 
   constructor(codes: string[], cardsPerSet = 3) {
     this.sets = codes.map((code) => ({
@@ -299,5 +301,28 @@ describe("set categories", () => {
     expect((await prisma.set.findFirstOrThrow({ where: { code: "svp" } })).category).toBe("promo");
     expect((await prisma.set.findFirstOrThrow({ where: { code: "sv1" } })).category).toBe("main");
     expect(await backfillSetCategories()).toBe(0);
+  });
+});
+
+describe("set logos backfill", () => {
+  it("gives already-synced sets their logo without re-syncing their cards", async () => {
+    const adapter = new FakeAdapter(["s1", "s2"], 1);
+    await runCatalogSync(adapter, fast());
+    expect((await prisma.set.findMany()).every((s) => s.logoUrl === null)).toBe(true);
+
+    const calls = adapter.calls.length;
+    adapter.listSetAssets = async () => [{ code: "s1", logoUrl: "https://img.example/s1.jpg" }];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response("bad", { status: 500 })) as typeof fetch;
+    try {
+      expect(await backfillSetLogos(adapter)).toBe(1);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    const s1 = await prisma.set.findFirstOrThrow({ where: { code: "s1" } });
+    expect(s1.logoUrl).toBe("https://img.example/s1.jpg"); // download failed: keeps the remote URL
+    expect((await prisma.set.findFirstOrThrow({ where: { code: "s2" } })).logoUrl).toBeNull();
+    expect(adapter.calls.length).toBe(calls); // no cards were fetched
+    expect(await backfillSetLogos(adapter)).toBe(0); // idempotent
   });
 });

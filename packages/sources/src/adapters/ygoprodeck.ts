@@ -99,6 +99,8 @@ export function mapYgoprodeckSet(set: YgoprodeckSet): SourceSet {
     releaseDate: set.tcg_date,
     printedTotal: set.num_of_cards,
     totalCards: set.num_of_cards,
+    // cardsets.php's set_image is the pack / box art — used as the set's logo.
+    ...(set.set_image ? { logoUrl: set.set_image } : {}),
   };
 }
 
@@ -178,6 +180,12 @@ export class YgoprodeckAdapter implements CatalogSourceAdapter {
 
   async listSets(): Promise<SourceSet[]> {
     return (await this.allSets()).map(mapYgoprodeckSet);
+  }
+
+  async listSetAssets() {
+    return (await this.allSets())
+      .filter((s) => s.set_image)
+      .map((s) => ({ code: s.code ?? s.set_code, logoUrl: s.set_image }));
   }
 
   async getSet(setCode: string): Promise<SourceSet | null> {
