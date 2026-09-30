@@ -13,6 +13,11 @@ export interface PricedCard {
   printedTotal?: number | null;
   /** This variant's Finish (packages/shared/src/enums.ts). */
   finish: string;
+  /**
+   * The language to price (PRICE_LANGUAGES code) for providers that can look
+   * one language up (eBay). Defaults to the variant's own languageCode.
+   */
+  priceLanguage?: string;
   /** Every finish this printing exists in (some sources price per printing, not per finish). */
   printingFinishes: string[];
   languageCode: string;
@@ -39,6 +44,11 @@ export interface ProviderObservation {
   currency: string;
   condition: string | null;
   listingCount: number | null;
+  /**
+   * Language this number is for, or null/absent when the source can't split
+   * by language (Cardmarket / TCGplayer price guides) or the listing didn't say.
+   */
+  languageCode?: string | null;
   observedAt: Date;
   /** Hash of the response it came from, for debugging odd numbers. */
   payloadHash: string | null;

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
+  enqueueLanguagePrices,
   enqueueStalePrices,
   getCardImageResult,
   latestValuations,
@@ -8,13 +9,14 @@ import {
   recordCardView,
   runnableProviders,
 } from "@tcg-vault/db";
-import { mediaUrl } from "@tcg-vault/shared";
+import { isPriceLanguage, mediaUrl } from "@tcg-vault/shared";
 import { AddToCollection } from "../../../../components/add-to-collection";
 import { CardViewer } from "../../../../components/card-viewer";
 import { FinishBadge, PriceChip, finishLabel } from "../../../../components/money";
 import { PriceHistory } from "../../../../components/prices/price-history";
 import { CustomImageControl } from "../../../../components/custom-image-control";
 import { PriceRefresh } from "../../../../components/prices/price-refresh";
+import { PriceLanguageSelect } from "../../../../components/prices/price-language-select";
 import { PricesSection } from "../../../../components/prices/prices-section";
 import { priceProviders, requestPriceRefresh } from "../../../../lib/background";
 import { PROVIDER_COLORS, loadCardPrices } from "../../../../lib/card-prices";
@@ -62,7 +64,7 @@ export default async function CardPage({
   searchParams,
 }: {
   params: { game: string; set: string; number: string };
-  searchParams: { finish?: string };
+  searchParams: { finish?: string; lang?: string };
 }) {
   await loadMoneyDisplay();
   const game = await prisma.game.findUnique({ where: { slug: params.game } });
@@ -115,6 +117,14 @@ export default async function CardPage({
     settings.staleAfterHours * 3_600_000,
   ).catch(() => false);
   if (queued) requestPriceRefresh(active);
+  // The price language the panels show: the setting, unless the page asked for another one.
+  const language = isPriceLanguage(searchParams.lang) ? searchParams.lang : settings.priceLanguage;
+  const langQueued =
+    priceable && language !== settings.priceLanguage
+      ? await enqueueLanguagePrices(variantIds, game.slug, language, active).catch(() => false)
+      : false;
+  if (langQueued) requestPriceRefresh(["ebay"]);
+  const langParam = language !== settings.priceLanguage ? `&lang=${language}` : "";
 
   const [values, neighbours, prices] = await Promise.all([
     latestValuations(variantIds),
@@ -128,7 +138,7 @@ export default async function CardPage({
           name: printing.card.name,
           number: printing.collectorNumber,
           game: game.slug,
-        })
+        }, language)
       : null,
   ]);
   const owned = variants.map((v) => ({
@@ -236,7 +246,7 @@ export default async function CardPage({
                         {variants.map((v) => (
                           <Link
                             key={v.id}
-                            href={`?finish=${v.finish}`}
+                            href={`?finish=${v.finish}${langParam}`}
                             scroll={false}
                             aria-current={v.id === selected.id ? "page" : undefined}
                             className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 ${v.id === selected.id ? "bg-accent-soft font-semibold text-neutral-900" : "text-neutral-500 hover:text-neutral-900"}`}
@@ -252,10 +262,14 @@ export default async function CardPage({
                         <PriceChip value={values.get(selected.id)?.valueEur} />
                       </span>
                     )}
+                    <PriceLanguageSelect
+                      language={prices.language}
+                      defaultLanguage={settings.priceLanguage}
+                    />
                     <PriceRefresh
                       variantIds={variantIds}
                       game={game.slug}
-                      initiallyUpdating={prices.updating || queued}
+                      initiallyUpdating={prices.updating || queued || langQueued}
                       providers={prices.panels.map((p) => ({
                         id: p.id,
                         label: p.label,

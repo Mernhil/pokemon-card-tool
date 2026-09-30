@@ -79,7 +79,11 @@ export function parseEbaySearch(data: unknown): EbayListing[] {
 /** Pure: surviving listings -> asking (median) + lowest listing, per currency. */
 export function ebayObservations(
   listings: EbayListing[],
-  { now = new Date(), payloadHash = null }: { now?: Date; payloadHash?: string | null } = {},
+  {
+    now = new Date(),
+    payloadHash = null,
+    languageCode = null,
+  }: { now?: Date; payloadHash?: string | null; languageCode?: string | null } = {},
 ): ProviderObservation[] {
   const out: ProviderObservation[] = [];
   for (const currency of new Set(listings.map((l) => l.currency))) {
@@ -87,6 +91,7 @@ export function ebayObservations(
     const base = {
       currency,
       condition: null,
+      languageCode,
       listingCount: prices.length,
       observedAt: now,
       payloadHash,
@@ -183,7 +188,12 @@ export class EbayProvider implements PriceProvider {
   }
 
   async fetchPrices(card: PricedCard, mapping: ResolvedMapping): Promise<ProviderObservation[]> {
-    const q = mapping.query ?? ebayQueryFor(card);
+    const language = card.priceLanguage ?? card.languageCode;
+    // The stored query is language-neutral; for another language the language word is added.
+    const q =
+      language !== "en"
+        ? ebayQueryFor({ ...card, languageCode: language })
+        : (mapping.query ?? ebayQueryFor(card));
     const params = new URLSearchParams({
       q,
       category_ids: EBAY_POKEMON_SINGLES_CATEGORY,
@@ -202,8 +212,8 @@ export class EbayProvider implements PriceProvider {
       },
       { provider: this.id, fetch: this.options.fetch, throttle: this.throttle },
     );
-    const { accepted } = filterListings(parseEbaySearch(data), card);
-    return ebayObservations(accepted, { payloadHash: hash });
+    const { accepted } = filterListings(parseEbaySearch(data), { ...card, languageCode: language });
+    return ebayObservations(accepted, { payloadHash: hash, languageCode: language });
   }
 
   async testConnection() {

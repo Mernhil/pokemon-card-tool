@@ -118,11 +118,16 @@ export const EBAY_LISTING_RULES: ListingRule[] = [
   },
   {
     id: "wrong-language",
-    description: "Titles naming another language than the one we're pricing",
-    rejects: (l, ctx) =>
-      Object.entries(LANGUAGE_WORDS).some(
-        ([code, pattern]) => code !== ctx.languageCode.split("-")[0] && pattern.test(l.title),
-      ),
+    description:
+      "Titles naming another language than the one we're pricing (and, for a language other than English, titles that don't name it)",
+    rejects: (l, ctx) => {
+      const target = ctx.languageCode.split("-")[0]!;
+      if (Object.entries(LANGUAGE_WORDS).some(([code, pattern]) => code !== target && pattern.test(l.title)))
+        return true;
+      // English listings rarely say so, but a German one does: without the target's own
+      // word we can't tell what language an untagged title is, so it doesn't count.
+      return target !== "en" && !!LANGUAGE_WORDS[target] && !LANGUAGE_WORDS[target]!.test(l.title);
+    },
   },
   {
     id: "wrong-number",
@@ -191,8 +196,23 @@ function removeOutliers(accepted: EbayListing[], rejected: FilterResult["rejecte
 
 /** Query that finds the card's listings; the rules above do the precise filtering. */
 export function ebayQueryFor(
-  ctx: Pick<ListingContext, "cardName" | "collectorNumber" | "finish">,
+  ctx: Pick<ListingContext, "cardName" | "collectorNumber" | "finish"> & {
+    languageCode?: string;
+  },
 ): string {
   const reverse = ctx.finish === "REVERSE_HOLO" ? " reverse holo" : "";
-  return `${ctx.cardName} ${ctx.collectorNumber}${reverse}`;
+  const language = ctx.languageCode && ctx.languageCode !== "en" ? LANGUAGE_QUERY[ctx.languageCode.split("-")[0]!] : undefined;
+  return `${ctx.cardName} ${ctx.collectorNumber}${reverse}${language ? ` ${language}` : ""}`;
 }
+
+/** The word that finds listings in a language ("German" for de). */
+const LANGUAGE_QUERY: Record<string, string> = {
+  ja: "japanese",
+  ko: "korean",
+  zh: "chinese",
+  de: "german",
+  fr: "french",
+  it: "italian",
+  es: "spanish",
+  pt: "portuguese",
+};

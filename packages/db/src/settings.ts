@@ -1,6 +1,13 @@
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { PRICE_PROVIDERS, appDataDir, type PriceProviderId } from "@tcg-vault/shared";
+import {
+  DEFAULT_PRICE_LANGUAGE,
+  PRICE_PROVIDERS,
+  appDataDir,
+  isPriceLanguage,
+  type PriceLanguage,
+  type PriceProviderId,
+} from "@tcg-vault/shared";
 import { prisma } from "./client";
 
 /**
@@ -17,6 +24,12 @@ import { prisma } from "./client";
 export interface AppSettings {
   /** ISO currency every converted price is shown in. */
   displayCurrency: string;
+  /**
+   * The language prices and values are quoted in (default English): CardTrader/eBay numbers
+   * are taken from listings in this language, so cheap copies in other languages don't
+   * pollute values. Cardmarket/TCGplayer can't split by language and stay "all languages".
+   */
+  priceLanguage: PriceLanguage;
   /** Collection (and recently viewed) cards' prices are refreshed this often. */
   priceRefreshHours: number;
   /** A card page with prices older than this queues a refresh when opened. */
@@ -42,6 +55,7 @@ function envNumber(name: string, fallback: number): number {
 export function defaultSettings(): AppSettings {
   return {
     displayCurrency: "EUR",
+    priceLanguage: DEFAULT_PRICE_LANGUAGE,
     priceRefreshHours: 24,
     staleAfterHours: 24,
     catalogRefreshDays: envNumber("CATALOG_REFRESH_DAYS", 30),
@@ -90,6 +104,7 @@ export function sanitizeSettings(
   const currency = typeof raw.displayCurrency === "string" ? raw.displayCurrency.toUpperCase() : "";
   return {
     displayCurrency: /^[A-Z]{3}$/.test(currency) ? currency : base.displayCurrency,
+    priceLanguage: isPriceLanguage(raw.priceLanguage) ? raw.priceLanguage : base.priceLanguage,
     priceRefreshHours: clamp(raw.priceRefreshHours, 1, 24 * 30, base.priceRefreshHours),
     staleAfterHours: clamp(raw.staleAfterHours, 1, 24 * 30, base.staleAfterHours),
     catalogRefreshDays: clamp(raw.catalogRefreshDays, 1, 365, base.catalogRefreshDays),

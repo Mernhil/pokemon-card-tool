@@ -51,6 +51,7 @@ async function main() {
     }
     const result = await runPriceRefresh(providers[id], game, {
       refreshAfterMs: settings.priceRefreshHours * 3_600_000,
+      priceLanguage: settings.priceLanguage,
       log: (line) => log(`${id}: ${line}`),
     });
     log(

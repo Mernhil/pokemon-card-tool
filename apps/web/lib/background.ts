@@ -210,6 +210,7 @@ export function requestPriceRefresh(only?: PriceProviderId[]): void {
         if (!settings.providers[id].enabled) return;
         const result = await runPriceRefresh(providers[id], game, {
           refreshAfterMs: settings.priceRefreshHours * 3_600_000,
+          priceLanguage: settings.priceLanguage,
           log: (line) => console.log(`[${name}] ${line}`),
         });
         if (result.succeeded.length > 0) scheduleValuations();

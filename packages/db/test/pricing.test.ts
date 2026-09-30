@@ -433,6 +433,7 @@ describe("observations", () => {
       trend: null,
       sampleSize: null,
       listingCount: null,
+      languageCode: null,
       payloadHash: null,
       observedAt: new Date("2026-01-01"),
     };
@@ -481,6 +482,7 @@ describe("valuations and snapshots", () => {
     expect(valueFromPoints(points, rates, new Set(["cardtrader"]))).toEqual({
       valueEur: 1000,
       sources: 2,
+      mixedOnly: true, // Cardmarket and TCGplayer can not split by language
     });
   });
 

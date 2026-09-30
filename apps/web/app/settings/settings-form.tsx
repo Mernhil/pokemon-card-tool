@@ -1,7 +1,11 @@
 "use client";
 
 import type { AppSettings, SecretStatus } from "@tcg-vault/db";
-import { PRICE_KIND_LABELS, type PriceKind } from "@tcg-vault/shared/src/enums";
+import {
+  PRICE_KIND_LABELS,
+  PRICE_LANGUAGES,
+  type PriceKind,
+} from "@tcg-vault/shared/src/enums";
 import { CheckCircle2, CircleAlert, KeyRound, PlugZap, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -323,6 +327,26 @@ export function SettingsForm({
             ))}
           </select>
         </label>
+        <label className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+          Price language
+          <select
+            className="field py-1 text-sm"
+            value={settings.priceLanguage}
+            onChange={(e) => save({ priceLanguage: e.target.value as AppSettings["priceLanguage"] })}
+          >
+            {PRICE_LANGUAGES.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="mt-1 text-xs text-neutral-500">
+          Values and prices everywhere use listings in this language, so cheap copies in other
+          languages don&apos;t pull them down. CardTrader and eBay can be split by language;
+          Cardmarket and TCGplayer numbers (via TCGdex) can&apos;t, and are always labelled &quot;all
+          languages&quot;. Changing it recomputes your values.
+        </p>
         <label className="mt-4 flex items-center gap-2 text-sm">
           <input
             type="checkbox"

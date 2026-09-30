@@ -2,6 +2,7 @@
 
 import {
   SECRET_NAMES,
+  getSettings,
   updateSettings,
   writeSecret,
   type AppSettings,
@@ -9,7 +10,12 @@ import {
 } from "@tcg-vault/db";
 import { PRICE_PROVIDERS, type PriceProviderId } from "@tcg-vault/shared";
 import { revalidatePath } from "next/cache";
-import { priceProviders, requestFxRefresh, requestPriceRefresh } from "../../lib/background";
+import {
+  priceProviders,
+  requestFxRefresh,
+  requestPriceRefresh,
+  scheduleValuations,
+} from "../../lib/background";
 import { loadMoneyDisplay } from "../../lib/money-config";
 
 export type SettingsResult = { ok: true } | { ok: false; error: string };
@@ -17,8 +23,11 @@ export type SettingsResult = { ok: true } | { ok: false; error: string };
 /** Saves non-secret settings (validated and clamped in @tcg-vault/db). */
 export async function saveSettingsAction(patch: Partial<AppSettings>): Promise<SettingsResult> {
   try {
-    await updateSettings(patch);
+    const before = await getSettings();
+    const after = await updateSettings(patch);
     await loadMoneyDisplay();
+    // Values and the portfolio snapshot are quoted in the price language: redo them now.
+    if (after.priceLanguage !== before.priceLanguage) scheduleValuations(0);
     revalidatePath("/", "layout");
     return { ok: true };
   } catch (err) {

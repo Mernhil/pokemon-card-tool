@@ -1,4 +1,4 @@
-import { MIN_TRUSTED_MATCH, type MappingStatus } from "@tcg-vault/shared";
+import { MIN_TRUSTED_MATCH, normalizeListingLanguage, type MappingStatus } from "@tcg-vault/shared";
 import { NotConfiguredError, createThrottle, requestJson } from "./http";
 import { normalizeName, scoreCardMatch, scoreSetMatch } from "./matching";
 import type {
@@ -99,14 +99,16 @@ function propertyMatching(props: Record<string, unknown>, pattern: RegExp): unkn
 }
 
 /**
- * Pure: listings -> observations for one variant. Drops graded copies, other
- * languages, and the wrong finish (reverse holo vs not), then reports the
- * cheapest listing per condition (and currency) with how many listings it
- * was chosen from.
+ * Pure: listings -> observations for one variant. Drops graded copies and
+ * the wrong finish (reverse holo vs not), then reports the cheapest listing
+ * per language, condition and currency with how many listings it was chosen
+ * from. One fetch therefore yields a separate observation set for every
+ * listing language, so a cheap German copy never mixes into the English
+ * number; a listing that names no language is stored with languageCode null.
  */
 export function cardTraderObservations(
   products: CardTraderProduct[],
-  card: Pick<PricedCard, "finish" | "languageCode">,
+  card: Pick<PricedCard, "finish">,
   { now = new Date(), payloadHash = null }: { now?: Date; payloadHash?: string | null } = {},
 ): ProviderObservation[] {
   const wantReverse = card.finish === "REVERSE_HOLO";
@@ -118,15 +120,17 @@ export function cardTraderObservations(
 
   const groups = new Map<
     string,
-    { condition: string | null; currency: string; prices: number[] }
+    { condition: string | null; currency: string; language: string | null; prices: number[] }
   >();
   for (const p of products) {
     if (p.graded) continue;
     if ((p.quantity ?? 1) < 1) continue;
     const props = p.properties_hash ?? {};
-    const language = propertyMatching(props, /language$/);
-    if (typeof language === "string" && language.toLowerCase() !== card.languageCode.toLowerCase())
-      continue;
+    const rawLanguage = propertyMatching(props, /language$/);
+    const language = normalizeListingLanguage(rawLanguage);
+    // A language we don't recognise is neither English nor anything we could label: skip it
+    // rather than let it pose as "unsplit".
+    if (typeof rawLanguage === "string" && rawLanguage.trim() && !language) continue;
     const reverse = propertyMatching(props, /reverse/);
     if (Boolean(reverse) !== wantReverse) continue;
 
@@ -139,8 +143,8 @@ export function cardTraderObservations(
         ? (CARDTRADER_CONDITIONS[rawCondition.toLowerCase()] ?? null)
         : null;
 
-    const key = `${condition}|${currency}`;
-    const group = groups.get(key) ?? { condition, currency, prices: [] };
+    const key = `${language}|${condition}|${currency}`;
+    const group = groups.get(key) ?? { condition, currency, language, prices: [] };
     group.prices.push(cents);
     groups.set(key, group);
   }
@@ -150,6 +154,7 @@ export function cardTraderObservations(
     amount: Math.min(...g.prices),
     currency: g.currency,
     condition: g.condition,
+    languageCode: g.language,
     listingCount: g.prices.length,
     observedAt: now,
     payloadHash,

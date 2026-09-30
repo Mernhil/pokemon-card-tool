@@ -9,7 +9,7 @@ import {
   type CardTraderProduct,
 } from "./cardtrader";
 import { EbayProvider, ebayObservations, parseEbaySearch } from "./ebay";
-import { filterListings } from "./ebay-filter";
+import { ebayQueryFor, filterListings } from "./ebay-filter";
 import { AuthError, RateLimitedError, parseRetryAfter, requestJson } from "./http";
 import { normalizeName, normalizeNumber, scoreCardMatch, scoreSetMatch } from "./matching";
 import { TcgdexMarketProvider, TcgdexPriceClient, quoteToObservations } from "./tcgdex-prices";
@@ -224,22 +224,49 @@ describe("CardTrader", () => {
   });
 
   it("reports the cheapest raw listing per condition, dropping graded, other languages, other finish and sold-out", () => {
-    const obs = cardTraderObservations(products, joltik);
+    const all = cardTraderObservations(products, joltik);
+    // One fetch, one observation set per listing language: the Japanese copy is its own number.
+    const obs = all.filter((o) => o.languageCode === "en");
     const byCondition = Object.fromEntries(obs.map((o) => [o.condition, o]));
     expect(byCondition.NEAR_MINT).toMatchObject({
       kind: "lowest_listing",
       amount: 9,
       currency: "EUR",
       listingCount: 2,
+      languageCode: "en",
     });
     expect(byCondition.LIGHTLY_PLAYED).toMatchObject({ amount: 5, listingCount: 1 });
     expect(obs).toHaveLength(2);
+    expect(all.filter((o) => o.languageCode === "ja")).toEqual([
+      expect.objectContaining({ amount: 3, condition: "NEAR_MINT" }),
+    ]);
+  });
+
+  it("a cheap German listing gets its own observation and never lowers the English one", () => {
+    const german: CardTraderProduct = {
+      id: 99,
+      blueprint_id: 900001,
+      quantity: 1,
+      price: { cents: 1, currency: "EUR" },
+      graded: false,
+      properties_hash: { condition: "Near Mint", pokemon_language: "de", pokemon_reverse: false },
+    };
+    const obs = cardTraderObservations([...products, german], joltik);
+    const nm = (lang: string) =>
+      obs.find((o) => o.languageCode === lang && o.condition === "NEAR_MINT")?.amount;
+    expect(nm("de")).toBe(1);
+    expect(nm("en")).toBe(9);
   });
 
   it("only counts reverse holo listings for the reverse holo variant", () => {
     const obs = cardTraderObservations(products, { ...joltik, finish: "REVERSE_HOLO" });
     expect(obs).toEqual([
-      expect.objectContaining({ amount: 45, condition: "NEAR_MINT", listingCount: 1 }),
+      expect.objectContaining({
+        amount: 45,
+        condition: "NEAR_MINT",
+        listingCount: 1,
+        languageCode: "en",
+      }),
     ]);
   });
 
@@ -427,5 +454,52 @@ describe("EbayProvider", () => {
     });
     expect((await provider.testConnection()).ok).toBe(true);
     expect(String(fetchImpl.mock.calls[0]![0])).toContain("api.sandbox.ebay.com");
+  });
+});
+
+describe("eBay by language", () => {
+  const ctx = {
+    cardName: "Joltik",
+    collectorNumber: "001/064",
+    printedTotal: 64,
+    finish: "NON_FOIL",
+    languageCode: "en",
+  };
+  const mk = (title: string, price = 100) => ({
+    itemId: title,
+    title,
+    price,
+    currency: "EUR",
+  });
+
+  it("English: titles naming another language are dropped, untagged titles count", () => {
+    const { accepted } = filterListings(
+      [
+        mk("Joltik 001/064 Pokemon card"),
+        mk("Joltik 001/064 Deutsch", 10),
+        mk("Joltik 001/064 German", 10),
+      ],
+      ctx,
+    );
+    expect(accepted.map((l) => l.title)).toEqual(["Joltik 001/064 Pokemon card"]);
+  });
+
+  it("another language: only titles that name it count", () => {
+    const { accepted } = filterListings(
+      [
+        mk("Joltik 001/064 Pokemon card"),
+        mk("Joltik 001/064 Deutsch", 10),
+        mk("Joltik 001/064 French", 10),
+      ],
+      { ...ctx, languageCode: "de" },
+    );
+    expect(accepted.map((l) => l.title)).toEqual(["Joltik 001/064 Deutsch"]);
+  });
+
+  it("observations carry the language, and the query asks for it", () => {
+    const obs = ebayObservations([mk("Joltik 001/064 Deutsch", 10)], { languageCode: "de" });
+    expect(obs.every((o) => o.languageCode === "de")).toBe(true);
+    expect(ebayQueryFor({ ...ctx, languageCode: "de" })).toBe("Joltik 001/064 german");
+    expect(ebayQueryFor(ctx)).toBe("Joltik 001/064");
   });
 });

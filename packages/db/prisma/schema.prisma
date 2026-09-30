@@ -326,6 +326,9 @@ model PriceObservation {
   sampleSize     Int?
   /// Listings (asking/lowest_listing) or sales (sold) the number is based on, if known.
   listingCount   Int?
+  /// Language the number is for (PRICE_LANGUAGES). Null = the source can't split by
+  /// language (Cardmarket, TCGplayer via TCGdex) or the listing didn't say.
+  languageCode   String?
   /// sha256 of the provider response this came from, to trace odd numbers back.
   payloadHash    String?
   observedAt     DateTime
