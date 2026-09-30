@@ -222,12 +222,9 @@ async function main() {
     const header = ["game", "set_code", "set_name", "collector_number", "card_name", "printing_id", "problem"];
     writeFileSync(
       args.csv,
-      [header, ...missingRows].map((r) => r.map(cell).join(",")).join("
-") + "
-",
+      [header, ...missingRows].map((r) => r.map(cell).join(",")).join(String.fromCharCode(10)) + String.fromCharCode(10),
     );
-    console.log(`
-${missingRows.length} cards without a loadable image listed in ${args.csv}`);
+    console.log(`${missingRows.length} cards without a loadable image listed in ${args.csv}`);
   }
 
   if (args.json) {
