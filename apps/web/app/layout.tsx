@@ -8,6 +8,7 @@ import { Sidebar } from "../components/sidebar";
 import { SIDEBAR_COOKIE } from "../lib/ui-cookies";
 import { ToastProvider } from "../components/ui/toast";
 import { UpdateBanner } from "../components/update-banner";
+import { HistoryNavigation } from "../components/history-navigation";
 import { MoneyConfig } from "../components/money-config";
 import { loadMoneyDisplay } from "../lib/money-config";
 import { THEME_COOKIE, parseTheme } from "../lib/theme";
@@ -27,6 +28,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en" className={theme === "system" ? undefined : theme}>
       <body>
         <MoneyConfig display={money} />
+        <HistoryNavigation />
         <Providers>
           <ToastProvider>
             <div className="flex min-h-screen">

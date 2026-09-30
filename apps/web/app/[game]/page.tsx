@@ -10,6 +10,7 @@ import {
 } from "@tcg-vault/shared";
 import { CollapsibleSection } from "../../components/collapsible-section";
 import { SetTile, type SetTileData } from "../../components/set-tile";
+import { RestoreScroll } from "../../components/restore-scroll";
 import { ButtonLink } from "../../components/ui/button";
 import { EmptyState } from "../../components/ui/empty-state";
 import { PageHeader } from "../../components/ui/page-header";
@@ -83,6 +84,7 @@ export default async function GameSetListPage({ params }: { params: { game: stri
 
   return (
     <main className="page">
+      <RestoreScroll />
       <PageHeader
         eyebrow={
           <Link href="/browse" className="hover:underline">

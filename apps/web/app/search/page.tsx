@@ -12,6 +12,7 @@ import {
   type CostCard,
 } from "@tcg-vault/shared";
 import { SearchResults, type SearchTile } from "../../components/search-results";
+import { RestoreScroll } from "../../components/restore-scroll";
 import { finishLabel } from "../../components/money";
 import { buttonClass } from "../../components/ui/button";
 import { PageHeader } from "../../components/ui/page-header";
@@ -184,6 +185,7 @@ export default async function SearchPage({
 
   return (
     <main className="page">
+      <RestoreScroll />
       <PageHeader
         eyebrow="Catalog"
         title="Search"
@@ -348,7 +350,10 @@ export default async function SearchPage({
       )}
 
       {pageCount > 1 ? (
-        <nav className="mt-6 flex items-center justify-center gap-3 text-sm" aria-label="Pagination">
+        <nav
+          className="mt-6 flex items-center justify-center gap-3 text-sm"
+          aria-label="Pagination"
+        >
           {currentPage > 1 ? (
             <Link href={pageHref(currentPage - 1)} className={buttonClass("secondary", "sm")}>
               Previous
