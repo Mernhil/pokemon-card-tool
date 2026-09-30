@@ -211,6 +211,7 @@ export default async function SearchPage({
             name="q"
             defaultValue={q}
             placeholder="Charizard, Pikachu…"
+            autoComplete="off"
             className={select}
             autoFocus
           />

@@ -185,6 +185,7 @@ export function SetGrid({ cards, subsets = [] }: { cards: SetGridCard[]; subsets
           <input
             className="field w-full pl-8"
             placeholder="Filter this set…"
+            autoComplete="off"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             aria-label="Filter this set"

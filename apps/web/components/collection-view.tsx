@@ -154,6 +154,7 @@ export function CollectionView({
           <input
             className="field w-full pl-8"
             placeholder="Filter your cards…"
+            autoComplete="off"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             aria-label="Filter your cards"

@@ -216,6 +216,7 @@ export function SyncPanel({
                 type="search"
                 className="field w-full pl-8"
                 placeholder="Filter sets (e.g. 151, Shrouded, sv06)…"
+                autoComplete="off"
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
               />

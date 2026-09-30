@@ -100,6 +100,18 @@ fn show_error(window: &WebviewWindow, message: &str) {
     let _ = window.eval(&js);
 }
 
+/// Opens an http(s) link in the default browser. The webview itself can't: it blocks
+/// `target="_blank"` popups, and navigating it would replace the app.
+#[tauri::command]
+#[allow(deprecated)]
+fn open_external(handle: tauri::AppHandle, url: String) -> Result<(), String> {
+    let parsed = tauri::Url::parse(&url).map_err(|e| e.to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("only http(s) links can be opened".into());
+    }
+    handle.shell().open(parsed.as_str(), None).map_err(|e| e.to_string())
+}
+
 /// TCG Vault has no separate backend process to install or configure: the
 /// Next.js standalone server (built by apps/web, bundled as a resource) is
 /// spawned as a sidecar under a portable Node runtime. The window starts on
@@ -116,7 +128,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             updater::update_status,
             updater::install_update,
-            updater::check_for_updates
+            updater::check_for_updates,
+            open_external
         ])
         .setup(|app| {
             let handle = app.handle().clone();
