@@ -7,6 +7,7 @@ fn main() {
             "update_status",
             "install_update",
             "check_for_updates",
+            "update_overview",
             "open_external",
         ]),
     ))

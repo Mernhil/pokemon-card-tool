@@ -14,9 +14,9 @@
 //! install can still receive the fix.
 
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_updater::{Update, UpdaterExt};
@@ -25,6 +25,16 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 const CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 /// First check shortly after launch, once the window is busy with other things.
 const FIRST_CHECK_DELAY: Duration = Duration::from_secs(5);
+/// How often the loop looks at the clock. Comparing wall-clock time (not one long sleep) means a
+/// PC that slept through the interval checks again within a minute of waking.
+const TICK: Duration = Duration::from_secs(60);
+
+fn now_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 
 #[derive(Default)]
 pub struct UpdateState {
@@ -34,6 +44,11 @@ pub struct UpdateState {
     /// Set once the window shows the app (not the splash), i.e. the web UI
     /// is there to announce updates.
     pub ui_ready: AtomicBool,
+    /// Unix seconds of the last check that reached the release server (0 = none yet).
+    last_checked: AtomicU64,
+    /// Unix seconds of the last attempt, successful or not: paces the loop so a failing
+    /// network isn't retried every tick.
+    last_attempt: AtomicU64,
 }
 
 #[derive(Clone, Serialize)]
@@ -59,10 +74,16 @@ pub fn spawn_checks(handle: AppHandle) {
     std::thread::spawn(move || {
         std::thread::sleep(FIRST_CHECK_DELAY);
         loop {
-            if let Err(err) = tauri::async_runtime::block_on(check_and_download(&handle)) {
-                eprintln!("[updater] {err}");
+            let state = handle.state::<UpdateState>();
+            let due = now_secs().saturating_sub(state.last_attempt.load(Ordering::SeqCst))
+                >= CHECK_INTERVAL.as_secs();
+            if due {
+                state.last_attempt.store(now_secs(), Ordering::SeqCst);
+                if let Err(err) = tauri::async_runtime::block_on(check_and_download(&handle)) {
+                    eprintln!("[updater] {err}");
+                }
             }
-            std::thread::sleep(CHECK_INTERVAL);
+            std::thread::sleep(TICK);
         }
     });
 }
@@ -91,11 +112,14 @@ async fn check_and_download(handle: &AppHandle) -> Result<(), String> {
         return Ok(()); // already downloaded; waiting for the user
     }
 
-    let Some(update) = updater(handle)?
+    state.last_attempt.store(now_secs(), Ordering::SeqCst);
+    let checked = updater(handle)?
         .check()
         .await
-        .map_err(|e| format!("check failed: {e}"))?
-    else {
+        .map_err(|e| format!("check failed: {e}"))?;
+    state.last_checked.store(now_secs(), Ordering::SeqCst);
+    announce_checked(handle);
+    let Some(update) = checked else {
         return Ok(());
     };
 
@@ -111,6 +135,15 @@ async fn check_and_download(handle: &AppHandle) -> Result<(), String> {
     println!("[updater] {} ready to install", info.version);
     announce(handle, &info);
     Ok(())
+}
+
+/// Lets the web UI refresh its "last checked" time.
+fn announce_checked(handle: &AppHandle) {
+    if handle.state::<UpdateState>().ui_ready.load(Ordering::SeqCst) {
+        if let Some(window) = handle.get_webview_window("main") {
+            let _ = window.eval("window.dispatchEvent(new CustomEvent('tcgvault:update-checked'))");
+        }
+    }
 }
 
 /// Tells the web UI (or, without one, a native dialog) that an update is ready.
@@ -198,6 +231,26 @@ fn pending_info(state: &UpdateState) -> Option<UpdateInfo> {
 #[tauri::command]
 pub fn update_status(state: tauri::State<'_, UpdateState>) -> Option<UpdateInfo> {
     pending_info(&state)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateOverview {
+    current_version: String,
+    /// Unix seconds of the last successful check, if there was one this run.
+    last_checked_at: Option<u64>,
+    pending: Option<UpdateInfo>,
+}
+
+/// For the web UI's version / "last checked" lines and the sidebar's update dot.
+#[tauri::command]
+pub fn update_overview(handle: AppHandle, state: tauri::State<'_, UpdateState>) -> UpdateOverview {
+    let last = state.last_checked.load(Ordering::SeqCst);
+    UpdateOverview {
+        current_version: handle.package_info().version.to_string(),
+        last_checked_at: (last > 0).then_some(last),
+        pending: pending_info(&state),
+    }
 }
 
 #[derive(Serialize)]

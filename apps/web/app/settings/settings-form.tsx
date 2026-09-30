@@ -446,8 +446,9 @@ export function SettingsForm({
       <section className="panel p-5">
         <h2 className="text-sm font-semibold">Software update</h2>
         <p className="mt-2 text-xs text-neutral-500">
-          TCG Vault checks for a new version automatically every few hours. Use this to check right
-          now instead of waiting. Does nothing in a browser — only the desktop app.
+          TCG Vault checks for a new version every time it starts and then every 6 hours (and soon
+          after waking from sleep). Use this to check right now. Does nothing in a browser — only the
+          desktop app.
         </p>
         <div className="mt-3">
           <CheckForUpdatesButton />

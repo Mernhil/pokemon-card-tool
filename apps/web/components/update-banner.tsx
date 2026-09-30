@@ -43,8 +43,14 @@ export function UpdateBanner() {
       setUpdate((e as CustomEvent<UpdateInfo>).detail);
       setDismissed(false);
     };
+    // The sidebar update item brings a dismissed prompt back.
+    const onShow = () => setDismissed(false);
     window.addEventListener("tcgvault:update-ready", onReady);
-    return () => window.removeEventListener("tcgvault:update-ready", onReady);
+    window.addEventListener("tcgvault:show-update", onShow);
+    return () => {
+      window.removeEventListener("tcgvault:update-ready", onReady);
+      window.removeEventListener("tcgvault:show-update", onShow);
+    };
   }, []);
 
   if (!update || dismissed) return null;

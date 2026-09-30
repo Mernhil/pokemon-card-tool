@@ -144,6 +144,7 @@ fn main() {
             updater::update_status,
             updater::install_update,
             updater::check_for_updates,
+            updater::update_overview,
             open_external
         ])
         .setup(|app| {

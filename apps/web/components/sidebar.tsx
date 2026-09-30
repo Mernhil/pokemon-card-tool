@@ -21,6 +21,7 @@ import logo from "../assets/logo.png";
 import type { Theme } from "../lib/theme";
 import { SIDEBAR_COOKIE } from "../lib/ui-cookies";
 import { SyncIndicator } from "./sync-indicator";
+import { UpdateCheck } from "./update-check";
 import { ThemeToggle } from "./theme-toggle";
 
 const NAV: Array<{ href: string; label: string; icon: LucideIcon; match?: RegExp }> = [
@@ -128,6 +129,7 @@ export function Sidebar({ initialCollapsed, theme }: { initialCollapsed: boolean
       </nav>
 
       <SyncIndicator collapsed={collapsed} />
+      <UpdateCheck collapsed={collapsed} />
 
       <div
         className={`flex items-center gap-2 border-t p-3 ${collapsed ? "flex-col" : "justify-between"}`}
