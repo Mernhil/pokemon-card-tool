@@ -6,6 +6,7 @@ import {
   getCardImageResult,
   latestValuations,
   listAlerts,
+  loadGradedPrices,
   prisma,
   recordCardView,
   runnableProviders,
@@ -16,6 +17,7 @@ import { CardViewer } from "../../../../components/card-viewer";
 import { FinishBadge, PriceChip, finishLabel } from "../../../../components/money";
 import { PriceHistory } from "../../../../components/prices/price-history";
 import { CustomImageControl } from "../../../../components/custom-image-control";
+import { GradedPrices } from "../../../../components/prices/graded-prices";
 import { PriceAlerts } from "../../../../components/price-alerts";
 import { PriceRefresh } from "../../../../components/prices/price-refresh";
 import { PriceLanguageSelect } from "../../../../components/prices/price-language-select";
@@ -156,6 +158,14 @@ export default async function CardPage({
       : null,
     listAlerts(variantIds),
   ]);
+  const gradedRows = selected ? await loadGradedPrices(selected.id, language) : [];
+  const gradedBlocked = !settings.providers.ebay.enabled
+    ? "eBay is turned off in Settings."
+    : !providers.ebay.isConfigured()
+      ? "Add your eBay keys in Settings to see graded prices."
+      : priceable
+        ? null
+        : "Digital cards have no graded market.";
   const owned = variants.map((v) => ({
     finish: v.finish,
     qty: v.collection.reduce((s, c) => s + c.quantity, 0),
@@ -322,6 +332,15 @@ export default async function CardPage({
                 displayCurrency={prices.settings.displayCurrency}
                 rates={prices.rates}
                 cardName={printing.card.name}
+              />
+              <GradedPrices
+                variantId={selected.id}
+                language={prices.language}
+                rows={gradedRows}
+                displayCurrency={prices.settings.displayCurrency}
+                rates={prices.rates}
+                canFetch={gradedBlocked === null}
+                blockedReason={gradedBlocked}
               />
             </>
           ) : null}

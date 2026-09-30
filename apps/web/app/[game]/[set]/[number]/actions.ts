@@ -5,6 +5,8 @@ import {
   customImageErrorText,
   enqueuePriceRefresh,
   prisma,
+  refreshGradedPrices,
+  type GradedPriceSource,
   pricesUpdating,
   removeCustomImage,
   setCustomImage,
@@ -13,6 +15,7 @@ import { PRICE_PROVIDERS, type PriceProviderId } from "@tcg-vault/shared";
 import { revalidatePath } from "next/cache";
 import {
   cleanupOrphanedPriceRows,
+  priceProviders,
   requestPriceRefresh,
   runnablePriceProviders,
   scheduleValuations,
@@ -111,4 +114,30 @@ export async function removeCustomImageAction(printingId: string): Promise<{ ok:
   const removed = await removeCustomImage(printingId);
   revalidatePath("/", "layout");
   return { ok: removed };
+}
+
+/**
+ * "Load graded prices": asks eBay for PSA/BGS/CGC/SGC listings of this card
+ * (a few calls), stores them, and reports what happened. Awaited on purpose —
+ * it is one button press on one card, and the user waits for the table.
+ */
+export async function refreshGradedPricesAction(
+  variantId: string,
+  language: string,
+): Promise<{ ok: true; rows: number } | { ok: false; error: string }> {
+  try {
+    const { settings, providers } = await priceProviders();
+    const ebay = providers.ebay;
+    if (!settings.providers.ebay.enabled)
+      return { ok: false, error: "eBay is turned off in Settings." };
+    if (!ebay.isConfigured())
+      return { ok: false, error: "Add your eBay keys in Settings to load graded prices." };
+    if (!("fetchGradedPrices" in ebay))
+      return { ok: false, error: "This eBay provider can't do graded prices." };
+    const rows = await refreshGradedPrices(ebay as GradedPriceSource, variantId, language);
+    revalidatePath("/", "layout");
+    return { ok: true, rows };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
