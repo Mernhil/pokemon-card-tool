@@ -3,6 +3,7 @@
 import {
   BookOpen,
   ChartLine,
+  Heart,
   Home,
   Layers,
   Library,
@@ -32,6 +33,7 @@ const NAV: Array<{ href: string; label: string; icon: LucideIcon; match?: RegExp
   },
   { href: "/search", label: "Search", icon: Search },
   { href: "/collection", label: "Collection", icon: Layers },
+  { href: "/wishlist", label: "Wishlist", icon: Heart },
   { href: "/binders", label: "Binders", icon: BookOpen },
   { href: "/dashboard", label: "Dashboard", icon: ChartLine },
   { href: "/sync", label: "Sync", icon: RefreshCw },
@@ -84,6 +86,7 @@ export function Sidebar({ initialCollapsed, theme }: { initialCollapsed: boolean
             <input
               name="q"
               placeholder="Search cards…"
+              autoComplete="off"
               aria-label="Search cards"
               className="field w-full pl-8 text-sm"
             />

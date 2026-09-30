@@ -11,6 +11,8 @@ import {
 } from "@tcg-vault/db";
 import { isPriceLanguage, mediaUrl } from "@tcg-vault/shared";
 import { AddToCollection } from "../../../../components/add-to-collection";
+import { BackToSearch } from "../../../../components/last-search";
+import { WishlistButton } from "../../../../components/wishlist-button";
 import { CardViewer } from "../../../../components/card-viewer";
 import { FinishBadge, PriceChip, finishLabel } from "../../../../components/money";
 import { PriceHistory } from "../../../../components/prices/price-history";
@@ -31,6 +33,7 @@ async function findPrinting(setId: number, slug: string) {
     card: true,
     rarity: true,
     artist: true,
+    wishlist: { select: { id: true } },
     variants: {
       include: {
         language: true,
@@ -153,16 +156,19 @@ export default async function CardPage({
   return (
     <main className="page">
       <div className="mb-4 flex items-center justify-between text-xs">
-        <Link
-          href={`/${game.slug}/${encodeURIComponent(set.code)}`}
-          className="flex items-center gap-2 font-semibold uppercase tracking-[0.14em] text-accent hover:underline"
-        >
-          {set.symbolUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={set.symbolUrl} alt="" className="h-4 w-4 object-contain" />
-          ) : null}
-          {set.name}
-        </Link>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+          <BackToSearch />
+          <Link
+            href={`/${game.slug}/${encodeURIComponent(set.code)}`}
+            className="flex items-center gap-2 font-semibold uppercase tracking-[0.14em] text-accent hover:underline"
+          >
+            {set.symbolUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={set.symbolUrl} alt="" className="h-4 w-4 object-contain" />
+            ) : null}
+            {set.name}
+          </Link>
+        </div>
         <span className="flex gap-3 text-neutral-500">
           {prev ? (
             <Link
@@ -224,14 +230,23 @@ export default async function CardPage({
             ) : null}
           </header>
 
-          <AddToCollection
-            cardName={printing.card.name}
-            variants={variants.map((v) => ({
-              id: v.id,
-              finish: v.finish,
-              value: values.get(v.id)?.valueEur ?? null,
-            }))}
-          />
+          <div className="flex flex-col gap-3">
+            <AddToCollection
+              cardName={printing.card.name}
+              variants={variants.map((v) => ({
+                id: v.id,
+                finish: v.finish,
+                value: values.get(v.id)?.valueEur ?? null,
+              }))}
+            />
+            <div>
+              <WishlistButton
+                printingId={printing.id}
+                initial={!!printing.wishlist}
+                cardName={printing.card.name}
+              />
+            </div>
+          </div>
 
           {selected && prices ? (
             <>
@@ -265,6 +280,7 @@ export default async function CardPage({
                     <PriceLanguageSelect
                       language={prices.language}
                       defaultLanguage={settings.priceLanguage}
+                      canFilter={prices.languageFilterable}
                     />
                     <PriceRefresh
                       variantIds={variantIds}

@@ -149,6 +149,7 @@ model Printing {
   subset          String?
   variants        PrintVariant[]
   externalRefs    ExternalRef[]
+  wishlist        WishlistItem?
 
   @@unique([setId, collectorNumber, isAltArt])
   @@index([setId, subset])
@@ -230,6 +231,14 @@ model CollectionItem {
 
   @@unique([gradingCompany, certNumber])
   @@index([variantId])
+}
+
+/// A card the user wants but doesn't own yet (per printing, any finish).
+model WishlistItem {
+  id         String   @id @default(cuid())
+  printingId String   @unique
+  printing   Printing @relation(fields: [printingId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
 }
 
 model Binder {
