@@ -1,6 +1,6 @@
 "use client";
 
-import { partitionBulk } from "@tcg-vault/shared";
+import { partitionBulk } from "@tcg-vault/shared/src/bulk";
 import { CONDITIONS } from "@tcg-vault/shared/src/enums";
 import { ChevronRight, LayoutGrid, List, Minus, Plus, Search, Trash2 } from "lucide-react";
 import Link from "next/link";

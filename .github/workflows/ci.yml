@@ -31,3 +31,6 @@ jobs:
       - run: pnpm typecheck
 
       - run: pnpm test
+
+      # Catches client components importing node-only code (webpack fails the build, tsc doesn't).
+      - run: pnpm --filter @tcg-vault/web build
