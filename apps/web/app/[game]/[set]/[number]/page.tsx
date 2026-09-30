@@ -94,7 +94,7 @@ export default async function CardPage({
   // Pokémon printing has a lazy image key, but some sources have no scan.)
   const hasOwnImage = printing.imageKey
     ? await getCardImageResult(printing.id)
-        .then((r) => r.image !== null)
+        .then((r) => r.image !== null && r.status !== "sibling")
         .catch(() => false)
     : false;
   const fallbackPrinting = hasOwnImage
