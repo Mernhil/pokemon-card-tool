@@ -503,3 +503,19 @@ describe("eBay by language", () => {
     expect(ebayQueryFor(ctx)).toBe("Joltik 001/064");
   });
 });
+
+describe("scoreSetMatch: galleries filed in the parent expansion", () => {
+  it("matches the parent expansion at a lower score", () => {
+    const r = scoreSetMatch(
+      { code: "swsh10tg", name: "Astral Radiance Trainer Gallery" },
+      { name: "Astral Radiance" },
+    );
+    expect(r.score).toBe(0.6);
+  });
+  it("still rejects unrelated expansions", () => {
+    expect(
+      scoreSetMatch({ code: "swsh10tg", name: "Astral Radiance Trainer Gallery" }, { name: "Lost Origin" })
+        .score,
+    ).toBe(0);
+  });
+});

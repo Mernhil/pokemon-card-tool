@@ -5,7 +5,7 @@ import {
   priceLanguageLabel,
   type FxRates,
 } from "@tcg-vault/shared";
-import { CircleAlert, ExternalLink, KeyRound, PauseCircle, SearchX, Timer } from "lucide-react";
+import { ChevronDown, CircleAlert, ExternalLink, KeyRound, PauseCircle, SearchX, Timer } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import {
@@ -111,6 +111,69 @@ const STATE_TITLE: Record<string, string> = {
   error: "Couldn't fetch prices",
 };
 
+/** Graded listings are stored with a condition like "PSA_10" (none of the providers fills these yet). */
+const isGraded = (condition: string | null) => !!condition && /^(PSA|BGS|CGC|SGC|TAG|ACE)/i.test(condition);
+
+/**
+ * The three numbers worth seeing without opening the panel: lowest and highest ungraded price
+ * (compared in the display currency, across conditions/kinds) and the PSA 10 price.
+ */
+function KeyNumbers({ panel, prices }: { panel: ProviderPanelData; prices: CardPrices }) {
+  const { displayCurrency } = prices.settings;
+  const all = [panel.headline!, ...panel.others];
+  const inDisplay = (p: SerializedPoint) =>
+    convertMinor(p.amount, p.currency, displayCurrency, prices.rates);
+  const ungraded = all
+    .filter((p) => !isGraded(p.condition))
+    .map((p) => ({ p, v: inDisplay(p) }))
+    .filter((x): x is { p: SerializedPoint; v: number } => x.v !== null);
+  const lowest = ungraded.length ? ungraded.reduce((a, b) => (b.v < a.v ? b : a)) : null;
+  const highest = ungraded.length > 1 ? ungraded.reduce((a, b) => (b.v > a.v ? b : a)) : null;
+  const psa10 = all.find((p) => p.condition?.toUpperCase().replace(/[s_-]/g, "") === "PSA10");
+  // Only a provider that splits by condition can say "no near mint": an unsplit number is
+  // already the near-mint-ish headline, so a missing row there would be misleading.
+  const splitsByCondition = ungraded.some((x) => x.p.condition !== null);
+  const nearMint = ungraded.find((x) => x.p.condition === "NEAR_MINT")?.p ?? null;
+  const rows: Array<{ label: string; p: SerializedPoint | null; empty: string }> = [
+    ...(splitsByCondition
+      ? [{ label: "Near mint", p: nearMint, empty: "none listed" }]
+      : []),
+    { label: "Lowest", p: lowest?.p ?? null, empty: "—" },
+    { label: "Highest", p: highest?.p ?? null, empty: "—" },
+    { label: "PSA 10", p: psa10 ?? null, empty: "no data" },
+  ];
+  return (
+    <dl className="mt-3 flex flex-col gap-1 border-t pt-2 text-xs">
+      {rows.map((r) => (
+        <div key={r.label} className="flex items-baseline justify-between gap-2">
+          <dt className="text-neutral-500">
+            {r.label}
+            {r.p ? (
+              <span className="text-neutral-400">
+                {" "}
+                · {PRICE_KIND_LABELS[r.p.kind]}
+                {r.p.condition && r.label !== "Near mint"
+                  ? ` ${CONDITION_SHORT[r.p.condition] ?? r.p.condition}`
+                  : ""}
+                {r.p.listingCount !== null
+                  ? ` · ${r.p.listingCount} ${r.p.kind === "sold" ? "sale" : "listing"}${r.p.listingCount === 1 ? "" : "s"}`
+                  : ""}
+              </span>
+            ) : null}
+          </dt>
+          <dd className="font-medium">
+            {r.p ? (
+              <Amount p={r.p} displayCurrency={displayCurrency} rates={prices.rates} />
+            ) : (
+              <span className="font-normal text-neutral-400">{r.empty}</span>
+            )}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 function ProviderPanel({
   panel,
   prices,
@@ -156,33 +219,45 @@ function ProviderPanel({
           <div className="mt-1.5">
             <KindLine p={h} />
           </div>
-          {panel.others.length > 0 ? (
-            <ul className="mt-3 flex flex-col gap-1 border-t pt-2 text-xs">
-              {panel.others.slice(0, 5).map((o) => (
-                <li
-                  key={`${o.kind}-${o.condition}-${o.currency}`}
-                  className="flex justify-between gap-2"
-                >
-                  <span className="text-neutral-500">
-                    {PRICE_KIND_LABELS[o.kind]}
-                    {o.condition ? ` · ${CONDITION_SHORT[o.condition] ?? o.condition}` : ""}
-                  </span>
-                  <Amount p={o} displayCurrency={displayCurrency} rates={prices.rates} />
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          <p className="mt-2 text-[11px] text-neutral-500">
-            {panel.languageMode === "all-languages"
-              ? "All languages — this source can't split by language, so the number mixes every language."
-              : panel.languageMode === "unsplit"
-                ? "Language not stated by these listings — may mix languages."
-                : `${priceLanguageLabel(prices.language)} listings.`}
-          </p>
-          <p className="mt-1 text-[11px] text-neutral-400">
-            Updated {panel.updatedAt ? timeAgo(panel.updatedAt) : "—"}
-            {!panel.supportsSold ? " · listings/averages, not individual sales" : ""}
-          </p>
+          <KeyNumbers panel={panel} prices={prices} />
+          <details className="group mt-3 border-t pt-2 text-xs">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-neutral-500 hover:text-neutral-900 [&::-webkit-details-marker]:hidden">
+              <span>All prices &amp; details</span>
+              <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="mt-2 flex flex-col gap-2">
+              {panel.others.length > 0 ? (
+                <ul className="flex flex-col gap-1">
+                  {[h, ...panel.others].map((o) => (
+                    <li
+                      key={`${o.kind}-${o.condition}-${o.currency}`}
+                      className="flex justify-between gap-2"
+                    >
+                      <span className="text-neutral-500">
+                        {PRICE_KIND_LABELS[o.kind]}
+                        {o.condition ? ` · ${CONDITION_SHORT[o.condition] ?? o.condition}` : ""}
+                        {o.listingCount !== null
+                          ? ` · ${o.listingCount} ${o.kind === "sold" ? "sale" : "listing"}${o.listingCount === 1 ? "" : "s"}`
+                          : ""}
+                      </span>
+                      <Amount p={o} displayCurrency={displayCurrency} rates={prices.rates} />
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <p className="text-[11px] text-neutral-500">
+                {panel.languageMode === "all-languages"
+                  ? "All languages — this source can't split by language, so the number mixes every language."
+                  : panel.languageMode === "unsplit"
+                    ? "Language not stated by these listings — may mix languages."
+                    : `${priceLanguageLabel(prices.language)} listings.`}
+              </p>
+              <p className="text-[11px] text-neutral-400">
+                Updated {panel.updatedAt ? timeAgo(panel.updatedAt) : "—"}
+                {!panel.supportsSold ? " · listings/averages, not individual sales" : ""}
+              </p>
+            </div>
+          </details>
         </div>
       ) : (
         <div className="mt-3 flex items-start gap-2 text-sm text-neutral-500">
@@ -298,6 +373,12 @@ export function PricesSection({
         <h2 className="text-sm font-semibold">Prices</h2>
         {header}
       </div>
+      {!prices.languageFilterable ? (
+        <p className="mb-3 text-xs text-neutral-500">
+          Language filtering needs eBay or CardTrader — Cardmarket and TCGplayer (via TCGdex) mix every
+          language. Add an API key in Settings to enable it.
+        </p>
+      ) : null}
       {prices.languageMissing ? (
         <p className="mb-3 text-xs text-neutral-500">
           Looking up {priceLanguageLabel(prices.language)} listings in the background — refresh in a

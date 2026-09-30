@@ -77,5 +77,13 @@ export function scoreSetMatch(
   }
   const similarity = nameSimilarity(ours.name, theirs.name);
   if (similarity >= 0.75) return { score: 0.7, reason: `similar set name ("${theirs.name}")` };
+  // Galleries / vaults our catalog lists as their own set ("Astral Radiance Trainer Gallery")
+  // are often filed by the provider inside the parent expansion ("Astral Radiance"): every
+  // word of its name is in ours. The card number must still match, so this only widens the search.
+  const theirWords = normalizeName(theirs.name).split(" ").filter(Boolean);
+  const ourWords = new Set(normalizeName(ours.name).split(" "));
+  if (theirWords.length >= 2 && theirWords.every((w) => ourWords.has(w))) {
+    return { score: 0.6, reason: `parent expansion ("${theirs.name}")` };
+  }
   return { score: 0, reason: "set differs" };
 }

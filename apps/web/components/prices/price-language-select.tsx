@@ -11,17 +11,28 @@ import { useRouter, useSearchParams } from "next/navigation";
 export function PriceLanguageSelect({
   language,
   defaultLanguage,
+  canFilter,
 }: {
   language: string;
   defaultLanguage: string;
+  /** False when no configured provider can split by language: the choice would change nothing. */
+  canFilter: boolean;
 }) {
   const router = useRouter();
   const params = useSearchParams();
   return (
-    <label className="flex items-center gap-1.5 text-xs text-neutral-500">
+    <label
+      className="flex items-center gap-1.5 text-xs text-neutral-500"
+      title={
+        canFilter
+          ? undefined
+          : "Only eBay and CardTrader can split prices by language. Add an API key in Settings."
+      }
+    >
       Language
       <select
-        className="field py-1 text-xs"
+        className="field py-1 text-xs disabled:opacity-50"
+        disabled={!canFilter}
         value={language}
         onChange={(e) => {
           const next = new URLSearchParams(params.toString());

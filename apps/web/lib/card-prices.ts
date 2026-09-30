@@ -7,6 +7,7 @@ import {
   type AppSettings,
 } from "@tcg-vault/db";
 import {
+  LANGUAGE_AWARE_PROVIDERS,
   headlinePrice,
   latestRefresh,
   pointsForLanguage,
@@ -124,6 +125,8 @@ export interface CardPrices {
   language: string;
   /** True when the selected language has no data yet from a provider that can look it up. */
   languageMissing: boolean;
+  /** Some enabled, configured provider can actually split prices by language. */
+  languageFilterable: boolean;
 }
 
 export async function loadCardPrices(
@@ -150,6 +153,12 @@ export async function loadCardPrices(
   );
   const points = [...scopedByProvider.values()].flatMap((s) => s.points);
   let languageMissing = false;
+  const languageFilterable = [...LANGUAGE_AWARE_PROVIDERS].some(
+    (id) =>
+      (PRICE_PROVIDERS as readonly string[]).includes(id) &&
+      providers[id as PriceProviderId].isConfigured() &&
+      settings.providers[id as PriceProviderId].enabled,
+  );
 
   const panels = PRICE_PROVIDERS.map((id): ProviderPanelData => {
     const provider = providers[id];
@@ -249,6 +258,7 @@ export async function loadCardPrices(
     updating,
     language,
     languageMissing,
+    languageFilterable,
   };
 }
 

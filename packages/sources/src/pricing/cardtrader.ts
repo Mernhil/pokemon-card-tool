@@ -1,6 +1,6 @@
 import { MIN_TRUSTED_MATCH, normalizeListingLanguage, type MappingStatus } from "@tcg-vault/shared";
 import { NotConfiguredError, createThrottle, requestJson } from "./http";
-import { normalizeName, scoreCardMatch, scoreSetMatch } from "./matching";
+import { nameSimilarity, normalizeName, scoreCardMatch, scoreSetMatch } from "./matching";
 import type {
   PriceProvider,
   PricedCard,
@@ -301,14 +301,40 @@ export class CardTraderProvider implements PriceProvider {
     if (!game) return notFound("CardTrader has no Pokémon game");
 
     const expansions = (await this.expansions()).filter((e) => e.game_id === game.id);
-    const set = expansions
+    const candidates = expansions
       .map((e) => ({ e, ...scoreSetMatch({ code: card.setCode, name: card.setName }, e) }))
       .filter((s) => s.score > 0)
-      .sort((a, b) => b.score - a.score)[0];
-    if (!set) return notFound(`No CardTrader expansion matches "${card.setName}"`);
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 4);
+    if (candidates.length === 0) {
+      const hint = expansions
+        .map((e) => ({ name: e.name, sim: nameSimilarity(card.setName, e.name) }))
+        .sort((a, b) => b.sim - a.sim)
+        .slice(0, 3)
+        .map((c) => `"${c.name}"`)
+        .join(", ");
+      return notFound(
+        `No CardTrader expansion matches "${card.setName}" (${card.setCode})${hint ? ` — closest: ${hint}` : ""}`,
+      );
+    }
 
-    const match = matchBlueprint(card, await this.blueprints(set.e.id), set.score);
-    if (!match.blueprint) return notFound(match.notes);
+    // Best expansion first, but one that has no card with our number (the gallery cards live in
+    // another expansion) doesn't end the search.
+    let set = candidates[0]!;
+    let match = matchBlueprint(card, await this.blueprints(set.e.id), set.score);
+    for (const candidate of candidates.slice(1)) {
+      if (match.blueprint) break;
+      const next = matchBlueprint(card, await this.blueprints(candidate.e.id), candidate.score);
+      if (next.blueprint) {
+        set = candidate;
+        match = next;
+      }
+    }
+    if (!match.blueprint) {
+      return notFound(
+        `${match.notes} (looked in ${candidates.map((c) => `"${c.e.name}"`).join(", ")})`,
+      );
+    }
     return {
       externalId: String(match.blueprint.id),
       query: null,
