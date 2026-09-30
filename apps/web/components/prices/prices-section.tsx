@@ -145,14 +145,20 @@ function KeyNumbers({ panel, prices }: { panel: ProviderPanelData; prices: CardP
             {r.label}
             {r.p ? (
               <span className="text-neutral-400">
-                {" "}
-                · {PRICE_KIND_LABELS[r.p.kind]}
-                {r.p.condition && r.label !== "Near mint"
-                  ? ` ${CONDITION_SHORT[r.p.condition] ?? r.p.condition}`
-                  : ""}
-                {r.p.listingCount !== null
-                  ? ` · ${r.p.listingCount} ${r.p.kind === "sold" ? "sale" : "listing"}${r.p.listingCount === 1 ? "" : "s"}`
-                  : ""}
+                {" · "}
+                {[
+                  PRICE_KIND_LABELS[r.p.kind].toLowerCase().includes(r.label.toLowerCase())
+                    ? null
+                    : PRICE_KIND_LABELS[r.p.kind],
+                  r.p.condition && r.label !== "Near mint"
+                    ? (CONDITION_SHORT[r.p.condition] ?? r.p.condition)
+                    : null,
+                  r.p.listingCount !== null
+                    ? `${r.p.listingCount} ${r.p.kind === "sold" ? "sale" : "listing"}${r.p.listingCount === 1 ? "" : "s"}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               </span>
             ) : null}
           </dt>

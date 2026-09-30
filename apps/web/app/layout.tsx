@@ -31,10 +31,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body>
         <MoneyConfig display={money} />
         <HistoryNavigation />
-        <ExternalLinks />
         <LastSearchRecorder />
         <Providers>
           <ToastProvider>
+            <ExternalLinks />
             <div className="flex min-h-screen">
               <Sidebar initialCollapsed={collapsed} theme={theme} />
               <div className="min-w-0 flex-1">{children}</div>

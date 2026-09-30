@@ -34,6 +34,11 @@ export async function refreshPricesAction(
   const runnable = await runnablePriceProviders(game);
   await cleanupOrphanedPriceRows();
   if (runnable.length === 0) return { started: false };
+  // A press on "Refresh prices" retries cards no provider could match before (the automatic
+  // retry only comes after a week); mappings set by hand are kept.
+  await prisma.providerMapping.deleteMany({
+    where: { variantId: { in: variantIds }, status: "not_found", manualOverride: false },
+  });
   await enqueuePriceRefresh(variantIds, game, runnable);
   requestPriceRefresh(runnable);
   return { started: true };

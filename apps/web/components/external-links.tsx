@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useToast } from "./ui/toast";
 
 interface TauriInternals {
   invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
@@ -13,6 +14,7 @@ interface TauriInternals {
  * root layout.
  */
 export function ExternalLinks() {
+  const toast = useToast();
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
       if (e.defaultPrevented || e.button !== 0) return;
@@ -22,10 +24,15 @@ export function ExternalLinks() {
       const a = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
       if (!a || !/^https?:$/.test(a.protocol) || a.origin === window.location.origin) return;
       e.preventDefault();
-      tauri.invoke("open_external", { url: a.href }).catch(() => {});
+      const url = a.href;
+      tauri.invoke("open_external", { url }).catch((err) => {
+        // Never leave the click doing nothing: keep the link and say what went wrong.
+        navigator.clipboard?.writeText(url).catch(() => {});
+        toast("error", `Couldn't open the browser (${String(err)}). Link copied.`);
+      });
     };
     document.addEventListener("click", onClick);
     return () => document.removeEventListener("click", onClick);
-  }, []);
+  }, [toast]);
   return null;
 }

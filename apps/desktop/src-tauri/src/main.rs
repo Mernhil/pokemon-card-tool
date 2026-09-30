@@ -103,13 +103,28 @@ fn show_error(window: &WebviewWindow, message: &str) {
 /// Opens an http(s) link in the default browser. The webview itself can't: it blocks
 /// `target="_blank"` popups, and navigating it would replace the app.
 #[tauri::command]
-#[allow(deprecated)]
-fn open_external(handle: tauri::AppHandle, url: String) -> Result<(), String> {
+fn open_external(url: String) -> Result<(), String> {
     let parsed = tauri::Url::parse(&url).map_err(|e| e.to_string())?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err("only http(s) links can be opened".into());
     }
-    handle.shell().open(parsed.as_str(), None).map_err(|e| e.to_string())
+    // The OS opener directly (no shell parsing, so "&" in a URL is safe) rather than the shell
+    // plugin, whose open scope can refuse links.
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut c = std::process::Command::new("rundll32");
+        c.arg("url.dll,FileProtocolHandler");
+        c
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = std::process::Command::new("open");
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = std::process::Command::new("xdg-open");
+    command
+        .arg(parsed.as_str())
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 /// TCG Vault has no separate backend process to install or configure: the
