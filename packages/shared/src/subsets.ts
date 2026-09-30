@@ -87,3 +87,31 @@ export const SET_MERGES: Record<string, SetMerge> = {
 export function mergeTarget(game: string, code: string): SetMerge | null {
   return SET_MERGES[`${game}:${code}`] ?? null;
 }
+
+/**
+ * Sets whose cards are printed in a single finish, whatever the source's
+ * set-level defaults claim (TCGdex lists normal/holo/reverse for the whole set).
+ * Keyed by Set.code; rarities listed in `except` keep every finish the source
+ * reports. The 30th Celebration has no reverse/alternate holos: each card has
+ * its one base finish, and only the Pikachu Rares differ.
+ */
+export const SINGLE_FINISH_SETS: Record<string, { except: string[] }> = {
+  "30th": { except: ["Pikachu Rare"] },
+};
+
+/**
+ * Pure: the finishes to store for a printing. The base finish is the
+ * non-holo one when the source lists it, else the first listed (holo-only
+ * cards). Sets without a rule, and exempt rarities, pass through unchanged.
+ */
+export function restrictFinishes(
+  setCode: string,
+  rarityName: string | null | undefined,
+  finishes: string[] | undefined,
+): string[] | undefined {
+  const rule = SINGLE_FINISH_SETS[setCode];
+  if (!rule || !finishes || finishes.length <= 1) return finishes;
+  const rarity = rarityName?.trim().toLowerCase();
+  if (rarity && rule.except.some((r) => r.toLowerCase() === rarity)) return finishes;
+  return [finishes.includes("NON_FOIL") ? "NON_FOIL" : finishes[0]!];
+}

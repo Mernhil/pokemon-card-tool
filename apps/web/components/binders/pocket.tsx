@@ -1,7 +1,7 @@
 "use client";
 
 import { useDraggable, useDroppable } from "@dnd-kit/core";
-import { foilFor } from "@tcg-vault/card-fx";
+import { FOIL_ENABLED, foilFor } from "@tcg-vault/card-fx";
 import type { Pocket as PocketData } from "@tcg-vault/db/src/binder-types";
 import { mediaUrl } from "@tcg-vault/shared/src/media-url";
 import type { MouseEvent } from "react";
@@ -78,7 +78,7 @@ export function Pocket({
               <span>{card.number}</span>
             </span>
           )}
-          {foil && foil.area !== "none" ? (
+          {FOIL_ENABLED && foil && foil.area !== "none" ? (
             <span className={`pocket__foil pocket__foil--${foil.area}`} aria-hidden />
           ) : null}
           {isWant ? (

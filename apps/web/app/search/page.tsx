@@ -85,14 +85,13 @@ export default async function SearchPage({
       : {}),
   };
 
-  const printings = await prisma.printing.findMany({
+  // Everything below used to load every matching card with its set, rarity and
+  // variants (tens of thousands of rows for an empty search), then sort and slice.
+  // Now: a slim pass over all matches (ids + variants, enough for sorting by value
+  // and for the cost summary), and the full rows only for the one page shown.
+  const matches = await prisma.printing.findMany({
     where,
-    include: {
-      card: true,
-      rarity: true,
-      set: { include: { game: true } },
-      variants: true,
-    },
+    select: { id: true, variants: { select: { id: true, finish: true, languageCode: true } } },
     orderBy:
       sort === "name"
         ? [{ card: { name: "asc" } }, { sortNumber: "asc" }]
@@ -100,18 +99,26 @@ export default async function SearchPage({
   });
 
   // Valuations in chunks: a wide search can have tens of thousands of variants.
-  const allVariantIds = printings.flatMap((p) => p.variants.map((v) => v.id));
+  const allVariantIds = matches.flatMap((p) => p.variants.map((v) => v.id));
   const values = new Map<string, { valueEur: number; valueUsd: number; day: Date }>();
   for (let i = 0; i < allVariantIds.length; i += 5_000) {
     for (const [id, v] of await latestValuations(allVariantIds.slice(i, i + 5_000)))
       values.set(id, v);
   }
-  const bestValue = (p: (typeof printings)[number]) =>
+  const bestValue = (p: { variants: { id: string }[] }) =>
     Math.max(-1, ...p.variants.map((v) => values.get(v.id)?.valueEur ?? -1));
-  if (sort === "value") printings.sort((a, b) => bestValue(b) - bestValue(a));
-  const pageCount = Math.max(1, Math.ceil(printings.length / LIMIT));
+  if (sort === "value") matches.sort((a, b) => bestValue(b) - bestValue(a));
+  const pageCount = Math.max(1, Math.ceil(matches.length / LIMIT));
   const currentPage = Math.min(page, pageCount);
-  const shown = printings.slice((currentPage - 1) * LIMIT, currentPage * LIMIT);
+  const pageIds = matches.slice((currentPage - 1) * LIMIT, currentPage * LIMIT).map((p) => p.id);
+  const pageRows = await prisma.printing.findMany({
+    where: { id: { in: pageIds } },
+    include: { card: true, rarity: true, set: { include: { game: true } }, variants: true },
+  });
+  const rowById = new Map(pageRows.map((p) => [p.id, p]));
+  const shown = pageIds
+    .map((id) => rowById.get(id))
+    .filter((p): p is (typeof pageRows)[number] => !!p);
   const pageHref = (p: number) => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
@@ -139,7 +146,7 @@ export default async function SearchPage({
 
   // What the summary counts: each result's variants in the chosen finish / language, valued in the
   // price language (valuations). Computed once here for ALL results, not per tile or per page.
-  const summary: CostCard[] = printings.map((p) => ({
+  const summary: CostCard[] = matches.map((p) => ({
     id: p.id,
     variants: p.variants
       .filter((v) => (!finish || v.finish === finish) && (!lang || v.languageCode === lang))
@@ -199,7 +206,7 @@ export default async function SearchPage({
               first.
             </>
           ) : (
-            `${printings.length} result${printings.length === 1 ? "" : "s"}${pageCount > 1 ? ` — page ${currentPage} of ${pageCount}` : ""}`
+            `${matches.length} result${matches.length === 1 ? "" : "s"}${pageCount > 1 ? ` — page ${currentPage} of ${pageCount}` : ""}`
           )
         }
       />
@@ -334,7 +341,7 @@ export default async function SearchPage({
         ) : null}
       </div>
 
-      {printings.length === 0 ? (
+      {matches.length === 0 ? (
         <p className="py-10 text-center text-sm text-neutral-500">No cards match.</p>
       ) : (
         <SearchResults

@@ -7,7 +7,14 @@ import {
   requestJson,
   toMinorUnits,
 } from "./http";
-import { ebayQueryFor, filterListings, type EbayListing } from "./ebay-filter";
+import {
+  applyListingRules,
+  ebayQueryFor,
+  filterListings,
+  removeOutliers,
+  type EbayListing,
+} from "./ebay-filter";
+import { gradeKey, parseGradedTitle, type GradingCompanyId } from "./grading";
 import type {
   PriceProvider,
   PricedCard,
@@ -98,6 +105,68 @@ export function ebayObservations(
     };
     out.push({ kind: "asking", amount: median(prices), ...base });
     out.push({ kind: "lowest_listing", amount: Math.min(...prices), ...base });
+  }
+  return out;
+}
+
+/** One cell of the graded table: a company's grade, priced from the listings that named it. */
+export interface GradedObservation {
+  company: GradingCompanyId;
+  /** gradeKey(): "10", "10:pristine", "10:black-label", "9.5". */
+  gradeKey: string;
+  currency: string;
+  /** Median asking price, and the lowest, in minor units. */
+  median: number;
+  low: number;
+  listingCount: number;
+  languageCode: string | null;
+}
+
+/** The companies searched for (one request each); others (TAG, ACE) still parse if they turn up. */
+export const GRADED_SEARCH_COMPANIES = ["PSA", "BGS", "CGC", "SGC"] as const;
+
+/**
+ * Pure: listings that passed the card rules -> one row per company x grade x
+ * currency. Listings whose title doesn't name a company and a grade are left
+ * out; price outliers are dropped within one company+grade (a PSA 10 and a
+ * PSA 5 of the same card are nowhere near each other, on purpose).
+ */
+export function gradedObservations(
+  listings: EbayListing[],
+  languageCode: string | null = null,
+): GradedObservation[] {
+  const groups = new Map<
+    string,
+    { company: GradingCompanyId; key: string; currency: string; items: EbayListing[] }
+  >();
+  for (const listing of listings) {
+    const parsed = parseGradedTitle(listing.title);
+    if (!parsed) continue;
+    const key = gradeKey(parsed.grade, parsed.tier);
+    const id = `${parsed.company}|${key}|${listing.currency}`;
+    const group = groups.get(id) ?? {
+      company: parsed.company,
+      key,
+      currency: listing.currency,
+      items: [],
+    };
+    group.items.push(listing);
+    groups.set(id, group);
+  }
+  const out: GradedObservation[] = [];
+  for (const g of groups.values()) {
+    const { accepted } = removeOutliers(g.items, []);
+    if (accepted.length === 0) continue;
+    const prices = accepted.map((l) => l.price);
+    out.push({
+      company: g.company,
+      gradeKey: g.key,
+      currency: g.currency,
+      median: median(prices),
+      low: Math.min(...prices),
+      listingCount: prices.length,
+      languageCode,
+    });
   }
   return out;
 }
@@ -214,6 +283,49 @@ export class EbayProvider implements PriceProvider {
     );
     const { accepted } = filterListings(parseEbaySearch(data), { ...card, languageCode: language });
     return ebayObservations(accepted, { payloadHash: hash, languageCode: language });
+  }
+
+  /**
+   * Graded prices: one search per grading company ("<card> PSA"), keeping the
+   * listings that are this card (same rules as raw prices, minus the graded
+   * exclusion) and that name a company + grade. Asking prices only, like the
+   * rest of eBay here. Costs one Browse call per company, so callers cache it.
+   */
+  async fetchGradedPrices(card: PricedCard): Promise<GradedObservation[]> {
+    const language = card.priceLanguage ?? card.languageCode;
+    const token = await this.accessToken();
+    const seen = new Set<string>();
+    const listings: EbayListing[] = [];
+    for (const company of GRADED_SEARCH_COMPANIES) {
+      const params = new URLSearchParams({
+        q: `${ebayQueryFor({ ...card, languageCode: language })} ${company}`,
+        category_ids: EBAY_POKEMON_SINGLES_CATEGORY,
+        filter: "buyingOptions:{FIXED_PRICE}",
+        limit: "100",
+      });
+      const { data } = await requestJson<unknown>(
+        `${this.host}/buy/browse/v1/item_summary/search?${params}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "X-EBAY-C-MARKETPLACE-ID": this.marketplaceId,
+            Accept: "application/json",
+          },
+        },
+        { provider: this.id, fetch: this.options.fetch, throttle: this.throttle },
+      );
+      for (const l of parseEbaySearch(data)) {
+        if (seen.has(l.itemId)) continue;
+        seen.add(l.itemId);
+        listings.push(l);
+      }
+    }
+    const { accepted } = applyListingRules(listings, {
+      ...card,
+      languageCode: language,
+      wantGraded: true,
+    });
+    return gradedObservations(accepted, language);
   }
 
   async testConnection() {

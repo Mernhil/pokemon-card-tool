@@ -5,11 +5,13 @@ import {
   enqueueStalePrices,
   getCardImageResult,
   latestValuations,
+  listAlerts,
+  loadGradedPrices,
   prisma,
   recordCardView,
   runnableProviders,
 } from "@tcg-vault/db";
-import { isPriceLanguage, mediaUrl } from "@tcg-vault/shared";
+import { collectorNumberCandidates, isPriceLanguage, mediaUrl } from "@tcg-vault/shared";
 import { AddToCollection } from "../../../../components/add-to-collection";
 import { BackToSearch } from "../../../../components/last-search";
 import { WishlistButton } from "../../../../components/wishlist-button";
@@ -17,6 +19,8 @@ import { CardViewer } from "../../../../components/card-viewer";
 import { FinishBadge, PriceChip, finishLabel } from "../../../../components/money";
 import { PriceHistory } from "../../../../components/prices/price-history";
 import { CustomImageControl } from "../../../../components/custom-image-control";
+import { GradedPrices } from "../../../../components/prices/graded-prices";
+import { PriceAlerts } from "../../../../components/price-alerts";
 import { PriceRefresh } from "../../../../components/prices/price-refresh";
 import { PriceLanguageSelect } from "../../../../components/prices/price-language-select";
 import { PricesSection } from "../../../../components/prices/prices-section";
@@ -41,6 +45,13 @@ async function findPrinting(setId: number, slug: string) {
       },
     },
   };
+  // The exact number first ("002-30" -> "002/30"): a set can hold "002/128" and
+  // "002/30" at once, so the bare-number match below is only for old links.
+  const exact = await prisma.printing.findFirst({
+    where: { setId, collectorNumber: { in: collectorNumberCandidates(slug) } },
+    include,
+  });
+  if (exact) return exact;
   const bySlug = await prisma.printing.findFirst({
     where: {
       setId,
@@ -90,7 +101,7 @@ export default async function CardPage({
   // Pokémon printing has a lazy image key, but some sources have no scan.)
   const hasOwnImage = printing.imageKey
     ? await getCardImageResult(printing.id)
-        .then((r) => r.image !== null)
+        .then((r) => r.image !== null && r.status !== "sibling")
         .catch(() => false)
     : false;
   const fallbackPrinting = hasOwnImage
@@ -129,7 +140,7 @@ export default async function CardPage({
   if (langQueued) requestPriceRefresh(["ebay"]);
   const langParam = language !== settings.priceLanguage ? `&lang=${language}` : "";
 
-  const [values, neighbours, prices] = await Promise.all([
+  const [values, neighbours, prices, alertRows] = await Promise.all([
     latestValuations(variantIds),
     prisma.printing.findMany({
       where: { setId: set.id },
@@ -137,13 +148,27 @@ export default async function CardPage({
       select: { id: true, collectorNumber: true },
     }),
     selected
-      ? loadCardPrices(selected.id, variantIds, {
-          name: printing.card.name,
-          number: printing.collectorNumber,
-          game: game.slug,
-        }, language)
+      ? loadCardPrices(
+          selected.id,
+          variantIds,
+          {
+            name: printing.card.name,
+            number: printing.collectorNumber,
+            game: game.slug,
+          },
+          language,
+        )
       : null,
+    listAlerts(variantIds),
   ]);
+  const gradedRows = selected ? await loadGradedPrices(selected.id, language) : [];
+  const gradedBlocked = !settings.providers.ebay.enabled
+    ? "eBay is turned off in Settings."
+    : !providers.ebay.isConfigured()
+      ? "Add your eBay keys in Settings to see graded prices."
+      : priceable
+        ? null
+        : "Digital cards have no graded market.";
   const owned = variants.map((v) => ({
     finish: v.finish,
     qty: v.collection.reduce((s, c) => s + c.quantity, 0),
@@ -248,6 +273,22 @@ export default async function CardPage({
             </div>
           </div>
 
+          {selected ? (
+            <PriceAlerts
+              variantId={selected.id}
+              currentValueEur={values.get(selected.id)?.valueEur ?? null}
+              alerts={alertRows
+                .filter((a) => a.variantId === selected.id)
+                .map((a) => ({
+                  id: a.id,
+                  direction: a.direction,
+                  thresholdEur: a.thresholdEur,
+                  triggered: a.triggeredAt !== null,
+                  triggeredValueEur: a.triggeredValueEur,
+                }))}
+            />
+          ) : null}
+
           {selected && prices ? (
             <>
               <PricesSection
@@ -307,6 +348,15 @@ export default async function CardPage({
                 displayCurrency={prices.settings.displayCurrency}
                 rates={prices.rates}
                 cardName={printing.card.name}
+              />
+              <GradedPrices
+                variantId={selected.id}
+                language={prices.language}
+                rows={gradedRows}
+                displayCurrency={prices.settings.displayCurrency}
+                rates={prices.rates}
+                canFetch={gradedBlocked === null}
+                blockedReason={gradedBlocked}
               />
             </>
           ) : null}

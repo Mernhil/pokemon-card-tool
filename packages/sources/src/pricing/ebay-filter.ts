@@ -158,8 +158,8 @@ export interface FilterResult {
   rejected: Array<{ listing: EbayListing; rule: string }>;
 }
 
-/** Applies every rule (first failing rule is reported), then drops price outliers. */
-export function filterListings(listings: EbayListing[], ctx: ListingContext): FilterResult {
+/** Applies every rule (first failing rule is reported), without the price-outlier pass. */
+export function applyListingRules(listings: EbayListing[], ctx: ListingContext): FilterResult {
   const accepted: EbayListing[] = [];
   const rejected: FilterResult["rejected"] = [];
   for (const listing of listings) {
@@ -167,6 +167,12 @@ export function filterListings(listings: EbayListing[], ctx: ListingContext): Fi
     if (rule) rejected.push({ listing, rule: rule.id });
     else accepted.push(listing);
   }
+  return { accepted, rejected };
+}
+
+/** Applies every rule (first failing rule is reported), then drops price outliers. */
+export function filterListings(listings: EbayListing[], ctx: ListingContext): FilterResult {
+  const { accepted, rejected } = applyListingRules(listings, ctx);
   return removeOutliers(accepted, rejected);
 }
 
@@ -175,7 +181,7 @@ export function filterListings(listings: EbayListing[], ctx: ListingContext): Fi
  * that slipped through, a typo, a "read description" placeholder price).
  * With at least 4 listings, drops anything under 1/4 or over 4x the median.
  */
-function removeOutliers(accepted: EbayListing[], rejected: FilterResult["rejected"]): FilterResult {
+export function removeOutliers(accepted: EbayListing[], rejected: FilterResult["rejected"]): FilterResult {
   if (accepted.length < 4) return { accepted, rejected };
   const byCurrency = new Map<string, number>();
   for (const currency of new Set(accepted.map((l) => l.currency))) {

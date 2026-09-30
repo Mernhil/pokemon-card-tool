@@ -1,3 +1,7 @@
+import { cardSlug } from "@tcg-vault/shared/src/card-slug";
+
+export { cardSlug };
+
 /** Canonical ordering of finishes when listing a printing's variants. */
 const FINISH_ORDER = ["NON_FOIL", "HOLO", "REVERSE_HOLO"];
 
@@ -7,11 +11,6 @@ export function sortByFinish<T extends { finish: string }>(variants: T[]): T[] {
     return i === -1 ? FINISH_ORDER.length : i;
   };
   return [...variants].sort((a, b) => rank(a.finish) - rank(b.finish));
-}
-
-/** URL segment for a printing: the printed number without the "/total" part ("001", "TG01"). */
-export function cardSlug(collectorNumber: string): string {
-  return collectorNumber.split("/")[0]!;
 }
 
 export function cardHref(gameSlug: string, setCode: string, collectorNumber: string): string {

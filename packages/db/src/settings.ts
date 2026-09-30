@@ -1,6 +1,7 @@
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
+  DEFAULT_BULK_THRESHOLD,
   DEFAULT_PRICE_LANGUAGE,
   PRICE_PROVIDERS,
   appDataDir,
@@ -39,6 +40,8 @@ export interface AppSettings {
   imageCacheMaxMb: number;
   /** Show the digital-only Pokémon TCG Pocket sets (off hides that section entirely). */
   showPocketSets: boolean;
+  /** Collection cards worth less than this each (EUR minor units) fold into the Bulk section; 0 = off. */
+  bulkThresholdCents: number;
   providers: Record<PriceProviderId, { enabled: boolean }>;
   ebay: {
     /** EBAY_US, EBAY_GB, EBAY_DE, EBAY_IT, EBAY_FR, EBAY_ES, ... */
@@ -61,6 +64,7 @@ export function defaultSettings(): AppSettings {
     catalogRefreshDays: envNumber("CATALOG_REFRESH_DAYS", 30),
     imageCacheMaxMb: envNumber("IMAGE_CACHE_MAX_MB", 500),
     showPocketSets: true,
+    bulkThresholdCents: DEFAULT_BULK_THRESHOLD,
     providers: {
       cardmarket: { enabled: true },
       tcgplayer: { enabled: true },
@@ -111,6 +115,7 @@ export function sanitizeSettings(
     imageCacheMaxMb: clamp(raw.imageCacheMaxMb, 50, 100_000, base.imageCacheMaxMb),
     showPocketSets:
       typeof raw.showPocketSets === "boolean" ? raw.showPocketSets : base.showPocketSets,
+    bulkThresholdCents: clamp(raw.bulkThresholdCents, 0, 1_000_000, base.bulkThresholdCents),
     providers: Object.fromEntries(
       PRICE_PROVIDERS.map((id) => [
         id,

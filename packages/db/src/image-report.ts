@@ -156,7 +156,15 @@ async function main() {
           row.probed++;
           row.buckets[bucket]++;
           if (bucket !== "ok") {
-            missingRows.push([set.game.slug, set.code, set.name, p.collectorNumber, p.card.name, p.id, bucket]);
+            missingRows.push([
+              set.game.slug,
+              set.code,
+              set.name,
+              p.collectorNumber,
+              p.card.name,
+              p.id,
+              bucket,
+            ]);
           }
           if (bucket !== "ok" && worstExamples.length < 200) {
             worstExamples.push({
@@ -170,14 +178,24 @@ async function main() {
       };
       await Promise.all(Array.from({ length: args.concurrency }, worker));
       console.error(
-        `probed ${set.code} (${row.probed}): ${BUCKETS.filter((b) => row.buckets[b]).map((b) => `${b}=${row.buckets[b]}`).join(" ")}`,
+        `probed ${set.code} (${row.probed}): ${BUCKETS.filter((b) => row.buckets[b])
+          .map((b) => `${b}=${row.buckets[b]}`)
+          .join(" ")}`,
       );
     }
 
     if (!args.probe) {
       for (const p of printings) {
         if (parseImageUrls(p.imageUrls).length === 0 && !p.customImageKey) {
-          missingRows.push([set.game.slug, set.code, set.name, p.collectorNumber, p.card.name, p.id, "no-url"]);
+          missingRows.push([
+            set.game.slug,
+            set.code,
+            set.name,
+            p.collectorNumber,
+            p.card.name,
+            p.id,
+            "no-url",
+          ]);
         }
       }
     }
@@ -202,27 +220,47 @@ async function main() {
     console.log(
       `probed ${totals.probed} printings${args.storedOnly ? " (stored URLs only)" : " (stored + constructed CDN candidates)"}:`,
     );
-    for (const b of BUCKETS) if (totals.buckets[b]) console.log(`  ${b.padEnd(10)} ${totals.buckets[b]}`);
+    for (const b of BUCKETS)
+      if (totals.buckets[b]) console.log(`  ${b.padEnd(10)} ${totals.buckets[b]}`);
   }
-  console.log(`\nworst ${worst.length} sets by ${args.probe ? "printings without a loadable image" : "printings with no image URL"}:`);
   console.log(
-    `${"set".padEnd(12)} ${"name".padEnd(34)} ${"total".padStart(6)} ${"no-url".padStart(7)}${args.probe ? ` ${"probed".padStart(7)} ${BUCKETS.slice(1).map((b) => b.padStart(9)).join("")}` : ""}`,
+    `\nworst ${worst.length} sets by ${args.probe ? "printings without a loadable image" : "printings with no image URL"}:`,
+  );
+  console.log(
+    `${"set".padEnd(12)} ${"name".padEnd(34)} ${"total".padStart(6)} ${"no-url".padStart(7)}${
+      args.probe
+        ? ` ${"probed".padStart(7)} ${BUCKETS.slice(1)
+            .map((b) => b.padStart(9))
+            .join("")}`
+        : ""
+    }`,
   );
   for (const r of worst) {
     console.log(
       `${r.code.padEnd(12)} ${r.name.slice(0, 34).padEnd(34)} ${String(r.total).padStart(6)} ${String(r.noUrls).padStart(7)}${
         args.probe
-          ? ` ${String(r.probed).padStart(7)} ${BUCKETS.slice(1).map((b) => String(r.buckets[b]).padStart(9)).join("")}`
+          ? ` ${String(r.probed).padStart(7)} ${BUCKETS.slice(1)
+              .map((b) => String(r.buckets[b]).padStart(9))
+              .join("")}`
           : ""
       }`,
     );
   }
 
   if (args.csv) {
-    const header = ["game", "set_code", "set_name", "collector_number", "card_name", "printing_id", "problem"];
+    const header = [
+      "game",
+      "set_code",
+      "set_name",
+      "collector_number",
+      "card_name",
+      "printing_id",
+      "problem",
+    ];
     writeFileSync(
       args.csv,
-      [header, ...missingRows].map((r) => r.map(cell).join(",")).join(String.fromCharCode(10)) + String.fromCharCode(10),
+      [header, ...missingRows].map((r) => r.map(cell).join(",")).join(String.fromCharCode(10)) +
+        String.fromCharCode(10),
     );
     console.log(`${missingRows.length} cards without a loadable image listed in ${args.csv}`);
   }

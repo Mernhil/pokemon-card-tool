@@ -1,6 +1,13 @@
 import { FOIL_PRESETS, type FoilPreset } from "./presets";
 
 /**
+ * Holo foil is vaulted (shelved): the overlay couldn't be made to match the
+ * reference look yet. Flip to true to render the foil layers again; all the
+ * presets, CSS and foilFor logic are kept intact.
+ */
+export const FOIL_ENABLED = false;
+
+/**
  * Where on the card the foil sits:
  * - "art": only the illustration window (classic holo rare)
  * - "frame": everything *except* the illustration window (reverse holo)

@@ -1,6 +1,6 @@
 import { Coins, Layers, TrendingUp } from "lucide-react";
 import { cookies } from "next/headers";
-import { collectionItemValue, latestValuations, prisma } from "@tcg-vault/db";
+import { collectionItemValue, getSettings, latestValuations, prisma } from "@tcg-vault/db";
 import { CollectionView, type CollectionRow } from "../../components/collection-view";
 import { COLLECTION_VIEW_COOKIE } from "../../lib/ui-cookies";
 import { formatEur } from "../../components/money";
@@ -17,6 +17,7 @@ export const dynamic = "force-dynamic";
 
 export default async function CollectionPage() {
   await loadMoneyDisplay();
+  const settings = await getSettings();
   const items = await prisma.collectionItem.findMany({
     orderBy: { createdAt: "desc" },
     include: {
@@ -95,7 +96,11 @@ export default async function CollectionPage() {
               }
             />
           </div>
-          <CollectionView rows={rows} initialView={view} />
+          <CollectionView
+            rows={rows}
+            initialView={view}
+            bulkThreshold={settings.bulkThresholdCents}
+          />
         </>
       )}
     </main>

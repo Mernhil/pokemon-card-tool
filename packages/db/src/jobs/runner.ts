@@ -197,7 +197,11 @@ export async function retryFailedItems(
   { includeUnavailable = false } = {},
 ): Promise<number> {
   const res = await prisma.syncState.updateMany({
-    where: { job, game, status: { in: includeUnavailable ? ["failed", "unavailable"] : ["failed"] } },
+    where: {
+      job,
+      game,
+      status: { in: includeUnavailable ? ["failed", "unavailable"] : ["failed"] },
+    },
     data: { status: "pending", attemptCount: 0 },
   });
   return res.count;

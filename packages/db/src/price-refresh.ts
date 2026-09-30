@@ -433,12 +433,21 @@ export async function enqueueLanguagePrices(
       const s = byKey.get(key);
       if (!s) return true;
       if (s.status === "pending" || s.status === "syncing") return false;
-      if (s.status === "failed" && s.lastAttemptAt && now.getTime() - s.lastAttemptAt.getTime() < 3_600_000)
+      if (
+        s.status === "failed" &&
+        s.lastAttemptAt &&
+        now.getTime() - s.lastAttemptAt.getTime() < 3_600_000
+      )
         return false;
       return !s.lastSyncedAt || now.getTime() - s.lastSyncedAt.getTime() > freshMs;
     });
     if (due.length === 0) continue;
-    await enqueueItems(job, game, due.map((key) => ({ key })), PRICE_PRIORITY.onDemand);
+    await enqueueItems(
+      job,
+      game,
+      due.map((key) => ({ key })),
+      PRICE_PRIORITY.onDemand,
+    );
     queued = true;
   }
   return queued;

@@ -150,14 +150,14 @@ export function SetGrid({ cards, subsets = [] }: { cards: SetGridCard[]; subsets
       role="tab"
       aria-selected={subset === value}
       onClick={() => setSubset(value)}
-      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+      className={`shrink-0 whitespace-nowrap rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors ${
         subset === value
-          ? "border-accent bg-accent-soft text-neutral-900"
-          : "border-neutral-200 text-neutral-600 hover:border-neutral-400"
+          ? "bg-accent text-accent-fg shadow-sm"
+          : "text-neutral-600 hover:bg-surface-2 hover:text-neutral-900"
       }`}
     >
       {label}{" "}
-      <span className="tabular-nums text-neutral-500">
+      <span className={`tabular-nums ${subset === value ? "opacity-80" : "text-neutral-500"}`}>
         {total}
         {anyOwned ? ` · ${owned}/${total}` : ""}
       </span>
@@ -166,63 +166,69 @@ export function SetGrid({ cards, subsets = [] }: { cards: SetGridCard[]; subsets
 
   return (
     <>
-      {tabs.length > 0 ? (
-        <div role="tablist" aria-label="Subsets" className="mb-3 flex flex-wrap gap-2">
-          {chip("", "See all", cards.filter((c) => ownedOf(c) > 0).length, cards.length)}
-          {tabs.map((t) =>
-            chip(
-              t.name,
-              t.name,
-              cards.filter((c) => c.subset === t.name && ownedOf(c) > 0).length,
-              t.total,
-            ),
-          )}
-        </div>
-      ) : null}
-      <div className="panel sticky top-3 z-20 mb-5 flex flex-wrap items-center gap-3 p-3">
-        <label className="relative min-w-48 flex-1">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" />
-          <input
-            className="field w-full pl-8"
-            placeholder="Filter this set…"
-            autoComplete="off"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            aria-label="Filter this set"
-          />
-        </label>
-        <div role="radiogroup" aria-label="Show" className="flex rounded-lg bg-surface-2 p-0.5">
-          {seg("all", "All")}
-          {seg("owned", "Owned")}
-          {seg("missing", "Missing")}
-        </div>
-        <label className="flex items-center gap-2 text-xs text-neutral-500">
-          Sort
-          <select
-            className="field py-1"
-            value={sort}
-            onChange={(e) => setSort(e.target.value as Sort)}
+      <div className="panel sticky top-3 z-20 mb-5 p-3">
+        {tabs.length > 0 ? (
+          <div
+            role="tablist"
+            aria-label="Subsets"
+            className="-mx-1 mb-3 flex gap-1 overflow-x-auto border-b px-1 pb-3"
           >
-            <option value="number">Number</option>
-            <option value="price">Price (high → low)</option>
-            <option value="name">Name</option>
-            <option value="rarity">Rarity</option>
-          </select>
-        </label>
-        {anyOwned ? (
-          <label className="flex items-center gap-1.5 text-xs text-neutral-600">
-            <input
-              type="checkbox"
-              checked={dim}
-              onChange={(e) => setDim(e.target.checked)}
-              className="accent-[rgb(var(--accent))]"
-            />
-            Dim missing
-          </label>
+            {chip("", "See all", cards.filter((c) => ownedOf(c) > 0).length, cards.length)}
+            {tabs.map((t) =>
+              chip(
+                t.name,
+                t.name,
+                cards.filter((c) => c.subset === t.name && ownedOf(c) > 0).length,
+                t.total,
+              ),
+            )}
+          </div>
         ) : null}
-        <span className="ml-auto text-xs tabular-nums text-neutral-500">
-          {shown.length} of {cards.length}
-        </span>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="relative min-w-48 flex-1">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" />
+            <input
+              className="field w-full pl-8"
+              placeholder="Filter this set…"
+              autoComplete="off"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              aria-label="Filter this set"
+            />
+          </label>
+          <div role="radiogroup" aria-label="Show" className="flex rounded-lg bg-surface-2 p-0.5">
+            {seg("all", "All")}
+            {seg("owned", "Owned")}
+            {seg("missing", "Missing")}
+          </div>
+          <label className="flex items-center gap-2 text-xs text-neutral-500">
+            Sort
+            <select
+              className="field py-1"
+              value={sort}
+              onChange={(e) => setSort(e.target.value as Sort)}
+            >
+              <option value="number">Number</option>
+              <option value="price">Price (high → low)</option>
+              <option value="name">Name</option>
+              <option value="rarity">Rarity</option>
+            </select>
+          </label>
+          {anyOwned ? (
+            <label className="flex items-center gap-1.5 text-xs text-neutral-600">
+              <input
+                type="checkbox"
+                checked={dim}
+                onChange={(e) => setDim(e.target.checked)}
+                className="accent-[rgb(var(--accent))]"
+              />
+              Dim missing
+            </label>
+          ) : null}
+          <span className="ml-auto text-xs tabular-nums text-neutral-500">
+            {shown.length} of {cards.length}
+          </span>
+        </div>
       </div>
       {shown.length === 0 ? (
         <p className="py-10 text-center text-sm text-neutral-500">No cards match.</p>

@@ -44,7 +44,10 @@ export function ImportImagesForm({ sets }: { sets: Array<{ id: number; label: st
       else failed.push(`${m.fileName}: ${r.error ?? "failed"}`);
     }
     setBusy(false);
-    toast(failed.length ? "error" : "success", `Saved ${saved} image${saved === 1 ? "" : "s"}${failed.length ? `; ${failed.length} failed (${failed[0]})` : ""}`);
+    toast(
+      failed.length ? "error" : "success",
+      `Saved ${saved} image${saved === 1 ? "" : "s"}${failed.length ? `; ${failed.length} failed (${failed[0]})` : ""}`,
+    );
     setMatches(null);
     setFiles([]);
     router.refresh();

@@ -1,6 +1,6 @@
 [package]
 name = "tcg-vault-desktop"
-version = "0.3.0"
+version = "0.4.2"
 description = "TCG Vault desktop shell"
 edition = "2021"
 

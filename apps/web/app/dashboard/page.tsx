@@ -1,6 +1,6 @@
 import { ChartLine, Coins, Layers, Library, TrendingUp } from "lucide-react";
 import Link from "next/link";
-import { collectionItemValue, latestValuations, prisma } from "@tcg-vault/db";
+import { collectionItemValue, latestValuations, listAlerts, prisma } from "@tcg-vault/db";
 import { topMovers } from "@tcg-vault/pricing";
 import { SET_CATEGORY_BADGES, isSetCategory } from "@tcg-vault/shared";
 import { CardTile } from "../../components/card-tile";
@@ -10,6 +10,7 @@ import { EmptyState } from "../../components/ui/empty-state";
 import { LineChart } from "../../components/ui/line-chart";
 import { PageHeader } from "../../components/ui/page-header";
 import { StatTile } from "../../components/ui/stat-tile";
+import { AlertList } from "../../components/price-alerts";
 import { cardHref } from "../../lib/cards";
 import { loadMoneyDisplay } from "../../lib/money-config";
 
@@ -75,6 +76,7 @@ function groupBy<T>(
 
 export default async function DashboardPage() {
   await loadMoneyDisplay();
+  const alerts = await listAlerts();
   const [items, catalogCards, syncedSets, snapshots] = await Promise.all([
     prisma.collectionItem.findMany({
       include: {
@@ -251,6 +253,30 @@ export default async function DashboardPage() {
           </p>
         )}
       </section>
+
+      {alerts.length > 0 ? (
+        <section className="panel mt-6 p-5">
+          <h2 className="text-sm font-semibold">
+            Price alerts
+            {alerts.some((a) => a.triggeredAt) ? (
+              <span className="ml-2 rounded-full bg-accent-soft px-2 py-0.5 text-xs font-medium">
+                {alerts.filter((a) => a.triggeredAt).length} reached
+              </span>
+            ) : null}
+          </h2>
+          <AlertList
+            alerts={alerts.map((a) => ({
+              id: a.id,
+              direction: a.direction,
+              thresholdEur: a.thresholdEur,
+              triggered: a.triggeredAt !== null,
+              triggeredValueEur: a.triggeredValueEur,
+              label: `${a.name} ${a.number} (${a.finish === "NON_FOIL" ? "Normal" : a.finish.replace("_", " ").toLowerCase()})`,
+              href: cardHref(a.gameSlug, a.setCode, a.number),
+            }))}
+          />
+        </section>
+      ) : null}
 
       <section className="panel mt-6 p-5">
         <h2 className="text-sm font-semibold">Top movers · last 7 days</h2>

@@ -4,6 +4,7 @@ import {
   classifySet,
   hasFile,
   mergeTarget,
+  restrictFinishes,
   subsetFor,
   mediaUrl,
   putFile,
@@ -427,7 +428,16 @@ async function writeSet(
           },
         });
 
-        await syncVariants(tx, dbPrinting.id, languageCode, printing, counters);
+        await syncVariants(
+          tx,
+          dbPrinting.id,
+          languageCode,
+          {
+            ...printing,
+            finishes: restrictFinishes(set.code, printing.rarityName, printing.finishes),
+          },
+          counters,
+        );
         counters.priceObservations += await recordPrices(dbPrinting.id, printing.prices ?? [], tx);
 
         emit({
@@ -720,14 +730,18 @@ export interface CatalogSetIssue {
 export function plainSyncError(error: string | null | undefined): string {
   const e = (error ?? "").trim();
   if (!e) return "Unknown error.";
-  if (/interrupted/i.test(e)) return "The app was closed while this set was syncing. It will be retried.";
+  if (/interrupted/i.test(e))
+    return "The app was closed while this set was syncing. It will be retried.";
   if (/getSet is not a function|is not a function/.test(e))
     return `A bug in the app (${e}). Updating the app should fix it.`;
   if (/429|rate.?limit|too many requests/i.test(e))
     return "The source is rate-limiting requests. It will be retried later.";
-  if (/ENOTFOUND|ECONNRESET|ECONNREFUSED|ETIMEDOUT|timed? ?out|fetch failed|network|socket/i.test(e))
+  if (
+    /ENOTFOUND|ECONNRESET|ECONNREFUSED|ETIMEDOUT|timed? ?out|fetch failed|network|socket/i.test(e)
+  )
     return `Couldn't reach the source (network problem or the source is down). It will be retried. (${e})`;
-  if (/HTTP 5[0-9][0-9]/.test(e)) return `The source had a server error. It will be retried. (${e})`;
+  if (/HTTP 5[0-9][0-9]/.test(e))
+    return `The source had a server error. It will be retried. (${e})`;
   if (/unique constraint/i.test(e))
     return "A bug in the app: two cards clashed while saving this set. Updating the app should fix it.";
   return e;
@@ -743,16 +757,14 @@ export async function catalogSyncStatus(game: string): Promise<CatalogSyncStatus
         orderBy: { priority: "desc" },
         take: 100,
       })
-    ).map(
-      (f): CatalogSetIssue => ({
-        code: f.itemKey,
-        name: f.label,
-        error: f.lastError,
-        message: status === "unavailable" ? (f.lastError ?? "") : plainSyncError(f.lastError),
-        attempts: f.attemptCount,
-        lastAttemptAt: f.lastAttemptAt,
-      }),
-    );
+    ).map((f): CatalogSetIssue => ({
+      code: f.itemKey,
+      name: f.label,
+      error: f.lastError,
+      message: status === "unavailable" ? (f.lastError ?? "") : plainSyncError(f.lastError),
+      attempts: f.attemptCount,
+      lastAttemptAt: f.lastAttemptAt,
+    }));
   return {
     game,
     ...counts,

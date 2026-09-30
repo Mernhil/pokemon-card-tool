@@ -43,7 +43,14 @@ export async function ensureBaseData(): Promise<void> {
  */
 export async function backfillSetCategories(): Promise<number> {
   const sets = await prisma.set.findMany({
-    select: { id: true, code: true, name: true, series: true, category: true, game: { select: { slug: true } } },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      series: true,
+      category: true,
+      game: { select: { slug: true } },
+    },
   });
   let changed = 0;
   for (const set of sets) {

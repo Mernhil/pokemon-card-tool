@@ -30,7 +30,12 @@ function placeholder(strict = false) {
   });
 }
 
-const EMPTY: ImageResult = { image: null, status: "failed", attempts: [], reason: "Not tried yet." };
+const EMPTY: ImageResult = {
+  image: null,
+  status: "failed",
+  attempts: [],
+  reason: "Not tried yet.",
+};
 
 /**
  * Local media: set logos, user photos, scans from older syncs — and card

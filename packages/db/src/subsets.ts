@@ -22,7 +22,10 @@ export async function mergeStraySets(): Promise<number> {
     const [game, code] = key.split(":") as [string, string];
     const [stray, parent] = await Promise.all([
       prisma.set.findFirst({ where: { code, game: { slug: game } }, select: { id: true } }),
-      prisma.set.findFirst({ where: { code: merge.into, game: { slug: game } }, select: { id: true } }),
+      prisma.set.findFirst({
+        where: { code: merge.into, game: { slug: game } },
+        select: { id: true },
+      }),
     ]);
     if (!stray || !parent || stray.id === parent.id) continue;
 
@@ -45,7 +48,8 @@ export async function mergeStraySets(): Promise<number> {
           where: { id: p.id },
           data: {
             setId: parent.id,
-            sortNumber: p.sortNumber < merge.sortOffset ? p.sortNumber + merge.sortOffset : p.sortNumber,
+            sortNumber:
+              p.sortNumber < merge.sortOffset ? p.sortNumber + merge.sortOffset : p.sortNumber,
           },
         });
         moved++;
