@@ -130,10 +130,14 @@ model Printing {
   /// A scan the user supplied ("Set custom image"): a storage key under media/custom/.
   /// Wins over every remote source and is never touched by a catalog re-sync.
   customImageKey  String?
+  /// Sub-collection inside the set ("Special Art", "Classic Collection"); see
+  /// packages/shared/src/subsets.ts. Null for sets without subsets.
+  subset          String?
   variants        PrintVariant[]
   externalRefs    ExternalRef[]
 
   @@unique([setId, collectorNumber, isAltArt])
+  @@index([setId, subset])
   @@index([cardId])
   @@index([rarityId])
 }

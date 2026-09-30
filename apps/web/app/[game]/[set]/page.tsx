@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { latestValuations, prisma } from "@tcg-vault/db";
+import { subsetsForSet } from "@tcg-vault/shared";
 import { formatEur } from "../../../components/money";
 import { SetGrid, type SetGridCard } from "../../../components/set-grid";
 import { CompletionRing } from "../../../components/ui/completion-ring";
@@ -59,6 +60,7 @@ export default async function SetCardGridPage({
       price: prices.length > 0 ? Math.min(...prices) : null,
       multiPrice: prices.length > 1,
       owned,
+      subset: printing.subset,
     };
   });
   const ownedDistinct = cards.filter((c) => c.owned > 0).length;
@@ -102,7 +104,7 @@ export default async function SetCardGridPage({
           </div>
         </div>
       </header>
-      <SetGrid cards={cards} />
+      <SetGrid cards={cards} subsets={subsetsForSet(set.code)} />
     </main>
   );
 }

@@ -3,6 +3,8 @@ import {
   canonicalKeyFor,
   classifySet,
   hasFile,
+  mergeTarget,
+  subsetFor,
   mediaUrl,
   putFile,
   remoteImageKey,
@@ -294,6 +296,8 @@ async function writeSet(
   printings: SourcePrinting[],
   assets: { logoUrl: string | null; symbolUrl: string | null },
   emit: (detail: CatalogDetail) => void,
+  /** Write the cards into this existing set instead of creating one (see SET_MERGES). */
+  merge: { setId: number; code: string; sortOffset: number } | null = null,
 ): Promise<Counters> {
   const counters = emptyCounters();
   const languageCode = adapter.languageCode;
@@ -316,11 +320,13 @@ async function writeSet(
         logoUrl: assets.logoUrl,
         symbolUrl: assets.symbolUrl,
       };
-      const set = await tx.set.upsert({
-        where: { gameId_code: { gameId, code: sourceSet.code } },
-        update: setData,
-        create: { gameId, code: sourceSet.code, ...setData },
-      });
+      const set = merge
+        ? { id: merge.setId, code: merge.code }
+        : await tx.set.upsert({
+            where: { gameId_code: { gameId, code: sourceSet.code } },
+            update: setData,
+            create: { gameId, code: sourceSet.code, ...setData },
+          });
 
       // Sources assign each printing (incl. alt arts) its own number, so
       // collisions shouldn't happen — but (setId, collectorNumber, isAltArt)
@@ -354,7 +360,13 @@ async function writeSet(
 
         const printingData = {
           cardId: card.id,
-          sortNumber: sortNumberFor(printing.collectorNumber),
+          sortNumber: sortNumberFor(printing.collectorNumber) + (merge?.sortOffset ?? 0),
+          subset: subsetFor({
+            setCode: set.code,
+            collectorNumber: printing.collectorNumber,
+            rarityName: printing.rarityName,
+            name: printing.cardName,
+          }),
           rarityId: rarity?.id ?? null,
           artistId: artist?.id ?? null,
           imageUrls: imageUrls ? JSON.stringify(imageUrls) : null,
@@ -457,6 +469,19 @@ async function processSet(
     }
   }
 
+  // A set the source lists separately but that belongs inside another (Classic Collection
+  // inside the 30th Celebration): its cards go into the parent, no set of its own.
+  const mergeRule = mergeTarget(adapter.game, code);
+  let merge: { setId: number; code: string; sortOffset: number } | null = null;
+  if (mergeRule) {
+    const parent = await prisma.set.findUnique({
+      where: { gameId_code: { gameId, code: mergeRule.into } },
+      select: { id: true },
+    });
+    if (!parent) throw new Error(`its parent set "${mergeRule.into}" isn't synced yet`);
+    merge = { setId: parent.id, code: mergeRule.into, sortOffset: mergeRule.sortOffset };
+  }
+
   const safeCode = sourceSet.code.replace(/[^\w.-]/g, "_");
   const assets = {
     logoUrl: await localAsset(sourceSet.logoUrl, `${adapter.game}/${safeCode}/logo.png`),
@@ -464,7 +489,7 @@ async function processSet(
   };
 
   emit({ type: "set", code, name: sourceSet.name, total: printings.length, phase: "saving" });
-  const counters = await writeSet(adapter, gameId, sourceSet, printings, assets, emit);
+  const counters = await writeSet(adapter, gameId, sourceSet, printings, assets, emit, merge);
   emit({ type: "set-counters", code, counters });
 }
 

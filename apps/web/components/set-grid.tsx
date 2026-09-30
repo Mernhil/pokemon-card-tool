@@ -19,6 +19,8 @@ export interface SetGridCard {
   price: number | null;
   multiPrice: boolean;
   owned: number;
+  /** Subset inside the set ("Special Art"), null when it has none. */
+  subset: string | null;
 }
 
 type Show = "all" | "owned" | "missing";
@@ -30,12 +32,39 @@ interface SetGridFilters {
   show: Show;
   sort: Sort;
   dim: boolean;
+  /** Selected subset tab; "" is "See all". Remembered with the other filters. */
+  subset: string;
 }
 
-const DEFAULT_FILTERS: SetGridFilters = { query: "", show: "all", sort: "number", dim: true };
+const DEFAULT_FILTERS: SetGridFilters = {
+  query: "",
+  show: "all",
+  sort: "number",
+  dim: true,
+  subset: "",
+};
 
-export function SetGrid({ cards }: { cards: SetGridCard[] }) {
-  const [{ query, show, sort, dim }, setFilters] = useListState(DEFAULT_FILTERS);
+export function SetGrid({ cards, subsets = [] }: { cards: SetGridCard[]; subsets?: string[] }) {
+  const [{ query, show, sort, dim, subset: rememberedSubset }, setFilters] =
+    useListState(DEFAULT_FILTERS);
+  // Tabs: only subsets that have cards, in the set's own order.
+  const tabs = useMemo(
+    () =>
+      subsets
+        .map((name) => {
+          const inSubset = cards.filter((c) => c.subset === name);
+          return {
+            name,
+            total: inSubset.length,
+            owned: inSubset.filter((c) => c.owned > 0).length,
+          };
+        })
+        .filter((t) => t.total > 0),
+    [cards, subsets],
+  );
+  // A remembered tab that no longer exists falls back to "See all".
+  const subset = tabs.some((t) => t.name === rememberedSubset) ? rememberedSubset : "";
+  const setSubset = (subset: string) => setFilters((f) => ({ ...f, subset }));
   const setQuery = (query: string) => setFilters((f) => ({ ...f, query }));
   const setShow = (show: Show) => setFilters((f) => ({ ...f, show }));
   const setSort = (sort: Sort) => setFilters((f) => ({ ...f, sort }));
@@ -46,6 +75,7 @@ export function SetGrid({ cards }: { cards: SetGridCard[] }) {
     const q = query.trim().toLowerCase();
     const list = cards.filter(
       (c) =>
+        (!subset || c.subset === subset) &&
         (!q || c.name.toLowerCase().includes(q) || c.number.toLowerCase().includes(q)) &&
         (show === "all" || (show === "owned" ? c.owned > 0 : c.owned === 0)),
     );
@@ -57,7 +87,7 @@ export function SetGrid({ cards }: { cards: SetGridCard[] }) {
         (a.rarity ?? "").localeCompare(b.rarity ?? "") || a.sortNumber - b.sortNumber,
     };
     return [...list].sort(by[sort]);
-  }, [cards, query, show, sort]);
+  }, [cards, query, show, sort, subset]);
 
   const seg = (value: Show, label: string) => (
     <button
@@ -75,8 +105,35 @@ export function SetGrid({ cards }: { cards: SetGridCard[] }) {
     </button>
   );
 
+  const chip = (value: string, label: string, owned: number, total: number) => (
+    <button
+      key={value || "all"}
+      type="button"
+      role="tab"
+      aria-selected={subset === value}
+      onClick={() => setSubset(value)}
+      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+        subset === value
+          ? "border-accent bg-accent-soft text-neutral-900"
+          : "border-neutral-200 text-neutral-600 hover:border-neutral-400"
+      }`}
+    >
+      {label}{" "}
+      <span className="tabular-nums text-neutral-500">
+        {total}
+        {anyOwned ? ` · ${owned}/${total}` : ""}
+      </span>
+    </button>
+  );
+
   return (
     <>
+      {tabs.length > 0 ? (
+        <div role="tablist" aria-label="Subsets" className="mb-3 flex flex-wrap gap-2">
+          {chip("", "See all", cards.filter((c) => c.owned > 0).length, cards.length)}
+          {tabs.map((t) => chip(t.name, t.name, t.owned, t.total))}
+        </div>
+      ) : null}
       <div className="panel sticky top-3 z-20 mb-5 flex flex-wrap items-center gap-3 p-3">
         <label className="relative min-w-48 flex-1">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" />
