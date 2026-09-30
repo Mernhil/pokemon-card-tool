@@ -1,11 +1,7 @@
 "use client";
 
 import type { AppSettings, SecretStatus } from "@tcg-vault/db";
-import {
-  PRICE_KIND_LABELS,
-  PRICE_LANGUAGES,
-  type PriceKind,
-} from "@tcg-vault/shared/src/enums";
+import { PRICE_KIND_LABELS, PRICE_LANGUAGES, type PriceKind } from "@tcg-vault/shared/src/enums";
 import { CheckCircle2, CircleAlert, KeyRound, PlugZap, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -332,7 +328,9 @@ export function SettingsForm({
           <select
             className="field py-1 text-sm"
             value={settings.priceLanguage}
-            onChange={(e) => save({ priceLanguage: e.target.value as AppSettings["priceLanguage"] })}
+            onChange={(e) =>
+              save({ priceLanguage: e.target.value as AppSettings["priceLanguage"] })
+            }
           >
             {PRICE_LANGUAGES.map((l) => (
               <option key={l.code} value={l.code}>
@@ -344,8 +342,8 @@ export function SettingsForm({
         <p className="mt-1 text-xs text-neutral-500">
           Values and prices everywhere use listings in this language, so cheap copies in other
           languages don&apos;t pull them down. CardTrader and eBay can be split by language;
-          Cardmarket and TCGplayer numbers (via TCGdex) can&apos;t, and are always labelled &quot;all
-          languages&quot;. Changing it recomputes your values.
+          Cardmarket and TCGplayer numbers (via TCGdex) can&apos;t, and are always labelled
+          &quot;all languages&quot;. Changing it recomputes your values.
         </p>
         <label className="mt-4 flex items-center gap-2 text-sm">
           <input
@@ -358,6 +356,25 @@ export function SettingsForm({
         <p className="mt-1 text-xs text-neutral-500">
           Off hides that whole section from Browse. Pocket sets are still synced; they have no
           market prices, so their prices are never refreshed.
+        </p>
+        <label className="mt-4 flex items-center gap-3 text-sm">
+          Bulk threshold (€ per card)
+          <input
+            type="number"
+            min={0}
+            step={0.5}
+            className="field w-24 py-1 text-sm"
+            defaultValue={settings.bulkThresholdCents / 100}
+            onBlur={(e) => {
+              const euros = Number(e.target.value);
+              if (Number.isFinite(euros) && euros >= 0)
+                save({ bulkThresholdCents: Math.round(euros * 100) });
+            }}
+          />
+        </label>
+        <p className="mt-1 text-xs text-neutral-500">
+          Collection cards worth less than this each are tucked into a collapsed Bulk section. Set 0
+          to show everything.
         </p>
         <p className="mt-2 text-xs text-neutral-500">
           Prices are stored in the currency they were quoted in and converted only for display
