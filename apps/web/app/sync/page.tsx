@@ -24,11 +24,7 @@ async function loadAvailableSets(game: string) {
   }
 }
 
-export default async function SyncPage({
-  searchParams,
-}: {
-  searchParams: { game?: string };
-}) {
+export default async function SyncPage({ searchParams }: { searchParams: { game?: string } }) {
   const games = await prisma.game.findMany({ orderBy: { name: "asc" } });
   const adapterSlugs = new Set(catalogAdapters().map((a) => a.game));
   const syncableGames = games.filter((g) => adapterSlugs.has(g.slug));
@@ -100,8 +96,8 @@ export default async function SyncPage({
 
       {available.error ? (
         <p className="panel mb-6 border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-          Couldn&apos;t load the set list{source ? ` from ${source.name}` : ""} (
-          {available.error}). You can still type set codes below.
+          Couldn&apos;t load the set list{source ? ` from ${source.name}` : ""} ({available.error}).
+          You can still type set codes below.
         </p>
       ) : null}
       <div className="mb-6">

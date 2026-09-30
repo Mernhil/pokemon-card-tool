@@ -99,7 +99,8 @@ export async function setCustomImageAction(
   const printingId = String(formData.get("printingId") ?? "");
   const file = formData.get("file");
   if (!printingId || !(file instanceof File)) return { ok: false, error: "Choose an image file." };
-  if (file.size > MAX_CUSTOM_IMAGE_BYTES) return { ok: false, error: customImageErrorText("too-big") };
+  if (file.size > MAX_CUSTOM_IMAGE_BYTES)
+    return { ok: false, error: customImageErrorText("too-big") };
   const result = await setCustomImage(printingId, new Uint8Array(await file.arrayBuffer()));
   if (!result.ok) return { ok: false, error: customImageErrorText(result.error) };
   revalidatePath("/", "layout");

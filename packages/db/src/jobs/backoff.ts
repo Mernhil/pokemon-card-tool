@@ -55,7 +55,11 @@ export class SourceUnavailableError extends NonRetryableError {
 }
 
 export function isUnavailable(err: unknown): boolean {
-  return !!(err && typeof err === "object" && (err as { unavailable?: unknown }).unavailable === true);
+  return !!(
+    err &&
+    typeof err === "object" &&
+    (err as { unavailable?: unknown }).unavailable === true
+  );
 }
 
 export function errorMessage(err: unknown): string {

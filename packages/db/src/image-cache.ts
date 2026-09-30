@@ -230,10 +230,7 @@ const none = (status: ImageStatus, attempts: Attempt[], reason: string): ImageRe
   reason,
 });
 
-async function loadCardImage(
-  printingId: string,
-  options: ImageCacheOptions,
-): Promise<ImageResult> {
+async function loadCardImage(printingId: string, options: ImageCacheOptions): Promise<ImageResult> {
   const now = options.now ?? (() => new Date());
   const dir = imageCacheDir(options);
   const file = cacheFileName(printingId);
