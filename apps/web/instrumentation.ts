@@ -12,11 +12,13 @@ export async function register() {
     }
 
     // Base rows (games, languages) a fresh database needs before anything is synced.
-    const { ensureBaseData, enableConcurrentReads, backfillSetCategories } = await import(
-      "@tcg-vault/db"
-    );
+    const { ensureBaseData, enableConcurrentReads, backfillSetCategories, backfillImageKeys } =
+      await import("@tcg-vault/db");
     await enableConcurrentReads();
     await ensureBaseData();
+    await backfillImageKeys().catch((err) =>
+      console.warn("[startup] couldn't backfill image keys:", err),
+    );
     await backfillSetCategories().catch((err) =>
       console.warn("[startup] couldn't backfill set categories:", err),
     );

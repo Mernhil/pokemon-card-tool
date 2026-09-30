@@ -10,3 +10,4 @@ export * from "./image-cache";
 export * from "./fx";
 export * from "./price-refresh";
 export * from "./settings";
+export * from "./image-fetch";

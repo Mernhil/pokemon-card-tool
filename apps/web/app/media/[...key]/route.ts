@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCardImage, getSettingsCached } from "@tcg-vault/db";
+import { getCardImageResult, getSettingsCached, type ImageResult } from "@tcg-vault/db";
 import { REMOTE_IMAGE_PREFIX, getFile } from "@tcg-vault/shared";
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -18,8 +18,10 @@ const PLACEHOLDER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="500" hei
 <text x="250" y="380" font-family="system-ui,sans-serif" font-size="20" fill="#a8a29e" text-anchor="middle">Tried again next time you open it</text>
 </svg>`;
 
-function placeholder() {
+function placeholder(strict = false) {
+  // Strict callers (the card tiles) want a real 404 so their <img> reports the error.
   return new NextResponse(PLACEHOLDER_SVG, {
+    status: strict ? 404 : 200,
     headers: {
       "Content-Type": "image/svg+xml",
       "Cache-Control": "no-store",
@@ -28,24 +30,36 @@ function placeholder() {
   });
 }
 
+const EMPTY: ImageResult = { image: null, status: "failed", attempts: [], reason: "Not tried yet." };
+
 /**
  * Local media: set logos, user photos, scans from older syncs — and card
  * scans behind `remote/<printingId>` keys, which go through the lazy image
  * cache (packages/db/src/image-cache.ts): served from disk, or fetched once
  * and cached. A scan that can't be fetched gets a placeholder, not an error.
  */
-export async function GET(_req: Request, { params }: { params: { key: string[] } }) {
+export async function GET(req: Request, { params }: { params: { key: string[] } }) {
   const key = params.key.join("/");
+  const query = new URL(req.url).searchParams;
+  const strict = query.get("strict") === "1";
 
   if (key.startsWith(REMOTE_IMAGE_PREFIX)) {
     const printingId = key.slice(REMOTE_IMAGE_PREFIX.length);
-    if (!printingId || printingId.includes("/")) return placeholder();
-    const image = await getSettingsCached()
+    if (!printingId || printingId.includes("/")) return placeholder(strict);
+    const result = await getSettingsCached()
       .then((settings) =>
-        getCardImage(printingId, { maxBytes: settings.imageCacheMaxMb * 1024 * 1024 }),
+        getCardImageResult(printingId, { maxBytes: settings.imageCacheMaxMb * 1024 * 1024 }),
       )
-      .catch(() => null);
-    if (!image) return placeholder();
+      .catch(() => EMPTY);
+    // ?why=1: what was tried and why it failed, for the tile's tooltip (no network involved).
+    if (query.get("why") === "1") {
+      return NextResponse.json(
+        { status: result.status, reason: result.reason },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    const image = result.image;
+    if (!image) return placeholder(strict);
     return new NextResponse(new Uint8Array(image.body), {
       headers: {
         "Content-Type": image.contentType,

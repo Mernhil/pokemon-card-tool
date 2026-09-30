@@ -249,6 +249,7 @@ async function imageKeyFor(
   printingId: string,
   hasRemote: boolean,
 ): Promise<string | null> {
+  // `hasRemote` is also true for a printing with a user-supplied image (see the caller).
   if (existingKey && !existingKey.startsWith("remote/") && (await hasFile(existingKey))) {
     return existingKey;
   }
@@ -377,7 +378,14 @@ async function writeSet(
         if (existing) counters.printingsUpdated++;
         else counters.printingsCreated++;
 
-        const imageKey = await imageKeyFor(existing?.imageKey, dbPrinting.id, imageUrls !== null);
+        // Pokémon printings always get the lazy key: even without a stored URL the
+        // image cache can try constructed CDN addresses (image-cache.ts). A custom
+        // image (set by the user, never touched here) needs the key too.
+        const imageKey = await imageKeyFor(
+          existing?.imageKey,
+          dbPrinting.id,
+          imageUrls !== null || adapter.game === "pokemon" || !!dbPrinting.customImageKey,
+        );
         if (imageKey !== dbPrinting.imageKey) {
           dbPrinting = await tx.printing.update({
             where: { id: dbPrinting.id },

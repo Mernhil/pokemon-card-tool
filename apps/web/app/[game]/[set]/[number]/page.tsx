@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   enqueueStalePrices,
+  getCardImageResult,
   latestValuations,
   prisma,
   recordCardView,
@@ -79,14 +80,21 @@ export default async function CardPage({
   // reprint shares its Card row with the printing(s) it reprints (see
   // Card.canonicalKey), fall back to showing the art from any sibling
   // printing that does have a scan, rather than a blank placeholder.
-  const fallbackPrinting = printing.imageKey
+  // (The printing's own image counts only if it can actually be loaded — every
+  // Pokémon printing has a lazy image key, but some sources have no scan.)
+  const hasOwnImage = printing.imageKey
+    ? await getCardImageResult(printing.id)
+        .then((r) => r.image !== null)
+        .catch(() => false)
+    : false;
+  const fallbackPrinting = hasOwnImage
     ? null
     : await prisma.printing.findFirst({
-        where: { cardId: printing.cardId, imageKey: { not: null } },
+        where: { cardId: printing.cardId, id: { not: printing.id }, imageKey: { not: null } },
         select: { imageKey: true },
       });
-  const imageKey = printing.imageKey ?? fallbackPrinting?.imageKey ?? null;
-  const imageIsFallback = !printing.imageKey && !!fallbackPrinting;
+  const imageKey = hasOwnImage ? printing.imageKey : (fallbackPrinting?.imageKey ?? null);
+  const imageIsFallback = !hasOwnImage && !!fallbackPrinting;
 
   const variants = sortByFinish(printing.variants);
   const selected = variants.find((v) => v.finish === searchParams.finish) ?? variants[0];

@@ -61,6 +61,22 @@ export async function backfillSetCategories(): Promise<number> {
 }
 
 /**
+ * Idempotent: gives Pokémon printings that have no image key yet the lazy
+ * `remote/<id>` key, so the image cache tries the constructed CDN addresses
+ * for them (they used to show "image not available" forever when the catalog
+ * stored no URL), and printings with a custom image get the key too. Returns
+ * how many rows it changed.
+ */
+export async function backfillImageKeys(): Promise<number> {
+  return prisma.$executeRawUnsafe(
+    `UPDATE "Printing" SET "imageKey" = 'remote/' || "id"
+     WHERE "imageKey" IS NULL
+       AND ("customImageKey" IS NOT NULL
+            OR "setId" IN (SELECT s."id" FROM "Set" s JOIN "Game" g ON g."id" = s."gameId" WHERE g."slug" = 'pokemon'))`,
+  );
+}
+
+/**
  * WAL journal mode: pages keep reading while a background sync writes (in
  * the default rollback mode a writer blocks readers). Persistent per DB
  * file; harmless to repeat. Best-effort — never blocks startup.

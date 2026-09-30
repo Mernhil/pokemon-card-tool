@@ -127,6 +127,9 @@ model Printing {
   imageUrls       String?
   imageWidth      Int?
   imageHeight     Int?
+  /// A scan the user supplied ("Set custom image"): a storage key under media/custom/.
+  /// Wins over every remote source and is never touched by a catalog re-sync.
+  customImageKey  String?
   variants        PrintVariant[]
   externalRefs    ExternalRef[]
 
