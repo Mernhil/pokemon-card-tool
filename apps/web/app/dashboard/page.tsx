@@ -2,6 +2,7 @@ import { ChartLine, Coins, Layers, Library, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { collectionItemValue, latestValuations, prisma } from "@tcg-vault/db";
 import { topMovers } from "@tcg-vault/pricing";
+import { SET_CATEGORY_BADGES, isSetCategory } from "@tcg-vault/shared";
 import { CardTile } from "../../components/card-tile";
 import { formatEur } from "../../components/money";
 import { ButtonLink } from "../../components/ui/button";
@@ -84,8 +85,10 @@ export default async function DashboardPage() {
         },
       },
     }),
-    prisma.printing.count(),
-    prisma.set.count(),
+    // Catalog totals cover the main expansions; promos, McDonald's, Pocket etc. are listed
+    // on the game page, and cards you own from them still count everywhere else.
+    prisma.printing.count({ where: { set: { category: "main" } } }),
+    prisma.set.count({ where: { category: "main" } }),
     prisma.portfolioSnapshot.findMany({ orderBy: { day: "asc" } }),
   ]);
 
@@ -220,7 +223,7 @@ export default async function DashboardPage() {
           value={catalogCards}
           format="int"
           icon={Library}
-          sub={`cards in ${syncedSets} synced set${syncedSets === 1 ? "" : "s"}`}
+          sub={`cards in ${syncedSets} main set${syncedSets === 1 ? "" : "s"}`}
         />
       </div>
 
@@ -313,7 +316,14 @@ export default async function DashboardPage() {
                     href={`/${set.game.slug}/${encodeURIComponent(set.code)}`}
                     className="flex justify-between gap-2 text-xs hover:text-accent"
                   >
-                    <span className="truncate text-neutral-700">{set.name}</span>
+                    <span className="truncate text-neutral-700">
+                      {set.name}
+                      {isSetCategory(set.category) && SET_CATEGORY_BADGES[set.category] ? (
+                        <span className="ml-2 rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-neutral-500">
+                          {SET_CATEGORY_BADGES[set.category]}
+                        </span>
+                      ) : null}
+                    </span>
                     <span className="tabular-nums text-neutral-900">
                       {owned} / {total} ({pct}%)
                     </span>

@@ -7,6 +7,7 @@ import {
   runCatalogSync,
   syncCatalogSets,
 } from "../src/catalog-sync";
+import { backfillSetCategories } from "../src/base-data";
 import { prisma } from "../src/client";
 import { fakeClock, resetDb } from "./helpers";
 
@@ -269,5 +270,34 @@ describe("plainSyncError", () => {
       /bug in the app/,
     );
     expect(plainSyncError("something odd")).toBe("something odd");
+  });
+});
+
+describe("set categories", () => {
+  it("the sync classifies every set it upserts", async () => {
+    const adapter = new FakeAdapter(["sv1", "svp", "A1"], 1);
+    Object.assign(adapter.sets[0]!, { name: "Scarlet & Violet", series: "Scarlet & Violet" });
+    Object.assign(adapter.sets[1]!, { name: "SVP Black Star Promos", series: "Scarlet & Violet" });
+    Object.assign(adapter.sets[2]!, { name: "Genetic Apex", series: "Pokémon TCG Pocket" });
+    await runCatalogSync(adapter, fast());
+    const sets = await prisma.set.findMany();
+    expect(Object.fromEntries(sets.map((s) => [s.code, s.category]))).toEqual({
+      sv1: "main",
+      svp: "promo",
+      A1: "pocket",
+    });
+  });
+
+  it("the startup backfill fixes existing rows, and is idempotent", async () => {
+    const adapter = new FakeAdapter(["svp", "sv1"], 1);
+    Object.assign(adapter.sets[0]!, { name: "SVP Black Star Promos" });
+    Object.assign(adapter.sets[1]!, { name: "Scarlet & Violet" });
+    await runCatalogSync(adapter, fast());
+    // As after the migration: everything defaults to "main".
+    await prisma.set.updateMany({ data: { category: "main" } });
+    expect(await backfillSetCategories()).toBe(1);
+    expect((await prisma.set.findFirstOrThrow({ where: { code: "svp" } })).category).toBe("promo");
+    expect((await prisma.set.findFirstOrThrow({ where: { code: "sv1" } })).category).toBe("main");
+    expect(await backfillSetCategories()).toBe(0);
   });
 });

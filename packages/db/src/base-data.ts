@@ -1,3 +1,4 @@
+import { classifySet } from "@tcg-vault/shared";
 import { prisma } from "./client";
 
 const GAMES = [
@@ -31,6 +32,32 @@ export async function ensureBaseData(): Promise<void> {
       create: language,
     });
   }
+}
+
+/**
+ * Idempotent: gives every existing set its category (Set.category) from
+ * classifySet. The column is added by a SQL migration with default "main";
+ * this fills it in for sets synced before it existed, and corrects any whose
+ * rules have changed. Run at startup next to ensureBaseData. Returns how many
+ * rows it changed.
+ */
+export async function backfillSetCategories(): Promise<number> {
+  const sets = await prisma.set.findMany({
+    select: { id: true, code: true, name: true, series: true, category: true, game: { select: { slug: true } } },
+  });
+  let changed = 0;
+  for (const set of sets) {
+    const category = classifySet({
+      game: set.game.slug,
+      code: set.code,
+      name: set.name,
+      series: set.series,
+    });
+    if (category === set.category) continue;
+    await prisma.set.update({ where: { id: set.id }, data: { category } });
+    changed++;
+  }
+  return changed;
 }
 
 /**

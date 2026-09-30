@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { latestValuations, prisma, type Prisma } from "@tcg-vault/db";
+import { SET_CATEGORIES, SET_CATEGORY_LABELS } from "@tcg-vault/shared";
 import { CardTile } from "../../components/card-tile";
 import { finishLabel } from "../../components/money";
 import { buttonClass } from "../../components/ui/button";
@@ -29,7 +30,10 @@ export default async function SearchPage({
   const page = Math.max(1, Number(searchParams.page) || 1);
 
   const [sets, rarities, languages] = await Promise.all([
-    prisma.set.findMany({ orderBy: { releaseDate: "desc" }, select: { id: true, name: true } }),
+    prisma.set.findMany({
+      orderBy: { releaseDate: "desc" },
+      select: { id: true, name: true, category: true },
+    }),
     prisma.rarity.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     // Only languages some synced card actually exists in.
     prisma.language.findMany({ where: { variants: { some: {} } }, orderBy: { name: "asc" } }),
@@ -130,11 +134,23 @@ export default async function SearchPage({
           Set
           <select name="set" defaultValue={setId ?? ""} className={select}>
             <option value="">All sets</option>
-            {sets.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
+            {SET_CATEGORIES.map((category) => {
+              const inCategory = sets.filter((s) => s.category === category);
+              if (inCategory.length === 0) return null;
+              const options = inCategory.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ));
+              // Main sets first and unlabelled; special sets stay searchable, clearly grouped.
+              return category === "main" ? (
+                options
+              ) : (
+                <optgroup key={category} label={SET_CATEGORY_LABELS[category]}>
+                  {options}
+                </optgroup>
+              );
+            })}
           </select>
         </label>
         <label className="label">

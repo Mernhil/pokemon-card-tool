@@ -22,7 +22,8 @@ import { recordObservations } from "./prices";
  *   400  cards the user opened with stale prices (enqueued by the card page)
  *   300  cards in the collection, every `priceRefreshHours` (24 h)
  *   200  cards viewed in the last 14 days, same cadence
- * Everything else only when someone opens it.
+ * Everything else only when someone opens it. Pokémon TCG Pocket sets are
+ * never priced: digital-only cards have no market.
  */
 
 export const PRICE_PRIORITY = { onDemand: 400, collection: 300, recentlyViewed: 200 } as const;
@@ -153,7 +154,10 @@ export async function refreshVariantPrices(
 export async function priceRefreshItems(game: string, now = new Date()): Promise<JobItem[]> {
   const [owned, viewed] = await Promise.all([
     prisma.printVariant.findMany({
-      where: { collection: { some: {} }, printing: { set: { game: { slug: game } } } },
+      where: {
+        collection: { some: {} },
+        printing: { set: { game: { slug: game }, category: { not: "pocket" } } },
+      },
       select: {
         id: true,
         printing: { select: { card: { select: { name: true } }, collectorNumber: true } },
@@ -168,7 +172,7 @@ export async function priceRefreshItems(game: string, now = new Date()): Promise
     ? await prisma.printVariant.findMany({
         where: {
           printingId: { in: viewed.map((v) => v.printingId) },
-          printing: { set: { game: { slug: game } } },
+          printing: { set: { game: { slug: game }, category: { not: "pocket" } } },
         },
         select: {
           id: true,

@@ -97,9 +97,11 @@ export default async function CardPage({
   const { settings, providers } = await priceProviders();
   const active = runnableProviders(game.slug, providers, settings.providers);
   await recordCardView(printing.id).catch(() => {});
+  // Digital-only (Pocket) cards have no market: nothing to price.
+  const priceable = set.category !== "pocket";
   const queued = await enqueueStalePrices(
     variantIds,
-    active,
+    priceable ? active : [],
     game.slug,
     settings.staleAfterHours * 3_600_000,
   ).catch(() => false);

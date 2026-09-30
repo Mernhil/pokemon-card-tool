@@ -1,5 +1,12 @@
 import type { Prisma } from "@prisma/client";
-import { canonicalKeyFor, hasFile, mediaUrl, putFile, remoteImageKey } from "@tcg-vault/shared";
+import {
+  canonicalKeyFor,
+  classifySet,
+  hasFile,
+  mediaUrl,
+  putFile,
+  remoteImageKey,
+} from "@tcg-vault/shared";
 import type { CatalogSourceAdapter, SourcePrinting, SourceSet } from "@tcg-vault/sources";
 import { prisma } from "./client";
 import { SourceUnavailableError } from "./jobs/backoff";
@@ -292,6 +299,12 @@ async function writeSet(
       const setData = {
         name: sourceSet.name,
         series: sourceSet.series ?? null,
+        category: classifySet({
+          game: adapter.game,
+          code: sourceSet.code,
+          name: sourceSet.name,
+          series: sourceSet.series,
+        }),
         primaryLangCode: languageCode,
         releaseDate: sourceSet.releaseDate ? new Date(sourceSet.releaseDate) : null,
         printedTotal: sourceSet.printedTotal ?? null,

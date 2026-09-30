@@ -47,6 +47,9 @@ model Set {
   name            String
   series          String? // "Scarlet & Violet", "Duelist Pack"
   type            String        @default("MAIN") // SetType, see packages/shared/src/enums.ts
+  /// SetCategory (packages/shared/src/set-category.ts): main | promo | mcdonalds |
+  /// trainer-kit | pocket | other. Set by the catalog sync via classifySet().
+  category        String        @default("main")
   primaryLangCode String?
   primaryLang     Language?     @relation(fields: [primaryLangCode], references: [code])
   releaseDate     DateTime?
@@ -61,6 +64,7 @@ model Set {
 
   @@unique([gameId, code])
   @@index([gameId, releaseDate])
+  @@index([gameId, category])
 }
 
 model Rarity {

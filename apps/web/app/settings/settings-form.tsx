@@ -323,6 +323,18 @@ export function SettingsForm({
             ))}
           </select>
         </label>
+        <label className="mt-4 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={settings.showPocketSets}
+            onChange={(e) => save({ showPocketSets: e.target.checked })}
+          />
+          Show digital-only (Pokémon TCG Pocket) sets
+        </label>
+        <p className="mt-1 text-xs text-neutral-500">
+          Off hides that whole section from Browse. Pocket sets are still synced; they have no
+          market prices, so their prices are never refreshed.
+        </p>
         <p className="mt-2 text-xs text-neutral-500">
           Prices are stored in the currency they were quoted in and converted only for display
           (shown with ≈), using{" "}

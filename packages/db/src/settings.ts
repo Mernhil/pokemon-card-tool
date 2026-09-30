@@ -24,6 +24,8 @@ export interface AppSettings {
   /** Sets are re-synced once their last sync is older than this. */
   catalogRefreshDays: number;
   imageCacheMaxMb: number;
+  /** Show the digital-only Pokémon TCG Pocket sets (off hides that section entirely). */
+  showPocketSets: boolean;
   providers: Record<PriceProviderId, { enabled: boolean }>;
   ebay: {
     /** EBAY_US, EBAY_GB, EBAY_DE, EBAY_IT, EBAY_FR, EBAY_ES, ... */
@@ -44,6 +46,7 @@ export function defaultSettings(): AppSettings {
     staleAfterHours: 24,
     catalogRefreshDays: envNumber("CATALOG_REFRESH_DAYS", 30),
     imageCacheMaxMb: envNumber("IMAGE_CACHE_MAX_MB", 500),
+    showPocketSets: true,
     providers: {
       cardmarket: { enabled: true },
       tcgplayer: { enabled: true },
@@ -91,6 +94,8 @@ export function sanitizeSettings(
     staleAfterHours: clamp(raw.staleAfterHours, 1, 24 * 30, base.staleAfterHours),
     catalogRefreshDays: clamp(raw.catalogRefreshDays, 1, 365, base.catalogRefreshDays),
     imageCacheMaxMb: clamp(raw.imageCacheMaxMb, 50, 100_000, base.imageCacheMaxMb),
+    showPocketSets:
+      typeof raw.showPocketSets === "boolean" ? raw.showPocketSets : base.showPocketSets,
     providers: Object.fromEntries(
       PRICE_PROVIDERS.map((id) => [
         id,
