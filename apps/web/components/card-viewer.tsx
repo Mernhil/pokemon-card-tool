@@ -1,6 +1,22 @@
 "use client";
 
-import { foilFor, type CardFoil } from "@tcg-vault/card-fx";
+import {
+  INERTIA_STOP,
+  angularVelocity,
+  applyDrag,
+  approach,
+  clamp,
+  foilFor,
+  lightEnergy,
+  nearestTurn,
+  releaseVelocity,
+  sheenPosition,
+  stepInertia,
+  MAX_ROT_X,
+  type CardFoil,
+  type PointerSample,
+  type Pose,
+} from "@tcg-vault/card-fx";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -167,6 +183,10 @@ export function CardInspector({
   const flyRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
   const closing = useRef(false);
+  // Pointer input is ignored until the fly-in has finished: the fly element is
+  // mid-flight (rotating, scaled) for 650 ms, and drag/tilt maths against it
+  // would be garbage.
+  const [ready, setReady] = useState(false);
 
   /** Transform that puts the big card exactly over the small inline one. */
   const fromOrigin = useCallback(() => {
@@ -183,20 +203,38 @@ export function CardInspector({
 
   // Fly in from the inline card, spinning once as it grows.
   useEffect(() => {
-    if (reducedMotion()) return;
-    flyRef.current?.animate(
+    if (reducedMotion()) {
+      setReady(true);
+      return;
+    }
+    const el = flyRef.current;
+    if (!el) return;
+    const flight = el.animate(
       [
         { transform: `${fromOrigin()} rotateY(0deg)` },
         { transform: "translate(0, 0) scale(1) rotateY(360deg)" },
       ],
       { duration: 650, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
     );
-    backdropRef.current?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300 });
+    const fade = backdropRef.current?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300 });
+    let cancelled = false;
+    flight.finished.then(
+      () => {
+        if (!cancelled) setReady(true);
+      },
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+      flight.cancel();
+      fade?.cancel();
+    };
   }, [fromOrigin]);
 
   const close = useCallback(() => {
     if (closing.current) return;
     closing.current = true;
+    setReady(false);
     if (reducedMotion() || !flyRef.current) {
       onClose();
       return;
@@ -244,9 +282,12 @@ export function CardInspector({
         if (e.target === e.currentTarget) close();
       }}
     >
+      {/* No backdrop-filter: blurring the page behind re-ran every frame the
+          page animated (it has a few CSS animations), which alone dropped the
+          inspector to ~20 fps; at 90% black the blur is barely visible. */}
       <div
         ref={backdropRef}
-        className="pointer-events-none absolute inset-0 -z-10 bg-black/90 backdrop-blur-sm"
+        className="pointer-events-none absolute inset-0 -z-10 bg-black/90"
         aria-hidden
       />
       <button
@@ -281,6 +322,7 @@ export function CardInspector({
             number={number}
             foil={foilFor(finish, rarityName)}
             mode="inspect"
+            enabled={ready}
             controlsRef={controls}
           />
         </div>
@@ -318,14 +360,61 @@ interface Card3DControls {
   reset: () => void;
 }
 
-const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+const REST_POSE: Pose = { rotX: 0, rotY: 0 };
+const ZOOM_MIN = 0.6;
+const ZOOM_MAX = 2.5;
+/** Half-lives (ms) of the eased parts; everything is time-based, so frame rate doesn't matter. */
+const POSE_HALF_LIFE = 70;
+const ZOOM_HALF_LIFE = 60;
+const TILT_HALF_LIFE = 65;
+const LIGHT_HALF_LIFE = 80;
 
-const REST = { tiltX: 0, tiltY: 0, rotX: 0, rotY: 0, zoom: 1, mx: 50, my: 50 };
+const reducedMotion = () =>
+  typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+interface Engine {
+  /** What's on screen. */
+  pose: Pose;
+  zoom: number;
+  tilt: { x: number; y: number };
+  light: { x: number; y: number };
+  /** Where the eased parts are heading. */
+  target: Pose;
+  zoomTarget: number;
+  tiltTarget: { x: number; y: number };
+  lightTarget: { x: number; y: number };
+  drag: {
+    id: number;
+    x: number;
+    y: number;
+    moved: boolean;
+    samples: PointerSample[];
+    w: number;
+    h: number;
+  } | null;
+  inertia: Pose | null;
+  raf: number;
+  last: number;
+  written: { transform: string; vars: string };
+}
 
 /**
- * The card itself. All motion is written straight to CSS custom properties
- * on the element (no React re-render per pointer move); globals.css turns
- * them into the transform, foil position and glare.
+ * The card itself.
+ *
+ * Pointer handling lives on the untransformed stage / window, never on the
+ * rotating `.card3d` element: its hit area changes as it turns, which used to
+ * feed pointerenter/leave and the tilt maths back into themselves.
+ *
+ * - inline: hover tilts the card (eased), click inspects.
+ * - inspect: the card is still until you press and drag; the drag maps
+ *   1:1 to the cursor (no easing, no hover tilt), with a short damped glide on
+ *   release. The glare and foil sheen follow the pointer without moving the card.
+ *
+ * Motion never goes through React state: one rAF loop (running only while
+ * something changes) writes the transform straight to the element, and the
+ * light position as a few custom properties on the front face. globals.css
+ * turns those into transforms of the sheen/glare layers, so moving light
+ * never repaints them.
  */
 function Card3D({
   imageSrc,
@@ -333,6 +422,7 @@ function Card3D({
   number,
   foil,
   mode,
+  enabled = true,
   onActivate,
   controlsRef,
 }: {
@@ -341,180 +431,321 @@ function Card3D({
   number: string;
   foil: CardFoil;
   mode: "inline" | "inspect";
+  /** Inspect only: ignore pointer input and controls (during the fly-in/out). */
+  enabled?: boolean;
   onActivate?: () => void;
   controlsRef?: React.MutableRefObject<Card3DControls | null>;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  // Target pose: hover tilt (springs back), drag rotation (stays), zoom.
-  const state = useRef({ ...REST });
-  // What's on screen; eased toward `state` every frame (spring-like follow).
-  const shown = useRef({ ...REST });
-  const stiffness = useRef(0.12);
-  const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
-  const frame = useRef(0);
-  const running = useRef(false);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const frontRef = useRef<HTMLDivElement>(null);
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
+  const eng = useRef<Engine>({
+    pose: { ...REST_POSE },
+    zoom: 1,
+    tilt: { x: 0, y: 0 },
+    light: { x: 50, y: 50 },
+    target: { ...REST_POSE },
+    zoomTarget: 1,
+    tiltTarget: { x: 0, y: 0 },
+    lightTarget: { x: 50, y: 50 },
+    drag: null,
+    inertia: null,
+    raf: 0,
+    last: 0,
+    written: { transform: "", vars: "" },
+  });
+  /** Tears down the window listeners of an in-progress drag. */
+  const stopDragListeners = useRef<(() => void) | null>(null);
+  const maxTilt = mode === "inline" ? 14 : 0;
 
   const render = useCallback(() => {
-    const el = ref.current;
-    if (!el) return;
-    const s = shown.current;
-    const rx = s.rotX + s.tiltX;
-    const ry = s.rotY + s.tiltY;
-    el.style.setProperty("--rx", `${rx}deg`);
-    el.style.setProperty("--ry", `${ry}deg`);
-    el.style.setProperty("--zoom", String(s.zoom));
-    el.style.setProperty("--mx", `${s.mx}%`);
-    el.style.setProperty("--my", `${s.my}%`);
-    // The foil sheen slides with the viewing angle, like light on a real card.
-    el.style.setProperty("--foil-x", `${50 + ry * 2.2}%`);
-    el.style.setProperty("--foil-y", `${50 - rx * 2.2}%`);
-    const energy = Math.min(1, Math.hypot(s.tiltX, s.tiltY, (s.rotX % 180) / 4) / 16);
-    el.style.setProperty("--energy", String(0.3 + energy * 0.7));
+    const card = cardRef.current;
+    const front = frontRef.current;
+    if (!card || !front) return;
+    const e = eng.current;
+    const rx = e.pose.rotX + e.tilt.x;
+    const ry = e.pose.rotY + e.tilt.y;
+    const transform = `scale(${e.zoom.toFixed(4)}) rotateX(${rx.toFixed(3)}deg) rotateY(${ry.toFixed(3)}deg)`;
+    if (transform !== e.written.transform) {
+      e.written.transform = transform;
+      card.style.transform = transform;
+    }
+    const sheen = sheenPosition(rx, ry, e.light.x, e.light.y);
+    const energy = lightEnergy(rx, ry, e.tilt.x, e.tilt.y, e.light.x, e.light.y);
+    const vars = `${sheen.x.toFixed(4)} ${sheen.y.toFixed(4)} ${(e.light.x / 100).toFixed(4)} ${(e.light.y / 100).toFixed(4)} ${energy.toFixed(3)}`;
+    if (vars !== e.written.vars) {
+      e.written.vars = vars;
+      const [fx, fy, gx, gy, en] = vars.split(" ");
+      front.style.setProperty("--fx", fx!);
+      front.style.setProperty("--fy", fy!);
+      front.style.setProperty("--gx", gx!);
+      front.style.setProperty("--gy", gy!);
+      card.style.setProperty("--energy", en!);
+    }
   }, []);
 
-  const apply = useCallback(() => {
-    if (running.current) return;
-    running.current = true;
-    const step = () => {
-      const target = state.current;
-      const s = shown.current;
-      let moving = false;
-      for (const key of Object.keys(target) as (keyof typeof REST)[]) {
-        const delta = target[key] - s[key];
-        if (Math.abs(delta) > 0.01) {
-          s[key] += delta * stiffness.current;
-          moving = true;
-        } else {
-          s[key] = target[key];
+  const tick = useCallback(
+    (now: number) => {
+      const e = eng.current;
+      const dt = e.last ? clamp(now - e.last, 0, 48) : 16;
+      e.last = now;
+      let active = false;
+
+      if (e.drag) {
+        // The pose is driven by the pointer events themselves, 1:1.
+        active = true;
+      } else if (e.inertia) {
+        const step = stepInertia(e.inertia, dt);
+        e.pose.rotY += step.delta.rotY;
+        e.pose.rotX = clamp(e.pose.rotX + step.delta.rotX, -MAX_ROT_X, MAX_ROT_X);
+        e.inertia = step.done ? null : step.vel;
+        if (e.pose.rotX === MAX_ROT_X || e.pose.rotX === -MAX_ROT_X) {
+          if (e.inertia) e.inertia = { rotX: 0, rotY: e.inertia.rotY };
+        }
+        e.target = { ...e.pose };
+        active = e.inertia !== null;
+      } else {
+        const rx = approach(e.pose.rotX, e.target.rotX, dt, POSE_HALF_LIFE);
+        const ry = approach(e.pose.rotY, e.target.rotY, dt, POSE_HALF_LIFE);
+        if (rx !== e.pose.rotX || ry !== e.pose.rotY) active = true;
+        e.pose.rotX = rx;
+        e.pose.rotY = ry;
+        if (!active && Math.abs(e.pose.rotY) >= 360) {
+          // Settled: drop whole extra turns (looks identical, keeps numbers small).
+          const turns = nearestTurn(e.pose.rotY);
+          e.pose.rotY -= turns;
+          e.target.rotY -= turns;
         }
       }
+
+      const z = approach(e.zoom, e.zoomTarget, dt, ZOOM_HALF_LIFE);
+      const tx = approach(e.tilt.x, e.tiltTarget.x, dt, TILT_HALF_LIFE);
+      const ty = approach(e.tilt.y, e.tiltTarget.y, dt, TILT_HALF_LIFE);
+      const lx = approach(e.light.x, e.lightTarget.x, dt, LIGHT_HALF_LIFE);
+      const ly = approach(e.light.y, e.lightTarget.y, dt, LIGHT_HALF_LIFE);
+      if (
+        z !== e.zoom ||
+        tx !== e.tilt.x ||
+        ty !== e.tilt.y ||
+        lx !== e.light.x ||
+        ly !== e.light.y
+      )
+        active = true;
+      e.zoom = z;
+      e.tilt = { x: tx, y: ty };
+      e.light = { x: lx, y: ly };
+
       render();
-      if (moving) {
-        frame.current = requestAnimationFrame(step);
+      if (active) {
+        e.raf = requestAnimationFrame(tick);
       } else {
-        running.current = false;
+        e.raf = 0;
+        e.last = 0;
       }
-    };
-    frame.current = requestAnimationFrame(step);
-  }, [render]);
+    },
+    [render],
+  );
+
+  /** Makes sure the loop is running. */
+  const kick = useCallback(() => {
+    const e = eng.current;
+    if (!e.raf) e.raf = requestAnimationFrame(tick);
+  }, [tick]);
 
   const reset = useCallback(() => {
-    const el = ref.current;
-    el?.classList.remove("is-dragging");
-    // Unwind extra full turns so "reset" doesn't spin the card several times.
-    shown.current.rotY %= 360;
-    Object.assign(state.current, REST);
-    stiffness.current = 0.12;
-    apply();
-  }, [apply]);
+    const e = eng.current;
+    e.inertia = null;
+    // Settle on the nearest whole turn, so "reset" never spins the long way round.
+    e.target = { rotX: 0, rotY: nearestTurn(e.pose.rotY) };
+    e.zoomTarget = 1;
+    kick();
+  }, [kick]);
 
   useEffect(() => {
     if (!controlsRef) return;
     controlsRef.current = {
       zoomBy: (d) => {
-        state.current.zoom = clamp(state.current.zoom + d, 0.6, 2.5);
-        apply();
+        if (!enabledRef.current) return;
+        const e = eng.current;
+        e.zoomTarget = clamp(e.zoomTarget + d, ZOOM_MIN, ZOOM_MAX);
+        kick();
       },
       flip: () => {
-        state.current.rotY += 180;
-        apply();
+        if (!enabledRef.current) return;
+        const e = eng.current;
+        e.inertia = null;
+        e.target = { rotX: e.target.rotX, rotY: Math.round(e.pose.rotY / 180) * 180 + 180 };
+        kick();
       },
-      reset,
+      reset: () => {
+        if (enabledRef.current) reset();
+      },
     };
-  }, [controlsRef, apply, reset]);
+    return () => {
+      controlsRef.current = null;
+    };
+  }, [controlsRef, kick, reset]);
 
   useEffect(() => {
     render();
-    return () => cancelAnimationFrame(frame.current);
+    const e = eng.current;
+    return () => {
+      cancelAnimationFrame(e.raf);
+      e.raf = 0;
+      stopDragListeners.current?.();
+    };
   }, [render]);
 
-  const maxTilt = mode === "inline" ? 14 : 10;
+  /** Pointer position over the stage, in percent (for the light). */
+  const pointerPercent = (clientX: number, clientY: number) => {
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect || rect.width === 0 || rect.height === 0) return null;
+    return {
+      x: clamp(((clientX - rect.left) / rect.width) * 100, 0, 100),
+      y: clamp(((clientY - rect.top) / rect.height) * 100, 0, 100),
+    };
+  };
 
-  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const el = ref.current;
-    if (!el) return;
-    const s = state.current;
-    // Measure the untransformed stage, not `el` itself: `el` carries the
-    // live rotateX/rotateY/scale transform, so its own bounding rect is the
-    // foreshortened, skewed *screen-space* box of the rotated card, not its
-    // layout box — using it here made the pointer-relative tilt/glare math
-    // (and the reset-drag glitch after releasing a rotated/zoomed card)
-    // wildly unstable in inspect mode. The stage wrapper never transforms.
-    const rect = (el.parentElement ?? el).getBoundingClientRect();
-    if (drag.current) {
-      const dx = e.clientX - drag.current.x;
-      const dy = e.clientY - drag.current.y;
-      if (Math.abs(dx) + Math.abs(dy) > 3) drag.current.moved = true;
-      drag.current.x = e.clientX;
-      drag.current.y = e.clientY;
-      // Normalized by the stage's own box, not raw CSS pixels: dragging
-      // across the full width/height always produces the same rotation
-      // regardless of any mismatch between reported pointer deltas and the
-      // rendered box (seen on some WebView2/Windows display-scaling setups,
-      // where a full mouse drag barely rotated the card and, since the
-      // foil sheen position is also driven by rotation, made the holo
-      // effect look inert too).
-      s.rotY += (dx / rect.width) * 320;
-      s.rotX = clamp(s.rotX - (dy / rect.height) * 320, -75, 75);
-      stiffness.current = 0.35;
-      apply();
-      return;
+  const moveDrag = (ev: PointerEvent) => {
+    const e = eng.current;
+    const d = e.drag;
+    if (!d || ev.pointerId !== d.id) return;
+    // A burst of moves per frame all count: coalesced events keep the drag exact.
+    const events = ev.getCoalescedEvents?.() ?? [];
+    for (const p of events.length > 0 ? events : [ev]) {
+      const dx = p.clientX - d.x;
+      const dy = p.clientY - d.y;
+      d.x = p.clientX;
+      d.y = p.clientY;
+      if (!d.moved && Math.abs(d.x - d.samples[0]!.x) + Math.abs(d.y - d.samples[0]!.y) > 3) {
+        d.moved = true;
+      }
+      e.pose = applyDrag(e.pose, dx, dy, { width: d.w, height: d.h, zoom: e.zoom });
+      d.samples.push({ t: p.timeStamp, x: p.clientX, y: p.clientY });
     }
-    const px = clamp((e.clientX - rect.left) / rect.width, 0, 1);
-    const py = clamp((e.clientY - rect.top) / rect.height, 0, 1);
-    s.tiltY = (px - 0.5) * 2 * maxTilt;
-    s.tiltX = (0.5 - py) * 2 * maxTilt;
-    s.mx = px * 100;
-    s.my = py * 100;
-    if (mode === "inline") s.zoom = 1.04; // lift toward the viewer on hover
-    stiffness.current = 0.14;
-    el.classList.add("is-active");
-    apply();
+    if (d.samples.length > 12) d.samples.splice(0, d.samples.length - 12);
+    e.target = { ...e.pose };
+    const light = pointerPercent(ev.clientX, ev.clientY);
+    if (light) e.lightTarget = light;
+    kick();
+  };
+
+  const endDrag = (ev: PointerEvent) => {
+    const e = eng.current;
+    const d = e.drag;
+    if (!d || ev.pointerId !== d.id) return;
+    e.drag = null;
+    stopDragListeners.current?.();
+    if (d.moved) {
+      // The click that follows a drag that began on the card must not reach the
+      // dialog's click-outside-to-close.
+      const swallow = (c: MouseEvent) => {
+        c.stopPropagation();
+        c.preventDefault();
+      };
+      window.addEventListener("click", swallow, { capture: true, once: true });
+      setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
+    }
+    if (ev.type === "pointerup" && d.moved && !reducedMotion()) {
+      const v = releaseVelocity(d.samples, ev.timeStamp);
+      const ang = angularVelocity(v, { width: d.w, height: d.h, zoom: e.zoom });
+      if (Math.hypot(ang.rotX, ang.rotY) > INERTIA_STOP * 4) e.inertia = ang;
+    }
+    kick();
+  };
+
+  const onPointerDown = (ev: React.PointerEvent<HTMLDivElement>) => {
+    if (mode !== "inspect" || !enabledRef.current) return;
+    if (ev.button !== 0 || !ev.isPrimary || eng.current.drag) return;
+    // Any press inside the stage starts a drag — not only on the card's own
+    // (rotating, foreshortened) silhouette: hit-testing a card turned nearly
+    // edge-on, or flipped, is unreliable, and pressing it used to do nothing.
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const e = eng.current;
+    // Take over from whatever was easing or gliding, exactly where it is now:
+    // nothing jumps on press.
+    e.inertia = null;
+    e.target = { ...e.pose };
+    e.drag = {
+      id: ev.pointerId,
+      x: ev.clientX,
+      y: ev.clientY,
+      moved: false,
+      samples: [{ t: ev.nativeEvent.timeStamp, x: ev.clientX, y: ev.clientY }],
+      w: rect.width,
+      h: rect.height,
+    };
+    cardRef.current?.classList.add("is-dragging");
+    const cancelHook = () => {
+      cardRef.current?.classList.remove("is-dragging");
+    };
+    const onCancel = (c: PointerEvent) => endDrag(c);
+    const onBlur = () => endDrag(new PointerEvent("pointercancel", { pointerId: ev.pointerId }));
+    window.addEventListener("pointermove", moveDrag);
+    window.addEventListener("pointerup", endDrag);
+    window.addEventListener("pointercancel", onCancel);
+    window.addEventListener("blur", onBlur);
+    stopDragListeners.current = () => {
+      window.removeEventListener("pointermove", moveDrag);
+      window.removeEventListener("pointerup", endDrag);
+      window.removeEventListener("pointercancel", onCancel);
+      window.removeEventListener("blur", onBlur);
+      stopDragListeners.current = null;
+      cancelHook();
+    };
+    kick();
+  };
+
+  /** Hover (no button down). Inline: tilt + lift. Both: the light follows. */
+  const onPointerMove = (ev: React.PointerEvent<HTMLDivElement>) => {
+    const e = eng.current;
+    if (e.drag || !enabledRef.current) return;
+    const p = pointerPercent(ev.clientX, ev.clientY);
+    if (!p) return;
+    e.lightTarget = p;
+    if (mode === "inline") {
+      e.tiltTarget = { x: (0.5 - p.y / 100) * 2 * maxTilt, y: (p.x / 100 - 0.5) * 2 * maxTilt };
+      e.zoomTarget = 1.04; // lift toward the viewer on hover
+      cardRef.current?.classList.add("is-active");
+    }
+    kick();
   };
 
   const onPointerLeave = () => {
-    if (drag.current) return;
-    const s = state.current;
-    s.tiltX = 0;
-    s.tiltY = 0;
-    s.mx = 50;
-    s.my = 50;
-    if (mode === "inline") s.zoom = 1;
-    stiffness.current = 0.08;
-    ref.current?.classList.remove("is-active");
-    apply();
-  };
-
-  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (mode !== "inspect") return;
-    drag.current = { x: e.clientX, y: e.clientY, moved: false };
-    ref.current?.setPointerCapture(e.pointerId);
-    ref.current?.classList.add("is-dragging");
-    state.current.tiltX = 0;
-    state.current.tiltY = 0;
-  };
-
-  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (drag.current) {
-      ref.current?.releasePointerCapture(e.pointerId);
-      ref.current?.classList.remove("is-dragging");
-      drag.current = null;
+    const e = eng.current;
+    if (e.drag) return;
+    e.lightTarget = { x: 50, y: 50 };
+    if (mode === "inline") {
+      e.tiltTarget = { x: 0, y: 0 };
+      e.zoomTarget = 1;
+      cardRef.current?.classList.remove("is-active");
     }
+    kick();
   };
 
-  const onWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    if (mode !== "inspect") return;
-    state.current.zoom = clamp(state.current.zoom - e.deltaY * 0.0015, 0.6, 2.5);
-    apply();
+  const onWheel = (ev: React.WheelEvent<HTMLDivElement>) => {
+    if (mode !== "inspect" || !enabledRef.current) return;
+    const e = eng.current;
+    e.zoomTarget = clamp(e.zoomTarget - ev.deltaY * 0.0015, ZOOM_MIN, ZOOM_MAX);
+    kick();
   };
 
   return (
     <div
+      ref={stageRef}
       className={`card3d-stage ${mode === "inspect" ? "card3d-stage--inspect" : ""}`}
       onWheel={onWheel}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerLeave={onPointerLeave}
+      onDoubleClick={mode === "inspect" ? () => enabledRef.current && reset() : undefined}
+      onClick={mode === "inline" ? onActivate : undefined}
     >
       <div
-        ref={ref}
+        ref={cardRef}
         className={`card3d card3d--${foil.area} card3d--${foil.preset.pattern} card3d--preset-${foil.preset.slug}`}
         style={
           {
@@ -524,13 +755,6 @@ function Card3D({
         role={mode === "inline" ? "button" : "img"}
         tabIndex={mode === "inline" ? 0 : undefined}
         aria-label={mode === "inline" ? `Inspect ${name}` : name}
-        onPointerMove={onPointerMove}
-        onPointerLeave={onPointerLeave}
-        onPointerDown={onPointerDown}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        onDoubleClick={mode === "inspect" ? reset : undefined}
-        onClick={mode === "inline" ? onActivate : undefined}
         onKeyDown={
           mode === "inline"
             ? (e) => {
@@ -542,7 +766,7 @@ function Card3D({
             : undefined
         }
       >
-        <div className="card3d__face card3d__front">
+        <div ref={frontRef} className="card3d__face card3d__front">
           {imageSrc ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={imageSrc} alt={name} draggable={false} className="card3d__img" />

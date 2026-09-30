@@ -32,6 +32,11 @@ function resolveKey(key: string): string {
   return resolved;
 }
 
+/** Absolute path of a storage key (for deleting a file you own). */
+export function mediaFilePath(key: string): string {
+  return resolveKey(key);
+}
+
 export async function putFile(key: string, body: Uint8Array | Buffer): Promise<void> {
   const path = resolveKey(key);
   await mkdir(dirname(path), { recursive: true });

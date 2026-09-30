@@ -50,10 +50,11 @@ export function totals(status: CatalogStatus[]) {
       total: t.total + s.total,
       done: t.done + s.done,
       failed: t.failed + s.failed,
+      unavailable: t.unavailable + s.unavailableSets.length,
       running: t.running || s.running,
       current: [...t.current, ...s.current],
     }),
-    { total: 0, done: 0, failed: 0, running: false, current: [] as string[] },
+    { total: 0, done: 0, failed: 0, unavailable: 0, running: false, current: [] as string[] },
   );
 }
 
@@ -67,13 +68,17 @@ export function SyncIndicator({ collapsed }: { collapsed: boolean }) {
   const [retrying, setRetrying] = useState(false);
   if (!status) return null;
   const t = totals(status);
+  const failedNames = status
+    .flatMap((s) => s.failures)
+    .map((f) => `${f.name ?? f.code} — ${f.message}`)
+    .join("; ");
   if (t.total === 0 && !t.running) return null;
   if (!t.running && t.failed === 0 && t.done === t.total) return null;
 
   const pct = t.total ? Math.round((t.done / t.total) * 100) : 0;
   const title = t.running
     ? `Syncing the card catalog in the background: ${t.done} of ${t.total} sets${t.current.length ? ` — now ${t.current.join(", ")}` : ""}`
-    : `${t.failed} set(s) couldn't be synced. They're retried automatically; you can also retry now.`;
+    : `${t.failed} set${t.failed === 1 ? "" : "s"} couldn't be synced (they're retried automatically): ${failedNames}`;
 
   if (collapsed) {
     return (

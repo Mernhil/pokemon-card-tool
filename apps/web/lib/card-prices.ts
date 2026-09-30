@@ -6,16 +6,23 @@ import {
   prisma,
   type AppSettings,
 } from "@tcg-vault/db";
-import { headlinePrice, latestRefresh, type PricePoint } from "@tcg-vault/pricing";
+import {
+  headlinePrice,
+  latestRefresh,
+  pointsForLanguage,
+  type LanguageMode,
+  type PricePoint,
+} from "@tcg-vault/pricing";
 import {
   MIN_TRUSTED_MATCH,
   PRICE_PROVIDERS,
+  priceLanguageLabel,
   convertMinor,
   type FxRates,
   type PriceKind,
   type PriceProviderId,
 } from "@tcg-vault/shared";
-import { priceProviders } from "./background";
+import { priceProviders, runnablePriceProviders } from "./background";
 
 /**
  * Everything the card page's Prices section shows, read from the DB only —
@@ -24,7 +31,14 @@ import { priceProviders } from "./background";
  */
 
 export type PanelState =
-  "ok" | "no_data" | "not_configured" | "disabled" | "rate_limited" | "not_found" | "error";
+  | "ok"
+  | "no_data"
+  | "no_language"
+  | "not_configured"
+  | "disabled"
+  | "rate_limited"
+  | "not_found"
+  | "error";
 
 /** A price point with its date as a number, so it can be passed to client components. */
 export interface SerializedPoint {
@@ -57,6 +71,12 @@ export interface ProviderPanelData {
     query: string | null;
     manualOverride: boolean;
   } | null;
+  /**
+   * How the numbers relate to the selected price language: "all-languages" = this
+   * provider can't split by language (Cardmarket, TCGplayer), "unsplit" = its
+   * listings didn't say, "language" = exactly the selected language.
+   */
+  languageMode: LanguageMode;
   /** Low-confidence match: shown with a warning, left out of "Best value" and valuations. */
   untrusted: boolean;
   supportsSold: boolean;
@@ -100,12 +120,17 @@ export interface CardPrices {
   panels: ProviderPanelData[];
   points: SerializedPoint[];
   updating: boolean;
+  /** The language the panels are filtered to (the setting unless the page asked for another). */
+  language: string;
+  /** True when the selected language has no data yet from a provider that can look it up. */
+  languageMissing: boolean;
 }
 
 export async function loadCardPrices(
   variantId: string,
   allVariantIds: string[],
-  card: { name: string; number: string },
+  card: { name: string; number: string; game: string },
+  requestedLanguage?: string,
 ): Promise<CardPrices> {
   const now = Date.now();
   const [settings, rates, pointsByVariant, mappings, health, updating, { providers }] =
@@ -115,16 +140,23 @@ export async function loadCardPrices(
       pricePoints([variantId]),
       prisma.providerMapping.findMany({ where: { variantId } }),
       prisma.providerStatus.findMany(),
-      pricesUpdating(allVariantIds),
+      pricesUpdating(allVariantIds, { game: card.game, providers: await runnablePriceProviders(card.game) }),
       priceProviders(),
     ]);
-  const points = pointsByVariant.get(variantId) ?? [];
+  const allPoints = pointsByVariant.get(variantId) ?? [];
+  const language = requestedLanguage ?? settings.priceLanguage;
+  const scopedByProvider = new Map(
+    PRICE_PROVIDERS.map((id) => [id, pointsForLanguage(id, allPoints, language)]),
+  );
+  const points = [...scopedByProvider.values()].flatMap((s) => s.points);
+  let languageMissing = false;
 
   const panels = PRICE_PROVIDERS.map((id): ProviderPanelData => {
     const provider = providers[id];
     const mappingRow = mappings.find((m) => m.provider === id) ?? null;
     const status = health.find((h) => h.provider === id);
-    const own = points.filter((p) => p.provider === id);
+    const scoped = scopedByProvider.get(id)!;
+    const own = scoped.points;
     const headline = headlinePrice(id, own);
     const refresh = latestRefresh(id, own);
     const untrusted =
@@ -134,7 +166,15 @@ export async function loadCardPrices(
 
     let state: PanelState = headline ? "ok" : "no_data";
     let message: string | null = null;
-    if (!settings.providers[id].enabled) {
+    // Has data, but none in this language: say so instead of showing another language's number.
+    const noLanguage = scoped.mode === "other-languages";
+    if (noLanguage) {
+      state = "no_language";
+      message = `No ${priceLanguageLabel(language)} listings found`;
+    }
+    if (noLanguage && provider.isConfigured() && settings.providers[id].enabled) {
+      // Keep the language message.
+    } else if (!settings.providers[id].enabled) {
       state = headline ? "ok" : "disabled";
       message = "Turned off in Settings";
     } else if (!provider.isConfigured()) {
@@ -183,11 +223,33 @@ export async function loadCardPrices(
           }
         : null,
       untrusted,
+      languageMode: scoped.mode,
       supportsSold: provider.capabilities.supportsSold,
     };
   });
 
-  return { settings, rates, panels, points: points.map(serialize), updating };
+  // A language-aware provider that has never been asked about this language (eBay looks one
+  // language up at a time) and no stored number: a refresh for it can still find listings.
+  for (const id of ["ebay"] as const) {
+    const s = scopedByProvider.get(id)!;
+    if (
+      s.mode !== "language" &&
+      providers[id].isConfigured() &&
+      settings.providers[id].enabled &&
+      language !== settings.priceLanguage
+    )
+      languageMissing = true;
+  }
+
+  return {
+    settings,
+    rates,
+    panels,
+    points: points.map(serialize),
+    updating,
+    language,
+    languageMissing,
+  };
 }
 
 export interface BestValue {

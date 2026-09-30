@@ -1,4 +1,10 @@
-import { PRICE_KIND_LABELS, convertMinor, formatMoney, type FxRates } from "@tcg-vault/shared";
+import {
+  PRICE_KIND_LABELS,
+  convertMinor,
+  formatMoney,
+  priceLanguageLabel,
+  type FxRates,
+} from "@tcg-vault/shared";
 import { CircleAlert, ExternalLink, KeyRound, PauseCircle, SearchX, Timer } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -97,6 +103,7 @@ const STATE_ICON: Record<string, ReactNode> = {
 
 const STATE_TITLE: Record<string, string> = {
   no_data: "No data yet",
+  no_language: "No listings in this language",
   not_configured: "API key not set",
   disabled: "Disabled",
   rate_limited: "Rate limited",
@@ -165,7 +172,14 @@ function ProviderPanel({
               ))}
             </ul>
           ) : null}
-          <p className="mt-2 text-[11px] text-neutral-400">
+          <p className="mt-2 text-[11px] text-neutral-500">
+            {panel.languageMode === "all-languages"
+              ? "All languages — this source can't split by language, so the number mixes every language."
+              : panel.languageMode === "unsplit"
+                ? "Language not stated by these listings — may mix languages."
+                : `${priceLanguageLabel(prices.language)} listings.`}
+          </p>
+          <p className="mt-1 text-[11px] text-neutral-400">
             Updated {panel.updatedAt ? timeAgo(panel.updatedAt) : "—"}
             {!panel.supportsSold ? " · listings/averages, not individual sales" : ""}
           </p>
@@ -284,6 +298,12 @@ export function PricesSection({
         <h2 className="text-sm font-semibold">Prices</h2>
         {header}
       </div>
+      {prices.languageMissing ? (
+        <p className="mb-3 text-xs text-neutral-500">
+          Looking up {priceLanguageLabel(prices.language)} listings in the background — refresh in a
+          moment.
+        </p>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-2">
         {prices.panels.map((panel) => (
           <ProviderPanel

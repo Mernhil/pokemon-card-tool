@@ -47,6 +47,9 @@ model Set {
   name            String
   series          String? // "Scarlet & Violet", "Duelist Pack"
   type            String        @default("MAIN") // SetType, see packages/shared/src/enums.ts
+  /// SetCategory (packages/shared/src/set-category.ts): main | promo | mcdonalds |
+  /// trainer-kit | pocket | other. Set by the catalog sync via classifySet().
+  category        String        @default("main")
   primaryLangCode String?
   primaryLang     Language?     @relation(fields: [primaryLangCode], references: [code])
   releaseDate     DateTime?
@@ -61,6 +64,7 @@ model Set {
 
   @@unique([gameId, code])
   @@index([gameId, releaseDate])
+  @@index([gameId, category])
 }
 
 model Rarity {
@@ -96,11 +100,25 @@ model Card {
   canonicalKey String // YGO passcode, OP card id, Pokemon hash(name+text)
   printings    Printing[]
   externalRefs ExternalRef[]
+  /// National Pokédex ids (Pokémon only), normalized out of attributes.dexId for indexed lookups.
+  dex          CardDex[]
   updatedAt    DateTime      @updatedAt
 
   @@unique([gameId, canonicalKey])
   @@index([gameId, name])
   @@index([gameId, cardType])
+}
+
+/// One National Pokédex id of a Pokémon card (a tag-team card has several): the indexed way to
+/// find "all cards of Jirachi" without matching names. Filled by the catalog sync and backfilled
+/// at startup from Card.attributes (packages/db/src/dex.ts).
+model CardDex {
+  cardId String
+  card   Card   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  dexId  Int
+
+  @@id([cardId, dexId])
+  @@index([dexId])
 }
 
 /// A card as it appears in one set: number, art, rarity, artist.
@@ -123,10 +141,17 @@ model Printing {
   imageUrls       String?
   imageWidth      Int?
   imageHeight     Int?
+  /// A scan the user supplied ("Set custom image"): a storage key under media/custom/.
+  /// Wins over every remote source and is never touched by a catalog re-sync.
+  customImageKey  String?
+  /// Sub-collection inside the set ("Special Art", "Classic Collection"); see
+  /// packages/shared/src/subsets.ts. Null for sets without subsets.
+  subset          String?
   variants        PrintVariant[]
   externalRefs    ExternalRef[]
 
   @@unique([setId, collectorNumber, isAltArt])
+  @@index([setId, subset])
   @@index([cardId])
   @@index([rarityId])
 }
@@ -315,6 +340,9 @@ model PriceObservation {
   sampleSize     Int?
   /// Listings (asking/lowest_listing) or sales (sold) the number is based on, if known.
   listingCount   Int?
+  /// Language the number is for (PRICE_LANGUAGES). Null = the source can't split by
+  /// language (Cardmarket, TCGplayer via TCGdex) or the listing didn't say.
+  languageCode   String?
   /// sha256 of the provider response this came from, to trace odd numbers back.
   payloadHash    String?
   observedAt     DateTime

@@ -18,6 +18,7 @@
     "db:seed": "pnpm --filter @tcg-vault/db run seed",
     "db:sync-catalog": "pnpm --filter @tcg-vault/db run sync-catalog",
     "db:validate": "pnpm --filter @tcg-vault/db run validate",
+    "db:image-report": "pnpm --filter @tcg-vault/db run image-report",
     "db:sync-prices": "pnpm --filter @tcg-vault/db run sync-prices",
     "db:seed-demo": "pnpm --filter @tcg-vault/db run seed-demo"
   },

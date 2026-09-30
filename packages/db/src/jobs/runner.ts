@@ -5,6 +5,7 @@ import {
   backoffDelay,
   errorMessage,
   isFatal,
+  isUnavailable,
   isRetryable as defaultIsRetryable,
   retryAfterMs as defaultRetryAfterMs,
   sleep as defaultSleep,
@@ -79,6 +80,8 @@ export interface JobRunOptions {
   backoffMaxMs?: number;
   /** `done` items older than this are processed again. Default 30 days. */
   refreshAfterMs?: number;
+  /** `unavailable` items are checked again after this long. Default 30 days. */
+  unavailableRetryMs?: number;
   /** Only consider these item keys. */
   onlyKeys?: string[];
   /** Stop after this many items. */
@@ -107,9 +110,12 @@ export interface JobRunSummary {
   discoveryError?: string;
   succeeded: string[];
   failed: Array<{ key: string; label: string | null; error: string }>;
+  /** Items the source can't provide (not failures); absent on summaries that can't have any. */
+  unavailable?: Array<{ key: string; label: string | null; reason: string }>;
 }
 
 export const DEFAULT_REFRESH_AFTER_MS = 30 * 86_400_000;
+export const DEFAULT_UNAVAILABLE_RETRY_MS = 30 * 86_400_000;
 
 export function lockName(job: string, game: string): string {
   return `job:${job}:${game}`;
@@ -127,7 +133,11 @@ export async function upsertItems(job: string, game: string, items: JobItem[]): 
   });
   const byKey = new Map(existing.map((row) => [row.itemKey, row]));
   const ops = [];
+  // A source may list the same key twice (YGOPRODeck reuses set codes): first wins.
+  const seen = new Set<string>();
   for (const item of items) {
+    if (seen.has(item.key)) continue;
+    seen.add(item.key);
     const row = byKey.get(item.key);
     const label = item.label ?? null;
     const priority = item.priority ?? 0;
@@ -177,10 +187,17 @@ export async function enqueueItems(
   }
 }
 
-/** Marks every `failed` item of a job `pending` again. Returns how many. */
-export async function retryFailedItems(job: string, game: string): Promise<number> {
+/**
+ * Marks every `failed` item of a job `pending` again. Returns how many.
+ * `includeUnavailable` also re-checks items parked as unavailable at the source.
+ */
+export async function retryFailedItems(
+  job: string,
+  game: string,
+  { includeUnavailable = false } = {},
+): Promise<number> {
   const res = await prisma.syncState.updateMany({
-    where: { job, game, status: "failed" },
+    where: { job, game, status: { in: includeUnavailable ? ["failed", "unavailable"] : ["failed"] } },
     data: { status: "pending", attemptCount: 0 },
   });
   return res.count;
@@ -197,6 +214,7 @@ export async function runJob(
     backoffBaseMs = 2_000,
     backoffMaxMs = 60_000,
     refreshAfterMs = DEFAULT_REFRESH_AFTER_MS,
+    unavailableRetryMs = DEFAULT_UNAVAILABLE_RETRY_MS,
     maxConsecutiveFailures = 5,
     lockStaleMs = 120_000,
     heartbeatMs = 20_000,
@@ -206,7 +224,12 @@ export async function runJob(
     log = () => {},
   } = options;
   const { job, game } = def;
-  const summary: JobRunSummary = { status: "completed", succeeded: [], failed: [] };
+  const summary: JobRunSummary = {
+    status: "completed",
+    succeeded: [],
+    failed: [],
+    unavailable: [],
+  };
 
   const lock = lockName(job, game);
   const holder = `${process.pid}:${randomUUID()}`;
@@ -260,6 +283,7 @@ export async function runJob(
       if (internal.signal.aborted) return null;
       if (options.maxItems !== undefined && claimed >= options.maxItems) return null;
       const staleBefore = new Date(now().getTime() - refreshAfterMs);
+      const unavailableBefore = new Date(now().getTime() - unavailableRetryMs);
       // Retry on a lost race with another worker.
       for (let i = 0; i < 5; i++) {
         const row = await prisma.syncState.findFirst({
@@ -273,6 +297,7 @@ export async function runJob(
               {
                 OR: [
                   { status: { in: ["pending", "failed"] } },
+                  { status: "unavailable", lastAttemptAt: { lt: unavailableBefore } },
                   {
                     status: "done",
                     OR: [{ lastSyncedAt: null }, { lastSyncedAt: { lt: staleBefore } }],
@@ -323,6 +348,30 @@ export async function runJob(
           return;
         } catch (err) {
           const error = errorMessage(err);
+          if (isUnavailable(err)) {
+            await prisma.syncState.update({
+              where: where(item.key),
+              data: {
+                status: "unavailable",
+                lastError: error.slice(0, 2_000),
+                lastAttemptAt: now(),
+                attemptCount: { increment: 1 },
+              },
+            });
+            summary.unavailable?.push({ key: item.key, label: item.label, reason: error });
+            // Says nothing about the source being down: doesn't count towards halting.
+            consecutiveFailures = 0;
+            emitJobEvent({
+              job,
+              game,
+              type: "item-unavailable",
+              key: item.key,
+              label: item.label,
+              reason: error,
+            });
+            log(`${item.label ?? item.key} is unavailable at the source: ${error}`);
+            return;
+          }
           const fatal = isFatal(err);
           const final =
             fatal || attempt >= maxAttempts || !defaultIsRetryable(err) || internal.signal.aborted;
@@ -415,6 +464,7 @@ export interface JobStateCounts {
   syncing: number;
   done: number;
   failed: number;
+  unavailable: number;
 }
 
 /** SyncState counts by status for one job, for progress UIs. */
@@ -424,7 +474,14 @@ export async function jobStateCounts(job: string, game?: string): Promise<JobSta
     where: { job, ...(game ? { game } : {}) },
     _count: { _all: true },
   });
-  const counts: JobStateCounts = { total: 0, pending: 0, syncing: 0, done: 0, failed: 0 };
+  const counts: JobStateCounts = {
+    total: 0,
+    pending: 0,
+    syncing: 0,
+    done: 0,
+    failed: 0,
+    unavailable: 0,
+  };
   for (const g of groups) {
     const n = g._count._all;
     counts.total += n;

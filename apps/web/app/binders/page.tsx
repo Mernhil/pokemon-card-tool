@@ -1,6 +1,7 @@
 import { BookOpen } from "lucide-react";
 import Link from "next/link";
 import { listBinders, prisma } from "@tcg-vault/db";
+import { SET_CATEGORY_BADGES, isSetCategory } from "@tcg-vault/shared";
 import { BinderCover } from "../../components/binders/binder-cover";
 import { NewBinderButton } from "../../components/binders/new-binder-dialog";
 import { formatEur } from "../../components/money";
@@ -16,12 +17,24 @@ export default async function BindersPage() {
     listBinders(),
     prisma.set.findMany({
       orderBy: { releaseDate: "desc" },
-      select: { id: true, name: true, _count: { select: { printings: true } } },
+      select: {
+        id: true,
+        name: true,
+        category: true,
+        _count: { select: { printings: true } },
+      },
     }),
   ]);
   const setOptions = sets
     .filter((s) => s._count.printings > 0)
-    .map((s) => ({ id: s.id, name: s.name, printings: s._count.printings }));
+    .map((s) => {
+      const badge = isSetCategory(s.category) ? SET_CATEGORY_BADGES[s.category] : null;
+      return {
+        id: s.id,
+        name: badge ? `${s.name} (${badge})` : s.name,
+        printings: s._count.printings,
+      };
+    });
   const totalValue = binders.reduce((sum, b) => sum + b.valueEur, 0);
   const totalCards = binders.reduce((sum, b) => sum + b.cardCount, 0);
 

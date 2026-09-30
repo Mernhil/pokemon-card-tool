@@ -1,14 +1,16 @@
 import {
   derivedValue,
   headlinePrice,
+  pointsForLanguage,
   resolveAnchor,
   type PricePoint,
   type RawObservation,
 } from "@tcg-vault/pricing";
-import { convertMinor, type FxRates } from "@tcg-vault/shared";
+import { DEFAULT_PRICE_LANGUAGE, convertMinor, type FxRates } from "@tcg-vault/shared";
 import { prisma } from "./client";
 import { loadFxRates } from "./fx";
 import { normalizeObservation } from "./prices";
+import { getSettings } from "./settings";
 
 /** Only prices this recent feed a valuation. */
 const LOOKBACK_DAYS = 30;
@@ -36,18 +38,35 @@ function anchorSource(p: PricePoint): string {
  * points — each provider's headline (near mint / unsplit only), converted to
  * EUR, combined by resolveAnchor. Providers in `untrusted` (low-confidence
  * matches) are left out. null when nothing usable is left.
+ *
+ * Language: a provider that can split by language (CardTrader, eBay) counts
+ * with its `language` numbers; if it only has unlabelled ones those are used,
+ * and numbers in other languages are never used (a cheap German copy must not
+ * drag an English value down). Cardmarket/TCGplayer can't split: their
+ * numbers count as they are. `mixedOnly` is true when no source was language-
+ * specific, which lowers the confidence. Cardmarket's "lowest listing" (often
+ * a German/Italian copy) is never an input.
  */
 export function valueFromPoints(
   points: PricePoint[],
   rates: FxRates,
   untrusted: Set<string> = new Set(),
-): { valueEur: number; sources: number } | null {
+  language: string = DEFAULT_PRICE_LANGUAGE,
+): { valueEur: number; sources: number; mixedOnly: boolean } | null {
   const raw: RawObservation[] = [];
+  let languageSpecific = 0;
   for (const provider of new Set(points.map((p) => p.provider))) {
     if (untrusted.has(provider)) continue;
-    const usable = points.filter((p) => p.condition === null || p.condition === "NEAR_MINT");
+    const scoped = pointsForLanguage(provider, points, language);
+    if (scoped.points.length === 0) continue;
+    const usable = scoped.points.filter(
+      (p) =>
+        (p.condition === null || p.condition === "NEAR_MINT") &&
+        !(p.provider === "cardmarket" && p.kind === "lowest_listing"),
+    );
     const headline = headlinePrice(provider, usable);
     if (!headline) continue;
+    if (scoped.mode === "language") languageSpecific++;
     const eur = convertMinor(headline.amount, headline.currency, "EUR", rates);
     if (eur === null) continue;
     raw.push({
@@ -57,7 +76,9 @@ export function valueFromPoints(
     });
   }
   const anchor = resolveAnchor(raw);
-  return anchor === null ? null : { valueEur: Math.round(anchor), sources: raw.length };
+  return anchor === null
+    ? null
+    : { valueEur: Math.round(anchor), sources: raw.length, mixedOnly: languageSpecific === 0 };
 }
 
 /**
@@ -65,7 +86,11 @@ export function valueFromPoints(
  * today's VariantValuation "NM" bucket (EUR and USD at today's rates).
  * Returns rows written.
  */
-export async function computeValuations(now = new Date()): Promise<number> {
+export async function computeValuations(
+  now = new Date(),
+  language?: string,
+): Promise<number> {
+  const priceLanguage = language ?? (await getSettings()).priceLanguage;
   const day = utcDay(now);
   const since = new Date(now.getTime() - LOOKBACK_DAYS * 86_400_000);
   const rates = await loadFxRates();
@@ -88,22 +113,40 @@ export async function computeValuations(now = new Date()): Promise<number> {
     byVariant.get(row.variantId)!.push(...normalizeObservation(row));
   }
 
+  // Today's rows from an earlier run (maybe in another price language): any variant that no
+  // longer has a usable value in this language must not keep the old number.
+  const existingToday = new Set(
+    (
+      await prisma.variantValuation.findMany({
+        where: { day, bucket: "NM" },
+        select: { variantId: true },
+      })
+    ).map((r) => r.variantId),
+  );
   let written = 0;
   for (const [variantId, points] of byVariant) {
-    const value = valueFromPoints(points, rates, untrusted.get(variantId));
+    const value = valueFromPoints(points, rates, untrusted.get(variantId), priceLanguage);
     if (!value) continue;
     const data = {
       valueEur: value.valueEur,
       valueUsd: convertMinor(value.valueEur, "EUR", "USD", rates) ?? value.valueEur,
-      // One source is a guess, two agreeing sources is as good as it gets here.
-      confidence: Math.min(1, value.sources / 2),
+      // One source is a guess, two agreeing sources is as good as it gets here; numbers
+      // that mix languages (nothing language-specific) are trusted less still.
+      confidence: Math.min(1, value.sources / 2) * (value.mixedOnly ? 0.6 : 1),
     };
     await prisma.variantValuation.upsert({
       where: { variantId_day_bucket: { variantId, day, bucket: "NM" } },
       update: data,
       create: { variantId, day, bucket: "NM", ...data },
     });
+    existingToday.delete(variantId);
     written++;
+  }
+  const stale = [...existingToday];
+  for (let i = 0; i < stale.length; i += 500) {
+    await prisma.variantValuation.deleteMany({
+      where: { day, bucket: "NM", variantId: { in: stale.slice(i, i + 500) } },
+    });
   }
   return written;
 }

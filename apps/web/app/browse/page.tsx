@@ -1,6 +1,6 @@
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
-import { prisma } from "@tcg-vault/db";
+import { getSettings, prisma } from "@tcg-vault/db";
 import { ButtonLink } from "../../components/ui/button";
 import { PageHeader } from "../../components/ui/page-header";
 
@@ -12,11 +12,28 @@ export const dynamic = "force-dynamic";
 const SYNCABLE = new Set(["pokemon", "yugioh", "one-piece"]);
 
 export default async function BrowsePage() {
-  const games = await prisma.game.findMany({
-    orderBy: { name: "asc" },
-    include: { _count: { select: { sets: true, cards: true } } },
-  });
+  const [games, sets, settings] = await Promise.all([
+    prisma.game.findMany({
+      orderBy: { name: "asc" },
+      include: { _count: { select: { cards: true } } },
+    }),
+    prisma.set.findMany({
+      select: { gameId: true, category: true, _count: { select: { printings: true } } },
+    }),
+    getSettings(),
+  ]);
   const empty = games.every((g) => g._count.cards === 0);
+  // Headline numbers cover the main expansions; special sets (promos, McDonald's,
+  // Pocket, ...) are counted separately and live in their own sections on the game page.
+  const totals = new Map<number, { mainSets: number; mainCards: number; special: number }>();
+  for (const set of sets) {
+    const t = totals.get(set.gameId) ?? { mainSets: 0, mainCards: 0, special: 0 };
+    if (set.category === "main") {
+      t.mainSets++;
+      t.mainCards += set._count.printings;
+    } else if (settings.showPocketSets || set.category !== "pocket") t.special++;
+    totals.set(set.gameId, t);
+  }
 
   return (
     <main className="page">
@@ -34,6 +51,7 @@ export default async function BrowsePage() {
       <ul className="stagger grid grid-cols-1 gap-5 sm:grid-cols-3">
         {games.map((game) => {
           const syncable = SYNCABLE.has(game.slug);
+          const t = totals.get(game.id) ?? { mainSets: 0, mainCards: 0, special: 0 };
           return (
             <li key={game.id}>
               <Link
@@ -49,9 +67,9 @@ export default async function BrowsePage() {
                 <span className="font-display text-2xl font-semibold">{game.name}</span>
                 <span className="flex items-end justify-between text-sm text-neutral-500">
                   <span>
-                    {game._count.sets} set{game._count.sets === 1 ? "" : "s"} · {game._count.cards}{" "}
-                    card
-                    {game._count.cards === 1 ? "" : "s"}
+                    {t.mainSets} set{t.mainSets === 1 ? "" : "s"} · {t.mainCards} card
+                    {t.mainCards === 1 ? "" : "s"}
+                    {t.special > 0 ? ` · +${t.special} special` : ""}
                     {syncable ? null : (
                       <span className="ml-2 rounded-full bg-surface-2 px-2 py-0.5 text-[10px] uppercase tracking-wider">
                         Coming soon

@@ -1,8 +1,17 @@
 import type { Prisma } from "@prisma/client";
-import { canonicalKeyFor, hasFile, mediaUrl, putFile, remoteImageKey } from "@tcg-vault/shared";
+import {
+  canonicalKeyFor,
+  classifySet,
+  hasFile,
+  mergeTarget,
+  subsetFor,
+  mediaUrl,
+  putFile,
+  remoteImageKey,
+} from "@tcg-vault/shared";
 import type { CatalogSourceAdapter, SourcePrinting, SourceSet } from "@tcg-vault/sources";
 import { prisma } from "./client";
-import { NonRetryableError } from "./jobs/backoff";
+import { SourceUnavailableError } from "./jobs/backoff";
 import { onJobEvent } from "./jobs/events";
 import {
   enqueueItems,
@@ -12,6 +21,7 @@ import {
   type JobRunOptions,
   type JobRunSummary,
 } from "./jobs/runner";
+import { dexIdsFromAttributes, setCardDex } from "./dex";
 import { recordPrices } from "./prices";
 import { computeValuations, snapshotPortfolio } from "./valuations";
 
@@ -131,6 +141,9 @@ async function ensureGameAndLanguage(adapter: CatalogSourceAdapter) {
  */
 async function localAsset(remote: string | undefined, key: string): Promise<string | null> {
   if (!remote) return null;
+  // Keep the file's real extension (YGOPRODeck's pack art is a .jpg).
+  const ext = remote.match(/\.(jpe?g|webp|png)(?:\?|$)/i)?.[1]?.toLowerCase();
+  if (ext && ext !== "png") key = key.replace(/\.png$/, `.${ext === "jpeg" ? "jpg" : ext}`);
   if (await hasFile(key)) return mediaUrl(key);
   try {
     const res = await fetch(remote);
@@ -156,12 +169,18 @@ async function upsertCard(tx: Tx, gameId: number, printing: SourcePrinting, coun
   const existing = await tx.card.findUnique({
     where: { gameId_canonicalKey: { gameId, canonicalKey } },
   });
+  let card;
   if (existing) {
     counters.cardsUpdated++;
-    return tx.card.update({ where: { id: existing.id }, data });
+    card = await tx.card.update({ where: { id: existing.id }, data });
+  } else {
+    counters.cardsCreated++;
+    card = await tx.card.create({ data: { gameId, canonicalKey, ...data } });
   }
-  counters.cardsCreated++;
-  return tx.card.create({ data: { gameId, canonicalKey, ...data } });
+  // Pokédex ids, normalized for indexed "all cards of this Pokémon" lookups.
+  const dexIds = dexIdsFromAttributes(printing.attributes);
+  if (dexIds.length > 0 || existing) await setCardDex(tx, card.id, dexIds);
+  return card;
 }
 
 /**
@@ -242,6 +261,7 @@ async function imageKeyFor(
   printingId: string,
   hasRemote: boolean,
 ): Promise<string | null> {
+  // `hasRemote` is also true for a printing with a user-supplied image (see the caller).
   if (existingKey && !existingKey.startsWith("remote/") && (await hasFile(existingKey))) {
     return existingKey;
   }
@@ -283,6 +303,8 @@ async function writeSet(
   printings: SourcePrinting[],
   assets: { logoUrl: string | null; symbolUrl: string | null },
   emit: (detail: CatalogDetail) => void,
+  /** Write the cards into this existing set instead of creating one (see SET_MERGES). */
+  merge: { setId: number; code: string; sortOffset: number } | null = null,
 ): Promise<Counters> {
   const counters = emptyCounters();
   const languageCode = adapter.languageCode;
@@ -292,6 +314,12 @@ async function writeSet(
       const setData = {
         name: sourceSet.name,
         series: sourceSet.series ?? null,
+        category: classifySet({
+          game: adapter.game,
+          code: sourceSet.code,
+          name: sourceSet.name,
+          series: sourceSet.series,
+        }),
         primaryLangCode: languageCode,
         releaseDate: sourceSet.releaseDate ? new Date(sourceSet.releaseDate) : null,
         printedTotal: sourceSet.printedTotal ?? null,
@@ -299,11 +327,13 @@ async function writeSet(
         logoUrl: assets.logoUrl,
         symbolUrl: assets.symbolUrl,
       };
-      const set = await tx.set.upsert({
-        where: { gameId_code: { gameId, code: sourceSet.code } },
-        update: setData,
-        create: { gameId, code: sourceSet.code, ...setData },
-      });
+      const set = merge
+        ? { id: merge.setId, code: merge.code }
+        : await tx.set.upsert({
+            where: { gameId_code: { gameId, code: sourceSet.code } },
+            update: setData,
+            create: { gameId, code: sourceSet.code, ...setData },
+          });
 
       // Sources assign each printing (incl. alt arts) its own number, so
       // collisions shouldn't happen — but (setId, collectorNumber, isAltArt)
@@ -337,7 +367,13 @@ async function writeSet(
 
         const printingData = {
           cardId: card.id,
-          sortNumber: sortNumberFor(printing.collectorNumber),
+          sortNumber: sortNumberFor(printing.collectorNumber) + (merge?.sortOffset ?? 0),
+          subset: subsetFor({
+            setCode: set.code,
+            collectorNumber: printing.collectorNumber,
+            rarityName: printing.rarityName,
+            name: printing.cardName,
+          }),
           rarityId: rarity?.id ?? null,
           artistId: artist?.id ?? null,
           imageUrls: imageUrls ? JSON.stringify(imageUrls) : null,
@@ -364,7 +400,14 @@ async function writeSet(
         if (existing) counters.printingsUpdated++;
         else counters.printingsCreated++;
 
-        const imageKey = await imageKeyFor(existing?.imageKey, dbPrinting.id, imageUrls !== null);
+        // Pokémon printings always get the lazy key: even without a stored URL the
+        // image cache can try constructed CDN addresses (image-cache.ts). A custom
+        // image (set by the user, never touched here) needs the key too.
+        const imageKey = await imageKeyFor(
+          existing?.imageKey,
+          dbPrinting.id,
+          imageUrls !== null || adapter.game === "pokemon" || !!dbPrinting.customImageKey,
+        );
         if (imageKey !== dbPrinting.imageKey) {
           dbPrinting = await tx.printing.update({
             where: { id: dbPrinting.id },
@@ -419,11 +462,31 @@ async function processSet(
 
   // All network first, then all writes: a download failing halfway leaves the DB untouched.
   const sourceSet = await adapter.getSet(code);
-  if (!sourceSet) throw new NonRetryableError(`the source has no set "${code}"`);
-  const printings = await adapter.listPrintings(code);
+  if (!sourceSet) throw new SourceUnavailableError(`the source has no set "${code}"`);
+  let printings = await adapter.listPrintings(code);
   if (printings.length === 0 && (sourceSet.totalCards ?? 0) > 0) {
-    // Looks like a partial/blocked response rather than a genuinely empty set.
-    throw new Error(`the source returned no cards for ${code} (expected ${sourceSet.totalCards})`);
+    // One more look before believing it: a partial response can look the same.
+    printings = await adapter.listPrintings(code);
+    if (printings.length === 0) {
+      // The source lists the set (with a card count) but has no cards for it:
+      // a gap at the source, not a bug — parked as "unavailable", re-checked monthly.
+      throw new SourceUnavailableError(
+        `The source lists this set (${sourceSet.totalCards} cards) but has no card data for it yet.`,
+      );
+    }
+  }
+
+  // A set the source lists separately but that belongs inside another (Classic Collection
+  // inside the 30th Celebration): its cards go into the parent, no set of its own.
+  const mergeRule = mergeTarget(adapter.game, code);
+  let merge: { setId: number; code: string; sortOffset: number } | null = null;
+  if (mergeRule) {
+    const parent = await prisma.set.findUnique({
+      where: { gameId_code: { gameId, code: mergeRule.into } },
+      select: { id: true },
+    });
+    if (!parent) throw new Error(`its parent set "${mergeRule.into}" isn't synced yet`);
+    merge = { setId: parent.id, code: mergeRule.into, sortOffset: mergeRule.sortOffset };
   }
 
   const safeCode = sourceSet.code.replace(/[^\w.-]/g, "_");
@@ -433,8 +496,42 @@ async function processSet(
   };
 
   emit({ type: "set", code, name: sourceSet.name, total: printings.length, phase: "saving" });
-  const counters = await writeSet(adapter, gameId, sourceSet, printings, assets, emit);
+  const counters = await writeSet(adapter, gameId, sourceSet, printings, assets, emit, merge);
   emit({ type: "set-counters", code, counters });
+}
+
+/**
+ * Gives sets that have no logo yet their logo from the source (one request,
+ * no card data), for sets synced before the source provided any. Best-effort.
+ */
+export async function backfillSetLogos(
+  adapter: CatalogSourceAdapter,
+  log: (line: string) => void = () => {},
+): Promise<number> {
+  if (!adapter.listSetAssets) return 0;
+  try {
+    const missing = await prisma.set.findMany({
+      where: { game: { slug: adapter.game }, logoUrl: null },
+      select: { id: true, code: true },
+    });
+    if (missing.length === 0) return 0;
+    const assets = new Map((await adapter.listSetAssets()).map((a) => [a.code, a]));
+    let filled = 0;
+    for (const set of missing) {
+      const asset = assets.get(set.code);
+      if (!asset?.logoUrl) continue;
+      const safeCode = set.code.replace(/[^\w.-]/g, "_");
+      const logoUrl = await localAsset(asset.logoUrl, `${adapter.game}/${safeCode}/logo.png`);
+      if (!logoUrl) continue;
+      await prisma.set.update({ where: { id: set.id }, data: { logoUrl } });
+      filled++;
+    }
+    if (filled > 0) log(`added logos to ${filled} set(s)`);
+    return filled;
+  } catch (err) {
+    log(`couldn't fetch set logos: ${err instanceof Error ? err.message : String(err)}`);
+    return 0;
+  }
 }
 
 export interface CatalogSyncOptions extends JobRunOptions {
@@ -480,8 +577,11 @@ export async function runCatalogSync(
     },
     { concurrency: 2, delayMs: 1_000, ...options },
   );
+  await backfillSetLogos(adapter, options.log);
   for (const failure of run.failed)
     totals.errors.push({ setCode: failure.key, message: failure.error });
+  for (const gap of run.unavailable ?? [])
+    totals.errors.push({ setCode: gap.key, message: `unavailable at the source: ${gap.reason}` });
 
   let valuationsWritten = 0;
   if (run.succeeded.length > 0 && options.updateValuations !== false) {
@@ -526,7 +626,9 @@ export async function syncCatalogSets(
   if (result.run.status !== "locked") {
     return {
       ...result,
-      unknownCodes: result.run.failed.filter((f) => /has no set/.test(f.error)).map((f) => f.key),
+      unknownCodes: (result.run.unavailable ?? [])
+        .filter((f) => /has no set/.test(f.reason))
+        .map((f) => f.key),
     };
   }
 
@@ -555,18 +657,18 @@ export async function syncCatalogSets(
       });
       const finished = rows.filter(
         (r) =>
-          (r.status === "done" || r.status === "failed") &&
+          (r.status === "done" || r.status === "failed" || r.status === "unavailable") &&
           r.lastAttemptAt !== null &&
           r.lastAttemptAt >= requestedAt,
       );
       if (finished.length === codes.length) {
-        const failed = finished.filter((r) => r.status === "failed");
+        const failed = finished.filter((r) => r.status !== "done");
         for (const r of failed)
           totals.errors.push({ setCode: r.itemKey, message: r.lastError ?? "failed" });
         return {
           ...totals,
           unknownCodes: failed
-            .filter((r) => /has no set/.test(r.lastError ?? ""))
+            .filter((r) => r.status === "unavailable" && /has no set/.test(r.lastError ?? ""))
             .map((r) => r.itemKey),
           valuationsWritten: 0,
         };
@@ -596,26 +698,66 @@ export interface CatalogSyncStatus {
   pending: number;
   failed: number;
   syncing: number;
-  failures: Array<{ code: string; name: string | null; error: string | null; attempts: number }>;
+  /** Sets the source can't provide (parked, re-checked monthly; not failures). */
+  unavailable: number;
+  failures: CatalogSetIssue[];
+  unavailableSets: CatalogSetIssue[];
+}
+
+/** A set that isn't synced, with what to tell the user about it. */
+export interface CatalogSetIssue {
+  code: string;
+  name: string | null;
+  /** The raw error / reason. */
+  error: string | null;
+  /** The same in plain language. */
+  message: string;
+  attempts: number;
+  lastAttemptAt: Date | null;
+}
+
+/** Plain-language version of a sync error, for the sidebar and the Sync page. */
+export function plainSyncError(error: string | null | undefined): string {
+  const e = (error ?? "").trim();
+  if (!e) return "Unknown error.";
+  if (/interrupted/i.test(e)) return "The app was closed while this set was syncing. It will be retried.";
+  if (/getSet is not a function|is not a function/.test(e))
+    return `A bug in the app (${e}). Updating the app should fix it.`;
+  if (/429|rate.?limit|too many requests/i.test(e))
+    return "The source is rate-limiting requests. It will be retried later.";
+  if (/ENOTFOUND|ECONNRESET|ECONNREFUSED|ETIMEDOUT|timed? ?out|fetch failed|network|socket/i.test(e))
+    return `Couldn't reach the source (network problem or the source is down). It will be retried. (${e})`;
+  if (/HTTP 5[0-9][0-9]/.test(e)) return `The source had a server error. It will be retried. (${e})`;
+  if (/unique constraint/i.test(e))
+    return "A bug in the app: two cards clashed while saving this set. Updating the app should fix it.";
+  return e;
 }
 
 /** Sets done / total and the failed sets, from SyncState (works across processes). */
 export async function catalogSyncStatus(game: string): Promise<CatalogSyncStatus> {
   const counts = await jobStateCounts(CATALOG_JOB, game);
-  const failed = await prisma.syncState.findMany({
-    where: { job: CATALOG_JOB, game, status: "failed" },
-    orderBy: { priority: "desc" },
-    take: 50,
-  });
+  const issues = async (status: "failed" | "unavailable") =>
+    (
+      await prisma.syncState.findMany({
+        where: { job: CATALOG_JOB, game, status },
+        orderBy: { priority: "desc" },
+        take: 100,
+      })
+    ).map(
+      (f): CatalogSetIssue => ({
+        code: f.itemKey,
+        name: f.label,
+        error: f.lastError,
+        message: status === "unavailable" ? (f.lastError ?? "") : plainSyncError(f.lastError),
+        attempts: f.attemptCount,
+        lastAttemptAt: f.lastAttemptAt,
+      }),
+    );
   return {
     game,
     ...counts,
-    failures: failed.map((f) => ({
-      code: f.itemKey,
-      name: f.label,
-      error: f.lastError,
-      attempts: f.attemptCount,
-    })),
+    failures: await issues("failed"),
+    unavailableSets: await issues("unavailable"),
   };
 }
 

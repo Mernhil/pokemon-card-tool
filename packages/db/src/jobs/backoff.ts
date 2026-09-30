@@ -45,6 +45,19 @@ export class NonRetryableError extends Error {
   readonly retryable = false;
 }
 
+/**
+ * The source genuinely can't provide this item (404, empty set, removed) —
+ * not a bug and not transient. The runner parks it as `unavailable` with
+ * this message as the plain-language reason, and checks again only rarely.
+ */
+export class SourceUnavailableError extends NonRetryableError {
+  readonly unavailable = true;
+}
+
+export function isUnavailable(err: unknown): boolean {
+  return !!(err && typeof err === "object" && (err as { unavailable?: unknown }).unavailable === true);
+}
+
 export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }

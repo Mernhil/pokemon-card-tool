@@ -1,12 +1,22 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { enqueueStalePrices, latestValuations, prisma, recordCardView } from "@tcg-vault/db";
-import { PRICE_PROVIDERS, mediaUrl } from "@tcg-vault/shared";
+import {
+  enqueueLanguagePrices,
+  enqueueStalePrices,
+  getCardImageResult,
+  latestValuations,
+  prisma,
+  recordCardView,
+  runnableProviders,
+} from "@tcg-vault/db";
+import { isPriceLanguage, mediaUrl } from "@tcg-vault/shared";
 import { AddToCollection } from "../../../../components/add-to-collection";
 import { CardViewer } from "../../../../components/card-viewer";
 import { FinishBadge, PriceChip, finishLabel } from "../../../../components/money";
 import { PriceHistory } from "../../../../components/prices/price-history";
+import { CustomImageControl } from "../../../../components/custom-image-control";
 import { PriceRefresh } from "../../../../components/prices/price-refresh";
+import { PriceLanguageSelect } from "../../../../components/prices/price-language-select";
 import { PricesSection } from "../../../../components/prices/prices-section";
 import { priceProviders, requestPriceRefresh } from "../../../../lib/background";
 import { PROVIDER_COLORS, loadCardPrices } from "../../../../lib/card-prices";
@@ -54,7 +64,7 @@ export default async function CardPage({
   searchParams,
 }: {
   params: { game: string; set: string; number: string };
-  searchParams: { finish?: string };
+  searchParams: { finish?: string; lang?: string };
 }) {
   await loadMoneyDisplay();
   const game = await prisma.game.findUnique({ where: { slug: params.game } });
@@ -73,14 +83,21 @@ export default async function CardPage({
   // reprint shares its Card row with the printing(s) it reprints (see
   // Card.canonicalKey), fall back to showing the art from any sibling
   // printing that does have a scan, rather than a blank placeholder.
-  const fallbackPrinting = printing.imageKey
+  // (The printing's own image counts only if it can actually be loaded — every
+  // Pokémon printing has a lazy image key, but some sources have no scan.)
+  const hasOwnImage = printing.imageKey
+    ? await getCardImageResult(printing.id)
+        .then((r) => r.image !== null)
+        .catch(() => false)
+    : false;
+  const fallbackPrinting = hasOwnImage
     ? null
     : await prisma.printing.findFirst({
-        where: { cardId: printing.cardId, imageKey: { not: null } },
+        where: { cardId: printing.cardId, id: { not: printing.id }, imageKey: { not: null } },
         select: { imageKey: true },
       });
-  const imageKey = printing.imageKey ?? fallbackPrinting?.imageKey ?? null;
-  const imageIsFallback = !printing.imageKey && !!fallbackPrinting;
+  const imageKey = hasOwnImage ? printing.imageKey : (fallbackPrinting?.imageKey ?? null);
+  const imageIsFallback = !hasOwnImage && !!fallbackPrinting;
 
   const variants = sortByFinish(printing.variants);
   const selected = variants.find((v) => v.finish === searchParams.finish) ?? variants[0];
@@ -89,17 +106,25 @@ export default async function CardPage({
   // Remember the view (recently viewed cards get refreshed) and queue a
   // background refresh for stale prices. Neither ever blocks on a provider.
   const { settings, providers } = await priceProviders();
-  const active = PRICE_PROVIDERS.filter(
-    (id) => settings.providers[id].enabled && providers[id].isConfigured(),
-  );
+  const active = runnableProviders(game.slug, providers, settings.providers);
   await recordCardView(printing.id).catch(() => {});
+  // Digital-only (Pocket) cards have no market: nothing to price.
+  const priceable = set.category !== "pocket";
   const queued = await enqueueStalePrices(
     variantIds,
-    active,
+    priceable ? active : [],
     game.slug,
     settings.staleAfterHours * 3_600_000,
   ).catch(() => false);
   if (queued) requestPriceRefresh(active);
+  // The price language the panels show: the setting, unless the page asked for another one.
+  const language = isPriceLanguage(searchParams.lang) ? searchParams.lang : settings.priceLanguage;
+  const langQueued =
+    priceable && language !== settings.priceLanguage
+      ? await enqueueLanguagePrices(variantIds, game.slug, language, active).catch(() => false)
+      : false;
+  if (langQueued) requestPriceRefresh(["ebay"]);
+  const langParam = language !== settings.priceLanguage ? `&lang=${language}` : "";
 
   const [values, neighbours, prices] = await Promise.all([
     latestValuations(variantIds),
@@ -112,7 +137,8 @@ export default async function CardPage({
       ? loadCardPrices(selected.id, variantIds, {
           name: printing.card.name,
           number: printing.collectorNumber,
-        })
+          game: game.slug,
+        }, language)
       : null,
   ]);
   const owned = variants.map((v) => ({
@@ -167,6 +193,9 @@ export default async function CardPage({
             rarityName={printing.rarity?.name ?? null}
             variants={variants.map((v) => ({ id: v.id, finish: v.finish }))}
           />
+          <div className="mt-3">
+            <CustomImageControl printingId={printing.id} hasCustom={!!printing.customImageKey} />
+          </div>
         </div>
 
         <div className="flex min-w-0 flex-col gap-5">
@@ -217,7 +246,7 @@ export default async function CardPage({
                         {variants.map((v) => (
                           <Link
                             key={v.id}
-                            href={`?finish=${v.finish}`}
+                            href={`?finish=${v.finish}${langParam}`}
                             scroll={false}
                             aria-current={v.id === selected.id ? "page" : undefined}
                             className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 ${v.id === selected.id ? "bg-accent-soft font-semibold text-neutral-900" : "text-neutral-500 hover:text-neutral-900"}`}
@@ -233,10 +262,21 @@ export default async function CardPage({
                         <PriceChip value={values.get(selected.id)?.valueEur} />
                       </span>
                     )}
+                    <PriceLanguageSelect
+                      language={prices.language}
+                      defaultLanguage={settings.priceLanguage}
+                    />
                     <PriceRefresh
                       variantIds={variantIds}
                       game={game.slug}
-                      initiallyUpdating={prices.updating || queued}
+                      initiallyUpdating={prices.updating || queued || langQueued}
+                      providers={prices.panels.map((p) => ({
+                        id: p.id,
+                        label: p.label,
+                        state: p.state,
+                        message: p.message,
+                        updatedAt: p.updatedAt,
+                      }))}
                     />
                   </div>
                 }

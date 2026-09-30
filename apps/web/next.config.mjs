@@ -11,6 +11,8 @@ const nextConfig = {
   output: "standalone",
   experimental: {
     instrumentationHook: true,
+    // "Set custom image" uploads a card scan (up to 10 MB) through a server action.
+    serverActions: { bodySizeLimit: "12mb" },
   },
 };
 

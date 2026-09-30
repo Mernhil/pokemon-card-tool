@@ -1,20 +1,47 @@
 "use server";
 
-import { enqueuePriceRefresh, prisma, pricesUpdating } from "@tcg-vault/db";
+import {
+  MAX_CUSTOM_IMAGE_BYTES,
+  customImageErrorText,
+  enqueuePriceRefresh,
+  prisma,
+  pricesUpdating,
+  removeCustomImage,
+  setCustomImage,
+} from "@tcg-vault/db";
 import { PRICE_PROVIDERS, type PriceProviderId } from "@tcg-vault/shared";
 import { revalidatePath } from "next/cache";
-import { requestPriceRefresh, scheduleValuations } from "../../../../lib/background";
+import {
+  cleanupOrphanedPriceRows,
+  requestPriceRefresh,
+  runnablePriceProviders,
+  scheduleValuations,
+} from "../../../../lib/background";
 
-/** "Refresh prices": queues these variants first for every provider and starts the runs. */
-export async function refreshPricesAction(variantIds: string[], game: string): Promise<void> {
-  if (variantIds.length === 0 || variantIds.length > 20) return;
-  await enqueuePriceRefresh(variantIds, game);
-  requestPriceRefresh();
+/**
+ * "Refresh prices": queues these variants first for every provider that can
+ * actually run (enabled, configured, supports the game) and starts the runs.
+ * `started` is false when no provider can run, so the button doesn't wait.
+ */
+export async function refreshPricesAction(
+  variantIds: string[],
+  game: string,
+): Promise<{ started: boolean }> {
+  if (variantIds.length === 0 || variantIds.length > 20) return { started: false };
+  const runnable = await runnablePriceProviders(game);
+  await cleanupOrphanedPriceRows();
+  if (runnable.length === 0) return { started: false };
+  await enqueuePriceRefresh(variantIds, game, runnable);
+  requestPriceRefresh(runnable);
+  return { started: true };
 }
 
 /** Polled by the "Updating…" indicator; true while a refresh for these is queued or running. */
-export async function pricesUpdatingAction(variantIds: string[]): Promise<boolean> {
-  return pricesUpdating(variantIds.slice(0, 20));
+export async function pricesUpdatingAction(variantIds: string[], game: string): Promise<boolean> {
+  return pricesUpdating(variantIds.slice(0, 20), {
+    game,
+    providers: await runnablePriceProviders(game),
+  });
 }
 
 /**
@@ -56,9 +83,31 @@ export async function setMappingAction(input: {
     });
   }
   // A new mapping means earlier numbers may belong to another card: refetch now.
-  await enqueuePriceRefresh([input.variantId], input.game);
-  requestPriceRefresh([provider]);
+  if ((await runnablePriceProviders(input.game)).includes(provider)) {
+    await enqueuePriceRefresh([input.variantId], input.game, [provider]);
+    requestPriceRefresh([provider]);
+  }
   scheduleValuations();
   revalidatePath("/", "layout");
   return { ok: true };
+}
+
+/** "Set custom image": validates (type by content, size) and stores the file on the printing. */
+export async function setCustomImageAction(
+  formData: FormData,
+): Promise<{ ok: boolean; error?: string }> {
+  const printingId = String(formData.get("printingId") ?? "");
+  const file = formData.get("file");
+  if (!printingId || !(file instanceof File)) return { ok: false, error: "Choose an image file." };
+  if (file.size > MAX_CUSTOM_IMAGE_BYTES) return { ok: false, error: customImageErrorText("too-big") };
+  const result = await setCustomImage(printingId, new Uint8Array(await file.arrayBuffer()));
+  if (!result.ok) return { ok: false, error: customImageErrorText(result.error) };
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export async function removeCustomImageAction(printingId: string): Promise<{ ok: boolean }> {
+  const removed = await removeCustomImage(printingId);
+  revalidatePath("/", "layout");
+  return { ok: removed };
 }

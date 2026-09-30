@@ -2,10 +2,13 @@ import type { CatalogSourceAdapter, SourcePrinting, SourceSet } from "@tcg-vault
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import {
   CATALOG_JOB,
+  backfillSetLogos,
   catalogSyncStatus,
+  plainSyncError,
   runCatalogSync,
   syncCatalogSets,
 } from "../src/catalog-sync";
+import { backfillSetCategories } from "../src/base-data";
 import { prisma } from "../src/client";
 import { fakeClock, resetDb } from "./helpers";
 
@@ -32,6 +35,7 @@ class FakeAdapter implements CatalogSourceAdapter {
   calls: string[] = [];
   fail = new Set<string>();
   sets: Array<SourceSet & { cards: SourcePrinting[] }> = [];
+  listSetAssets?: CatalogSourceAdapter["listSetAssets"];
 
   constructor(codes: string[], cardsPerSet = 3) {
     this.sets = codes.map((code) => ({
@@ -187,5 +191,153 @@ describe("runCatalogSync", () => {
     const result = await syncCatalogSets(["s1", "nope"], fast(), adapter);
     expect(result.unknownCodes).toEqual(["nope"]);
     expect(result.setsProcessed).toBe(1);
+  });
+});
+
+describe("sets the source can't provide", () => {
+  it("an empty set is parked as unavailable, not failed, with a plain reason", async () => {
+    const adapter = new FakeAdapter(["s1", "gap", "s3"]);
+    adapter.sets.find((s) => s.code === "gap")!.cards = []; // listed with 3 cards, none delivered
+    const result = await runCatalogSync(adapter, fast());
+
+    expect(await setStatuses()).toEqual({ s1: "done", gap: "unavailable", s3: "done" });
+    expect(result.run.failed).toEqual([]);
+    expect(result.run.unavailable?.map((u) => u.key)).toEqual(["gap"]);
+    const status = await catalogSyncStatus("pokemon");
+    expect(status).toMatchObject({ total: 3, done: 2, failed: 0, unavailable: 1 });
+    expect(status.failures).toEqual([]);
+    expect(status.unavailableSets[0]).toMatchObject({ code: "gap", attempts: 1 });
+    expect(status.unavailableSets[0]!.message).toMatch(/no card data/);
+    // Looked twice before believing it, never retried within the run.
+    expect(adapter.calls.filter((c) => c === "gap")).toHaveLength(2);
+  });
+
+  it("is checked again only after about a month, or on demand", async () => {
+    const clock = fakeClock();
+    const adapter = new FakeAdapter(["gap"]);
+    adapter.sets[0]!.cards = [];
+    await runCatalogSync(adapter, fast(clock));
+    const callsAfterFirst = adapter.calls.length;
+
+    clock.advance(7 * 86_400_000);
+    await runCatalogSync(adapter, fast(clock));
+    expect(adapter.calls.length).toBe(callsAfterFirst);
+
+    // The source catches up: a month later the set syncs.
+    adapter.sets[0]!.cards = [printing("gap", 1)];
+    clock.advance(30 * 86_400_000);
+    await runCatalogSync(adapter, fast(clock));
+    expect(await setStatuses()).toEqual({ gap: "done" });
+    expect(await printingCount("gap")).toBe(1);
+  });
+
+  it("a set the source no longer has is unavailable too, and the next sync doesn't double-count it", async () => {
+    const adapter = new FakeAdapter(["s1", "gone"]);
+    const summaries = adapter.listSetSummaries.bind(adapter);
+    adapter.getSet = async (code: string) =>
+      code === "gone" ? null : (adapter.sets.find((s) => s.code === code) ?? null);
+    adapter.listSetSummaries = summaries;
+    await runCatalogSync(adapter, fast());
+    expect(await setStatuses()).toEqual({ s1: "done", gone: "unavailable" });
+    expect((await catalogSyncStatus("pokemon")).unavailableSets[0]!.message).toMatch(
+      /no set "gone"/,
+    );
+  });
+
+  it("real failures stay failures (never hidden as unavailable)", async () => {
+    const adapter = new FakeAdapter(["s1", "bad"]);
+    adapter.fail.add("bad");
+    await runCatalogSync(adapter, fast());
+    expect(await setStatuses()).toEqual({ s1: "done", bad: "failed" });
+    const status = await catalogSyncStatus("pokemon");
+    expect(status.unavailable).toBe(0);
+    expect(status.failures[0]!.message).toMatch(/server error/);
+  });
+
+  it("a source listing the same set code twice doesn't break discovery", async () => {
+    const adapter = new FakeAdapter(["s1", "s2"]);
+    const summaries = await adapter.listSetSummaries();
+    adapter.listSetSummaries = async () => [...summaries, { code: "s1", name: "Set s1 (again)" }];
+    const result = await runCatalogSync(adapter, fast());
+    expect(result.run.discoveryError).toBeUndefined();
+    expect(await setStatuses()).toEqual({ s1: "done", s2: "done" });
+  });
+});
+
+describe("plainSyncError", () => {
+  it("explains the common errors in plain language", () => {
+    expect(plainSyncError("e.getSet is not a function")).toMatch(/bug in the app/);
+    expect(plainSyncError("fetch failed ECONNRESET")).toMatch(/Couldn't reach the source/);
+    expect(plainSyncError("Unique constraint failed on the fields: (`job`)")).toMatch(
+      /bug in the app/,
+    );
+    expect(plainSyncError("something odd")).toBe("something odd");
+  });
+});
+
+describe("set categories", () => {
+  it("the sync classifies every set it upserts", async () => {
+    const adapter = new FakeAdapter(["sv1", "svp", "A1"], 1);
+    Object.assign(adapter.sets[0]!, { name: "Scarlet & Violet", series: "Scarlet & Violet" });
+    Object.assign(adapter.sets[1]!, { name: "SVP Black Star Promos", series: "Scarlet & Violet" });
+    Object.assign(adapter.sets[2]!, { name: "Genetic Apex", series: "Pokémon TCG Pocket" });
+    await runCatalogSync(adapter, fast());
+    const sets = await prisma.set.findMany();
+    expect(Object.fromEntries(sets.map((s) => [s.code, s.category]))).toEqual({
+      sv1: "main",
+      svp: "promo",
+      A1: "pocket",
+    });
+  });
+
+  it("the startup backfill fixes existing rows, and is idempotent", async () => {
+    const adapter = new FakeAdapter(["svp", "sv1"], 1);
+    Object.assign(adapter.sets[0]!, { name: "SVP Black Star Promos" });
+    Object.assign(adapter.sets[1]!, { name: "Scarlet & Violet" });
+    await runCatalogSync(adapter, fast());
+    // As after the migration: everything defaults to "main".
+    await prisma.set.updateMany({ data: { category: "main" } });
+    expect(await backfillSetCategories()).toBe(1);
+    expect((await prisma.set.findFirstOrThrow({ where: { code: "svp" } })).category).toBe("promo");
+    expect((await prisma.set.findFirstOrThrow({ where: { code: "sv1" } })).category).toBe("main");
+    expect(await backfillSetCategories()).toBe(0);
+  });
+});
+
+describe("set logos backfill", () => {
+  it("gives already-synced sets their logo without re-syncing their cards", async () => {
+    const adapter = new FakeAdapter(["s1", "s2"], 1);
+    await runCatalogSync(adapter, fast());
+    expect((await prisma.set.findMany()).every((s) => s.logoUrl === null)).toBe(true);
+
+    const calls = adapter.calls.length;
+    adapter.listSetAssets = async () => [{ code: "s1", logoUrl: "https://img.example/s1.jpg" }];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response("bad", { status: 500 })) as typeof fetch;
+    try {
+      expect(await backfillSetLogos(adapter)).toBe(1);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    const s1 = await prisma.set.findFirstOrThrow({ where: { code: "s1" } });
+    expect(s1.logoUrl).toBe("https://img.example/s1.jpg"); // download failed: keeps the remote URL
+    expect((await prisma.set.findFirstOrThrow({ where: { code: "s2" } })).logoUrl).toBeNull();
+    expect(adapter.calls.length).toBe(calls); // no cards were fetched
+    expect(await backfillSetLogos(adapter)).toBe(0); // idempotent
+  });
+});
+
+describe("Pokédex ids", () => {
+  it("the sync stores a card's dex ids and keeps them current", async () => {
+    const adapter = new FakeAdapter(["s1"], 1);
+    adapter.sets[0]!.cards = [printing("s1", 1, { attributes: { dexId: [385] } })];
+    const clock = fakeClock();
+    await runCatalogSync(adapter, fast(clock));
+    expect((await prisma.cardDex.findMany()).map((r) => r.dexId)).toEqual([385]);
+
+    adapter.sets[0]!.cards = [printing("s1", 1, { attributes: { dexId: [385, 386] } })];
+    clock.advance(60 * 86_400_000);
+    await runCatalogSync(adapter, fast(clock));
+    expect((await prisma.cardDex.findMany()).map((r) => r.dexId).sort()).toEqual([385, 386]);
   });
 });

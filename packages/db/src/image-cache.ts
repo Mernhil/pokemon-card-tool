@@ -1,27 +1,37 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { appDataDir } from "@tcg-vault/shared";
+import { appDataDir, getFile } from "@tcg-vault/shared";
+import { pokemonImageCandidates } from "@tcg-vault/sources";
 import { prisma } from "./client";
+import {
+  explainAttempts,
+  fetchFirstImage,
+  type Attempt,
+  type FetchImageOptions,
+} from "./image-fetch";
 
 /**
  * Lazy on-disk cache of card scans. Nothing is bulk-downloaded: the media
  * route (apps/web/app/media/[...key]/route.ts) asks for a printing's image,
  * which is served from disk when cached, or fetched from the printing's
- * remote URLs (Printing.imageUrls), stored, and served.
+ * remote URLs (Printing.imageUrls, plus constructed CDN candidates), stored,
+ * and served.
  *
+ * - A scan the user supplied (Printing.customImageKey) always wins.
  * - Lives in the app data directory (TCG_VAULT_DATA_DIR/image-cache), never the repo.
  * - File names are derived from the printing id only (no URL or card text).
  * - Size-capped (500 MB by default) with least-recently-used eviction —
  *   except images of cards in the collection, which are pinned.
  * - A failed download is never cached: the caller shows a placeholder and
- *   the next view tries again.
+ *   the next view tries again. Downloads are rate-limited, retried and
+ *   negatively cached (packages/db/src/image-fetch.ts).
  */
 
 export const DEFAULT_IMAGE_CACHE_MAX_BYTES = 500 * 1024 * 1024;
-/** Refuse absurd responses (a card scan is ~100-500 KB). */
-const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 /** Don't write to the DB on every single view; LRU at hour resolution is plenty. */
 const TOUCH_INTERVAL_MS = 60 * 60 * 1000;
+/** After a transient failure, don't try the same card again for this long. */
+const FAILURE_COOLDOWN_MS = 30_000;
 
 export interface ImageCacheOptions {
   /** Cache directory; defaults to IMAGE_CACHE_DIR or <app data>/image-cache. */
@@ -31,12 +41,34 @@ export interface ImageCacheOptions {
   fetch?: typeof fetch;
   now?: () => Date;
   timeoutMs?: number;
+  /** Retry/backoff knobs, mainly for tests. */
+  retries?: number;
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export interface CardImage {
   body: Buffer;
   contentType: string;
-  from: "cache" | "remote";
+  from: "cache" | "remote" | "custom";
+}
+
+export type ImageStatus =
+  | "custom"
+  | "cache"
+  | "remote"
+  /** No candidate URL at all for this card. */
+  | "no-source"
+  /** Every candidate source answered 404. */
+  | "not-found"
+  /** Sources failed in a way that may pass (429, 5xx, timeout, network). */
+  | "failed";
+
+export interface ImageResult {
+  image: CardImage | null;
+  status: ImageStatus;
+  attempts: Attempt[];
+  /** What was tried and why it failed; empty when an image was found. */
+  reason: string;
 }
 
 export function imageCacheDir(options: ImageCacheOptions = {}): string {
@@ -58,7 +90,7 @@ export function cacheFileName(printingId: string): string {
   return `${safe}.img`;
 }
 
-function parseUrls(json: string | null): string[] {
+export function parseImageUrls(json: string | null): string[] {
   if (!json) return [];
   try {
     const value: unknown = JSON.parse(json);
@@ -70,44 +102,78 @@ function parseUrls(json: string | null): string[] {
   }
 }
 
-/**
- * Downloads the first candidate URL that exists. A 404 means "not this one,
- * try the next"; anything else (network, 5xx, not an image, too big)
- * throws. null when the source simply has none of the candidates.
- */
-async function download(
-  urls: string[],
-  fetchImpl: typeof fetch,
-  timeoutMs: number,
-): Promise<{ body: Buffer; contentType: string } | null> {
-  for (const url of urls) {
-    const res = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) });
-    if (res.status === 404) continue;
-    if (!res.ok) throw new Error(`GET ${url} -> HTTP ${res.status}`);
-    const contentType = (res.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
-    if (!contentType.startsWith("image/")) {
-      throw new Error(`GET ${url} returned ${contentType || "no content type"}, not an image`);
-    }
-    const body = Buffer.from(await res.arrayBuffer());
-    if (body.length === 0) throw new Error(`GET ${url} returned an empty body`);
-    if (body.length > MAX_IMAGE_BYTES)
-      throw new Error(`GET ${url} is ${body.length} bytes, too big`);
-    return { body, contentType };
-  }
-  return null;
+const CUSTOM_CONTENT_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+};
+
+export interface CandidatePrinting {
+  imageUrls: string | null;
+  collectorNumber: string;
+  set: { code: string; series: string | null; game: { slug: string } };
 }
 
-const inFlight = new Map<string, Promise<CardImage | null>>();
+/**
+ * Every URL worth trying for a printing: what the catalog stored first (best
+ * source first), then, for Pokémon, constructed TCGdex / pokemontcg.io CDN
+ * addresses — so a card the sync found no image for, or whose stored URLs
+ * 404, still gets a fair chance without a slow API lookup.
+ */
+export function imageCandidatesFor(printing: CandidatePrinting): string[] {
+  const known = parseImageUrls(printing.imageUrls);
+  if (printing.set.game.slug !== "pokemon") return known;
+  return pokemonImageCandidates(
+    {
+      setCode: printing.set.code,
+      series: printing.set.series,
+      collectorNumber: printing.collectorNumber,
+    },
+    known,
+  );
+}
+
+// What happened last time per printing, for tooltips and the short cool-down.
+const lastResults = new Map<string, { at: number; result: ImageResult }>();
+const MAX_REMEMBERED = 2_000;
+
+function remember(printingId: string, result: ImageResult, now: number): void {
+  if (lastResults.size >= MAX_REMEMBERED) {
+    const oldest = lastResults.keys().next().value;
+    if (oldest !== undefined) lastResults.delete(oldest);
+  }
+  lastResults.delete(printingId);
+  lastResults.set(printingId, { at: now, result });
+}
+
+/** What the last attempt for this card found out (why no image), if it was tried in this session. */
+export function lastImageResult(printingId: string): ImageResult | null {
+  return lastResults.get(printingId)?.result ?? null;
+}
+
+export function clearImageResults(): void {
+  lastResults.clear();
+}
+
+const inFlight = new Map<string, Promise<ImageResult>>();
 
 /**
  * A printing's scan, from the cache or freshly downloaded (then cached).
- * Returns null — never throws — when there's no image to show (no URLs, the
- * source doesn't have it, network down, bad response); nothing is cached then.
+ * Returns null — never throws — when there's no image to show; nothing is
+ * cached then. {@link getCardImageResult} also says why.
  */
 export async function getCardImage(
   printingId: string,
   options: ImageCacheOptions = {},
 ): Promise<CardImage | null> {
+  return (await getCardImageResult(printingId, options)).image;
+}
+
+export async function getCardImageResult(
+  printingId: string,
+  options: ImageCacheOptions = {},
+): Promise<ImageResult> {
   // Several <img> tags for the same card at once share one download.
   const key = `${imageCacheDir(options)}\u0000${printingId}`;
   const pending = inFlight.get(key);
@@ -117,15 +183,49 @@ export async function getCardImage(
   return promise;
 }
 
+const none = (status: ImageStatus, attempts: Attempt[], reason: string): ImageResult => ({
+  image: null,
+  status,
+  attempts,
+  reason,
+});
+
 async function loadCardImage(
   printingId: string,
   options: ImageCacheOptions,
-): Promise<CardImage | null> {
+): Promise<ImageResult> {
   const now = options.now ?? (() => new Date());
   const dir = imageCacheDir(options);
   const file = cacheFileName(printingId);
   const path = join(dir, file);
 
+  const printing = await prisma.printing.findUnique({
+    where: { id: printingId },
+    select: {
+      imageUrls: true,
+      customImageKey: true,
+      collectorNumber: true,
+      set: { select: { code: true, series: true, game: { select: { slug: true } } } },
+    },
+  });
+
+  // 1. The user's own scan beats everything.
+  if (printing?.customImageKey) {
+    try {
+      const body = await getFile(printing.customImageKey);
+      const ext = printing.customImageKey.split(".").pop()?.toLowerCase() ?? "";
+      return {
+        image: { body, contentType: CUSTOM_CONTENT_TYPES[ext] ?? "image/png", from: "custom" },
+        status: "custom",
+        attempts: [],
+        reason: "",
+      };
+    } catch {
+      // The file is gone (deleted by hand): fall back to the normal sources.
+    }
+  }
+
+  // 2. The on-disk cache.
   const entry = await prisma.imageCacheEntry.findUnique({ where: { key: file } });
   if (entry) {
     try {
@@ -136,30 +236,57 @@ async function loadCardImage(
           data: { lastAccessedAt: now() },
         });
       }
-      return { body, contentType: entry.contentType, from: "cache" };
+      return {
+        image: { body, contentType: entry.contentType, from: "cache" },
+        status: "cache",
+        attempts: [],
+        reason: "",
+      };
     } catch {
       // Row without a file (deleted by hand, disk cleanup): download it again.
       await prisma.imageCacheEntry.deleteMany({ where: { key: file } });
     }
   }
 
-  const printing = await prisma.printing.findUnique({
-    where: { id: printingId },
-    select: { imageUrls: true },
-  });
-  const urls = parseUrls(printing?.imageUrls ?? null);
-  if (urls.length === 0) return null;
+  if (!printing) return none("no-source", [], "This card no longer exists.");
 
-  let image: { body: Buffer; contentType: string } | null;
-  try {
-    image = await download(urls, options.fetch ?? fetch, options.timeoutMs ?? 20_000);
-  } catch (err) {
-    console.warn(
-      `[image-cache] ${printingId}: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return null;
+  // A transient failure a moment ago: don't hammer the sources on every re-render.
+  const recent = lastResults.get(printingId);
+  if (
+    recent &&
+    recent.result.status === "failed" &&
+    now().getTime() - recent.at < FAILURE_COOLDOWN_MS
+  ) {
+    return recent.result;
   }
-  if (!image) return null;
+
+  // 3. The sources.
+  const urls = imageCandidatesFor(printing);
+  if (urls.length === 0) {
+    const result = none("no-source", [], "No image address is known for this card.");
+    remember(printingId, result, now().getTime());
+    return result;
+  }
+  const fetchOptions: FetchImageOptions = {
+    fetch: options.fetch,
+    timeoutMs: options.timeoutMs ?? 20_000,
+    retries: options.retries,
+    sleep: options.sleep,
+    now: () => now().getTime(),
+  };
+  const { image, attempts, transient } = await fetchFirstImage(urls, fetchOptions);
+  if (!image) {
+    const result = none(
+      transient ? "failed" : "not-found",
+      attempts,
+      transient
+        ? `${explainAttempts(attempts)} It will be tried again.`
+        : `${explainAttempts(attempts)} The sources don't have this card's scan.`,
+    );
+    remember(printingId, result, now().getTime());
+    console.warn(`[image-cache] ${printingId}: ${result.reason}`);
+    return result;
+  }
 
   try {
     await mkdir(dir, { recursive: true });
@@ -180,7 +307,13 @@ async function loadCardImage(
     // Couldn't cache (disk full, read-only): still show the image this time.
     console.warn(`[image-cache] couldn't store ${printingId}:`, err);
   }
-  return { ...image, from: "remote" };
+  lastResults.delete(printingId);
+  return {
+    image: { body: image.body, contentType: image.contentType, from: "remote" },
+    status: "remote",
+    attempts,
+    reason: "",
+  };
 }
 
 /** Printing ids whose images must never be evicted: every card in the collection. */

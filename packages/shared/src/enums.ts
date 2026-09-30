@@ -76,7 +76,11 @@ export const MARKETPLACES = ["CARDMARKET", "CARDTRADER", "EBAY", "TCGPLAYER"] as
 export type Marketplace = (typeof MARKETPLACES)[number];
 
 /** SyncState.status — see packages/db/src/jobs/runner.ts. */
-export const SYNC_STATUSES = ["pending", "syncing", "done", "failed"] as const;
+/**
+ * `unavailable` is terminal-ish: the source genuinely can't provide the item
+ * (404, empty set, removed). Retried rarely, never counted as a failure.
+ */
+export const SYNC_STATUSES = ["pending", "syncing", "done", "failed", "unavailable"] as const;
 export type SyncStatus = (typeof SYNC_STATUSES)[number];
 
 /**
@@ -112,3 +116,64 @@ export const MAPPING_STATUSES = ["matched", "low_confidence", "not_found"] as co
 export type MappingStatus = (typeof MAPPING_STATUSES)[number];
 /** Automatic matches below this are "low_confidence": shown with a warning, not trusted for values. */
 export const MIN_TRUSTED_MATCH = 0.8;
+
+/** Languages a price can be quoted for (Settings "Price language", the card page selector). */
+export const PRICE_LANGUAGES = [
+  { code: "en", label: "English" },
+  { code: "de", label: "German" },
+  { code: "fr", label: "French" },
+  { code: "it", label: "Italian" },
+  { code: "es", label: "Spanish" },
+  { code: "pt", label: "Portuguese" },
+  { code: "ja", label: "Japanese" },
+  { code: "ko", label: "Korean" },
+  { code: "zh-Hans", label: "Chinese (Simplified)" },
+  { code: "zh-Hant", label: "Chinese (Traditional)" },
+] as const;
+export type PriceLanguage = (typeof PRICE_LANGUAGES)[number]["code"];
+export const DEFAULT_PRICE_LANGUAGE: PriceLanguage = "en";
+
+export function isPriceLanguage(value: unknown): value is PriceLanguage {
+  return PRICE_LANGUAGES.some((l) => l.code === value);
+}
+
+export function priceLanguageLabel(code: string): string {
+  return PRICE_LANGUAGES.find((l) => l.code === code)?.label ?? code;
+}
+
+/**
+ * A marketplace's own language value ("en", "jp", "zh-CN", "German", ...)
+ * -> one of our codes, or null when it isn't a language we know.
+ */
+export function normalizeListingLanguage(raw: unknown): PriceLanguage | null {
+  if (typeof raw !== "string") return null;
+  const v = raw.trim().toLowerCase().replace(/_/g, "-");
+  const table: Record<string, PriceLanguage> = {
+    en: "en",
+    english: "en",
+    de: "de",
+    german: "de",
+    deutsch: "de",
+    fr: "fr",
+    french: "fr",
+    it: "it",
+    italian: "it",
+    es: "es",
+    spanish: "es",
+    pt: "pt",
+    "pt-br": "pt",
+    portuguese: "pt",
+    ja: "ja",
+    jp: "ja",
+    japanese: "ja",
+    ko: "ko",
+    kr: "ko",
+    korean: "ko",
+    "zh-cn": "zh-Hans",
+    "zh-hans": "zh-Hans",
+    zh: "zh-Hans",
+    "zh-tw": "zh-Hant",
+    "zh-hant": "zh-Hant",
+  };
+  return table[v] ?? null;
+}

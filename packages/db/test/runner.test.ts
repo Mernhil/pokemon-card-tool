@@ -315,7 +315,7 @@ describe("runJob", () => {
     await runJob(
       def(async () => {
         peak = Math.max(peak, ++inFlight);
-        await new Promise((r) => setTimeout(r, 20));
+        await new Promise((r) => setTimeout(r, 150));
         inFlight--;
       }),
       fast(undefined, { concurrency: 3 }),

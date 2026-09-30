@@ -12,9 +12,29 @@ export async function register() {
     }
 
     // Base rows (games, languages) a fresh database needs before anything is synced.
-    const { ensureBaseData, enableConcurrentReads } = await import("@tcg-vault/db");
+    const {
+      ensureBaseData,
+      enableConcurrentReads,
+      backfillSetCategories,
+      backfillImageKeys,
+      mergeStraySets,
+      backfillSubsets,
+      backfillCardDex,
+    } = await import("@tcg-vault/db");
+    await backfillCardDex().catch((err) =>
+      console.warn("[startup] could not fill Pokédex ids:", err),
+    );
     await enableConcurrentReads();
     await ensureBaseData();
+    await backfillImageKeys().catch((err) =>
+      console.warn("[startup] couldn't backfill image keys:", err),
+    );
+    await mergeStraySets()
+      .then(() => backfillSubsets())
+      .catch((err) => console.warn("[startup] could not merge sets or fill subsets:", err));
+    await backfillSetCategories().catch((err) =>
+      console.warn("[startup] couldn't backfill set categories:", err),
+    );
 
     const { startScheduler } = await import("./lib/scheduler");
     startScheduler();

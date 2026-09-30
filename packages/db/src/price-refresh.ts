@@ -1,4 +1,10 @@
-import { PRICE_PROVIDERS, type MappingStatus, type PriceProviderId } from "@tcg-vault/shared";
+import {
+  DEFAULT_PRICE_LANGUAGE,
+  PRICE_PROVIDERS,
+  type MappingStatus,
+  type PriceProviderId,
+} from "@tcg-vault/shared";
+import { LANGUAGE_AWARE_PROVIDERS } from "@tcg-vault/pricing";
 import type { PriceProvider, PricedCard, ResolvedMapping } from "@tcg-vault/sources";
 import { prisma } from "./client";
 import { NonRetryableError, errorMessage, retryAfterMs } from "./jobs/backoff";
@@ -22,7 +28,8 @@ import { recordObservations } from "./prices";
  *   400  cards the user opened with stale prices (enqueued by the card page)
  *   300  cards in the collection, every `priceRefreshHours` (24 h)
  *   200  cards viewed in the last 14 days, same cadence
- * Everything else only when someone opens it.
+ * Everything else only when someone opens it. Pokémon TCG Pocket sets are
+ * never priced: digital-only cards have no market.
  */
 
 export const PRICE_PRIORITY = { onDemand: 400, collection: 300, recentlyViewed: 200 } as const;
@@ -35,8 +42,28 @@ export function priceJob(provider: string): string {
   return `price:${provider}`;
 }
 
+/**
+ * Queue item key of a price refresh: the variant id, which means "in the price
+ * language from Settings", or `<variant id>@<language>` for one language
+ * looked up on demand (a card page asking for another language; only providers
+ * that can look a language up, i.e. eBay, get such items).
+ */
+export function priceItemKey(variantId: string, language?: string | null): string {
+  return language ? `${variantId}@${language}` : variantId;
+}
+
+export function parsePriceItemKey(key: string): { variantId: string; language: string | null } {
+  const at = key.indexOf("@");
+  return at < 0
+    ? { variantId: key, language: null }
+    : { variantId: key.slice(0, at), language: key.slice(at + 1) || null };
+}
+
 /** Our variant, in the shape providers need. null if it no longer exists. */
-export async function loadPricedCard(variantId: string): Promise<PricedCard | null> {
+export async function loadPricedCard(
+  variantId: string,
+  priceLanguage?: string,
+): Promise<PricedCard | null> {
   const v = await prisma.printVariant.findUnique({
     where: { id: variantId },
     include: {
@@ -66,6 +93,7 @@ export async function loadPricedCard(variantId: string): Promise<PricedCard | nu
     finish: v.finish,
     printingFinishes: [...new Set(v.printing.variants.map((x) => x.finish))],
     languageCode: v.languageCode,
+    priceLanguage: priceLanguage ?? v.languageCode,
     externalIds,
   };
 }
@@ -125,10 +153,12 @@ async function mappingFor(
 /** Refreshes one variant's prices from one provider. Returns observations written. */
 export async function refreshVariantPrices(
   provider: PriceProvider,
-  variantId: string,
+  itemKey: string,
   now = new Date(),
+  defaultLanguage: string = DEFAULT_PRICE_LANGUAGE,
 ): Promise<number> {
-  const card = await loadPricedCard(variantId);
+  const { variantId, language } = parsePriceItemKey(itemKey);
+  const card = await loadPricedCard(variantId, language ?? defaultLanguage);
   if (!card) throw new NonRetryableError("this card no longer exists in the catalog");
   try {
     const mapping = await mappingFor(provider, card, now);
@@ -153,7 +183,10 @@ export async function refreshVariantPrices(
 export async function priceRefreshItems(game: string, now = new Date()): Promise<JobItem[]> {
   const [owned, viewed] = await Promise.all([
     prisma.printVariant.findMany({
-      where: { collection: { some: {} }, printing: { set: { game: { slug: game } } } },
+      where: {
+        collection: { some: {} },
+        printing: { set: { game: { slug: game }, category: { not: "pocket" } } },
+      },
       select: {
         id: true,
         printing: { select: { card: { select: { name: true } }, collectorNumber: true } },
@@ -168,7 +201,7 @@ export async function priceRefreshItems(game: string, now = new Date()): Promise
     ? await prisma.printVariant.findMany({
         where: {
           printingId: { in: viewed.map((v) => v.printingId) },
-          printing: { set: { game: { slug: game } } },
+          printing: { set: { game: { slug: game }, category: { not: "pocket" } } },
         },
         select: {
           id: true,
@@ -204,6 +237,8 @@ async function pruneItems(job: string, game: string, keep: Set<string>): Promise
 export interface PriceRefreshOptions extends JobRunOptions {
   /** How often collection/viewed cards are refreshed. Default 24 h. */
   refreshAfterMs?: number;
+  /** The price language from Settings; language-aware providers (eBay) fetch only this one. */
+  priceLanguage?: string;
 }
 
 /** One provider's refresh run for one game. `skipped` when the provider can't run. */
@@ -229,7 +264,12 @@ export async function runPriceRefresh(
         return items;
       },
       process: async (item) => {
-        await refreshVariantPrices(provider, item.key, options.now?.());
+        await refreshVariantPrices(
+          provider,
+          item.key,
+          options.now?.(),
+          options.priceLanguage ?? DEFAULT_PRICE_LANGUAGE,
+        );
       },
     },
     {
@@ -290,9 +330,73 @@ export async function enqueueStalePrices(
   return queued;
 }
 
-/** "Refresh prices" button: queue these variants for every provider now, stale or not. */
-export async function enqueuePriceRefresh(variantIds: string[], game: string): Promise<void> {
-  for (const provider of PRICE_PROVIDERS) {
+/**
+ * Providers that will actually run for a game right now: turned on in
+ * Settings, configured (API key present where one is needed) and supporting
+ * the game. The single answer used both to queue work and to tell whether
+ * "something is updating" — queueing for a provider that can't run leaves
+ * rows `pending` forever.
+ */
+export function runnableProviders(
+  game: string,
+  providers: Record<PriceProviderId, PriceProvider>,
+  enabled: Record<PriceProviderId, { enabled: boolean }>,
+): PriceProviderId[] {
+  return PRICE_PROVIDERS.filter((id) => {
+    const p = providers[id];
+    return enabled[id].enabled && p.isConfigured() && p.capabilities.games.includes(game);
+  });
+}
+
+/** Queued/running rows older than this are dead (a crashed run), not "updating". */
+export const STALE_UPDATING_MS = 10 * 60_000;
+
+/**
+ * Removes queue rows that can never run (`pending`/`syncing` for providers
+ * that aren't runnable for the game) and re-queues `syncing` rows left
+ * behind by a dead run. Called at startup and on every enqueue, so no data
+ * migration is needed. Returns how many rows it touched.
+ */
+export async function cleanupPriceQueue(
+  runnable: (game: string) => PriceProviderId[],
+  now = new Date(),
+): Promise<number> {
+  const games = await prisma.syncState.findMany({
+    where: { job: { startsWith: "price:" } },
+    distinct: ["game"],
+    select: { game: true },
+  });
+  let touched = 0;
+  const cutoff = new Date(now.getTime() - STALE_UPDATING_MS);
+  for (const { game } of games) {
+    const jobs = runnable(game).map(priceJob);
+    const dead = await prisma.syncState.deleteMany({
+      where: {
+        game,
+        job: { startsWith: "price:", notIn: jobs },
+        status: { in: ["pending", "syncing"] },
+      },
+    });
+    const stuck = await prisma.syncState.updateMany({
+      where: { game, job: { in: jobs }, status: "syncing", updatedAt: { lt: cutoff } },
+      data: { status: "pending" },
+    });
+    touched += dead.count + stuck.count;
+  }
+  return touched;
+}
+
+/**
+ * "Refresh prices" button: queue these variants for the given providers now,
+ * stale or not. `providers` defaults to all of them (CLI / tests); the app
+ * passes {@link runnableProviders}.
+ */
+export async function enqueuePriceRefresh(
+  variantIds: string[],
+  game: string,
+  providers: readonly PriceProviderId[] = PRICE_PROVIDERS,
+): Promise<void> {
+  for (const provider of providers) {
     await enqueueItems(
       priceJob(provider),
       game,
@@ -302,13 +406,62 @@ export async function enqueuePriceRefresh(variantIds: string[], game: string): P
   }
 }
 
-/** Whether any of these variants has a price refresh queued or running (for "Updating…"). */
-export async function pricesUpdating(variantIds: string[]): Promise<boolean> {
+/**
+ * A card page asked for prices in a language that has no data yet: queues an
+ * on-demand lookup for it with every given provider that can look a language
+ * up (eBay). CardTrader already stores every listing language from its single
+ * fetch, and Cardmarket/TCGplayer can't split by language, so they're skipped.
+ * Returns whether anything was queued.
+ */
+export async function enqueueLanguagePrices(
+  variantIds: string[],
+  game: string,
+  language: string,
+  providers: readonly PriceProviderId[],
+  { freshMs = 24 * 3_600_000, now = new Date() }: { freshMs?: number; now?: Date } = {},
+): Promise<boolean> {
+  const lookups = providers.filter((p) => LANGUAGE_AWARE_PROVIDERS.has(p) && p === "ebay");
+  let queued = false;
+  for (const provider of lookups) {
+    const job = priceJob(provider);
+    const keys = variantIds.map((id) => priceItemKey(id, language));
+    const states = await prisma.syncState.findMany({ where: { job, game, itemKey: { in: keys } } });
+    const byKey = new Map(states.map((s) => [s.itemKey, s]));
+    // Opening the page must not re-query eBay every time: skip what is queued, was looked up
+    // within `freshMs`, or failed within the last hour (the same budget rules as stale prices).
+    const due = keys.filter((key) => {
+      const s = byKey.get(key);
+      if (!s) return true;
+      if (s.status === "pending" || s.status === "syncing") return false;
+      if (s.status === "failed" && s.lastAttemptAt && now.getTime() - s.lastAttemptAt.getTime() < 3_600_000)
+        return false;
+      return !s.lastSyncedAt || now.getTime() - s.lastSyncedAt.getTime() > freshMs;
+    });
+    if (due.length === 0) continue;
+    await enqueueItems(job, game, due.map((key) => ({ key })), PRICE_PRIORITY.onDemand);
+    queued = true;
+  }
+  return queued;
+}
+
+/**
+ * Whether any of these variants has a price refresh queued or running (for
+ * "Updating…"). Only counts the given (runnable) providers and rows touched
+ * in the last {@link STALE_UPDATING_MS}, so an orphaned row never shows a
+ * phantom "Updating…".
+ */
+export async function pricesUpdating(
+  variantIds: string[],
+  opts: { providers?: readonly PriceProviderId[]; game?: string; now?: Date } = {},
+): Promise<boolean> {
+  const now = opts.now ?? new Date();
   const n = await prisma.syncState.count({
     where: {
-      job: { startsWith: "price:" },
-      itemKey: { in: variantIds },
+      job: opts.providers ? { in: opts.providers.map(priceJob) } : { startsWith: "price:" },
+      ...(opts.game ? { game: opts.game } : {}),
+      OR: variantIds.flatMap((id) => [{ itemKey: id }, { itemKey: { startsWith: `${id}@` } }]),
       status: { in: ["pending", "syncing"] },
+      updatedAt: { gte: new Date(now.getTime() - STALE_UPDATING_MS) },
     },
   });
   return n > 0;

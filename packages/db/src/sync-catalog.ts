@@ -82,7 +82,10 @@ async function printStatus(game: string) {
     `${game}: ${status.done}/${status.total} sets synced, ${status.pending} pending, ${status.failed} failed, ${status.syncing} in progress`,
   );
   for (const f of status.failures) {
-    console.log(`  - ${f.name ?? f.code} (${f.code}), ${f.attempts} attempt(s): ${f.error ?? "?"}`);
+    console.log(`  - ${f.name ?? f.code} (${f.code}), ${f.attempts} attempt(s): ${f.message}`);
+  }
+  for (const u of status.unavailableSets) {
+    console.log(`  - unavailable at source: ${u.name ?? u.code} (${u.code}): ${u.message}`);
   }
 }
 

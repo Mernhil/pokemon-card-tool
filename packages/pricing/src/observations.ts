@@ -10,6 +10,8 @@ export interface PricePoint {
   currency: string;
   condition: string | null;
   listingCount: number | null;
+  /** Language the number is for; null = the source can't split by language (or didn't say). */
+  languageCode?: string | null;
   observedAt: Date;
 }
 
@@ -19,13 +21,51 @@ export interface PricePoint {
  * provider has — and the kind always travels with the number to the UI.
  */
 export const HEADLINE_KINDS: Record<string, PriceKind[]> = {
-  cardmarket: ["trend", "market_average", "lowest_listing"],
+  // Never "lowest_listing": Cardmarket's price guide spans every language, so its cheapest
+  // listing is usually a German/Italian copy. It stays visible as a secondary number only.
+  cardmarket: ["trend", "market_average"],
   tcgplayer: ["market_average", "lowest_listing", "asking"],
   cardtrader: ["lowest_listing"],
   ebay: ["sold", "asking", "lowest_listing"],
 };
 
 const DEFAULT_KINDS: PriceKind[] = ["sold", "market_average", "trend", "asking", "lowest_listing"];
+
+/** Providers whose listings carry a language, so they can be filtered to one. */
+export const LANGUAGE_AWARE_PROVIDERS = new Set(["cardtrader", "ebay"]);
+
+export type LanguageMode =
+  /** Numbers that are for exactly the requested language. */
+  | "language"
+  /** The provider can't split by language: its numbers mix every language. */
+  | "all-languages"
+  /** Language-aware provider, but only numbers that didn't say which language. */
+  | "unsplit"
+  /** Language-aware provider with data, but none in the requested language. */
+  | "other-languages"
+  | "none";
+
+/**
+ * A provider's points for one language. Language-aware providers (CardTrader,
+ * eBay) give the requested language's numbers; if they only have unlabelled
+ * ones, those are used (mode "unsplit", lower trust); data in other languages
+ * is never used. Providers that can't split (Cardmarket, TCGplayer) return
+ * everything, labelled "all-languages" — never presented as a language.
+ */
+export function pointsForLanguage(
+  provider: string,
+  points: PricePoint[],
+  language: string,
+): { points: PricePoint[]; mode: LanguageMode } {
+  const own = points.filter((p) => p.provider === provider);
+  if (own.length === 0) return { points: [], mode: "none" };
+  if (!LANGUAGE_AWARE_PROVIDERS.has(provider)) return { points: own, mode: "all-languages" };
+  const exact = own.filter((p) => p.languageCode === language);
+  if (exact.length > 0) return { points: exact, mode: "language" };
+  const unsplit = own.filter((p) => !p.languageCode);
+  if (unsplit.length > 0) return { points: unsplit, mode: "unsplit" };
+  return { points: [], mode: "other-languages" };
+}
 
 /** Condition preference for a headline: near mint (or "not split by condition") first. */
 export const conditionRank = (condition: string | null) =>

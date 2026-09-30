@@ -30,6 +30,7 @@ export async function recordObservations(
       kind: obs.kind,
       condition: obs.condition,
       currency: obs.currency,
+      languageCode: obs.languageCode ?? null,
       observedAt: obs.observedAt,
     };
     const dupe = await db.priceObservation.findFirst({ where: key, select: { id: true } });
@@ -121,6 +122,7 @@ export function normalizeObservation(row: PriceObservation): PricePoint[] {
     currency: row.currency,
     condition: row.condition,
     listingCount: row.listingCount ?? row.sampleSize,
+    languageCode: row.languageCode,
     observedAt: row.observedAt,
   };
   if (row.kind && row.amount !== null) {
