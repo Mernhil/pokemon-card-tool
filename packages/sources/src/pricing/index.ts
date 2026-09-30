@@ -7,6 +7,7 @@ import type { PriceProvider } from "./types";
 export * from "./cardtrader";
 export * from "./ebay";
 export * from "./ebay-filter";
+export * from "./grading";
 export * from "./http";
 export * from "./matching";
 export * from "./tcgdex-prices";

@@ -175,6 +175,7 @@ model PrintVariant {
   mappings      MarketplaceMapping[]
   providerMaps  ProviderMapping[]
   alerts        PriceAlert[]
+  gradedPrices  GradedPrice[]
 
   @@unique([printingId, finish, edition, languageCode])
   @@index([languageCode])
@@ -496,5 +497,24 @@ model PriceAlert {
   triggeredAt       DateTime?
   triggeredValueEur Int?
 
+  @@index([variantId])
+}
+
+/// Asking prices of graded slabs (eBay), per grading company and grade, for one
+/// variant. Replaced wholesale on each refresh; see packages/db/src/graded.ts.
+model GradedPrice {
+  id           String       @id @default(cuid())
+  variantId    String
+  variant      PrintVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  company      String // GradingCompanyId: PSA, BGS, CGC, SGC, TAG, ACE
+  gradeKey     String // "10", "10:pristine", "10:black-label", "9.5"
+  currency     String
+  median       Int // minor units of `currency`
+  low          Int
+  listingCount Int
+  languageCode String
+  observedAt   DateTime
+
+  @@unique([variantId, languageCode, company, gradeKey, currency])
   @@index([variantId])
 }
