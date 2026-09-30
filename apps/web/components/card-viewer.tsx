@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  FOIL_ENABLED,
   INERTIA_STOP,
   angularVelocity,
   applyDrag,
@@ -779,7 +780,7 @@ function Card3D({
               </span>
             </div>
           )}
-          {foil.area !== "none" ? <div className="card3d__foil" aria-hidden /> : null}
+          {FOIL_ENABLED && foil.area !== "none" ? <div className="card3d__foil" aria-hidden /> : null}
           <div className="card3d__glare" aria-hidden />
         </div>
         <div className="card3d__face card3d__back" aria-hidden>
