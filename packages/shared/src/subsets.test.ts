@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { mergeTarget, subsetFor, subsetsForSet } from "./subsets";
+import { mergeTarget, restrictFinishes, subsetFor, subsetsForSet } from "./subsets";
+
+describe("restrictFinishes (30th Celebration: one finish, Pikachu Rare exempt)", () => {
+  const all = ["NON_FOIL", "HOLO", "REVERSE_HOLO"];
+  it("keeps only the base finish", () => {
+    expect(restrictFinishes("30th", "Double rare", all)).toEqual(["NON_FOIL"]);
+    expect(restrictFinishes("30th", null, ["HOLO", "REVERSE_HOLO"])).toEqual(["HOLO"]);
+  });
+  it("leaves Pikachu Rares and other sets untouched", () => {
+    expect(restrictFinishes("30th", "Pikachu Rare", all)).toEqual(all);
+    expect(restrictFinishes("sv01", "Common", all)).toEqual(all);
+    expect(restrictFinishes("30th", "Common", undefined)).toBeUndefined();
+  });
+});
 
 const s30 = (collectorNumber: string, rarityName: string | null, name = "Card") =>
   subsetFor({ setCode: "30th", collectorNumber, rarityName, name });

@@ -4,6 +4,7 @@ import {
   classifySet,
   hasFile,
   mergeTarget,
+  restrictFinishes,
   subsetFor,
   mediaUrl,
   putFile,
@@ -427,7 +428,16 @@ async function writeSet(
           },
         });
 
-        await syncVariants(tx, dbPrinting.id, languageCode, printing, counters);
+        await syncVariants(
+          tx,
+          dbPrinting.id,
+          languageCode,
+          {
+            ...printing,
+            finishes: restrictFinishes(set.code, printing.rarityName, printing.finishes),
+          },
+          counters,
+        );
         counters.priceObservations += await recordPrices(dbPrinting.id, printing.prices ?? [], tx);
 
         emit({
