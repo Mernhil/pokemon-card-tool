@@ -21,6 +21,7 @@ import {
   type JobRunOptions,
   type JobRunSummary,
 } from "./jobs/runner";
+import { dexIdsFromAttributes, setCardDex } from "./dex";
 import { recordPrices } from "./prices";
 import { computeValuations, snapshotPortfolio } from "./valuations";
 
@@ -168,12 +169,18 @@ async function upsertCard(tx: Tx, gameId: number, printing: SourcePrinting, coun
   const existing = await tx.card.findUnique({
     where: { gameId_canonicalKey: { gameId, canonicalKey } },
   });
+  let card;
   if (existing) {
     counters.cardsUpdated++;
-    return tx.card.update({ where: { id: existing.id }, data });
+    card = await tx.card.update({ where: { id: existing.id }, data });
+  } else {
+    counters.cardsCreated++;
+    card = await tx.card.create({ data: { gameId, canonicalKey, ...data } });
   }
-  counters.cardsCreated++;
-  return tx.card.create({ data: { gameId, canonicalKey, ...data } });
+  // Pokédex ids, normalized for indexed "all cards of this Pokémon" lookups.
+  const dexIds = dexIdsFromAttributes(printing.attributes);
+  if (dexIds.length > 0 || existing) await setCardDex(tx, card.id, dexIds);
+  return card;
 }
 
 /**

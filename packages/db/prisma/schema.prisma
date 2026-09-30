@@ -100,11 +100,25 @@ model Card {
   canonicalKey String // YGO passcode, OP card id, Pokemon hash(name+text)
   printings    Printing[]
   externalRefs ExternalRef[]
+  /// National Pokédex ids (Pokémon only), normalized out of attributes.dexId for indexed lookups.
+  dex          CardDex[]
   updatedAt    DateTime      @updatedAt
 
   @@unique([gameId, canonicalKey])
   @@index([gameId, name])
   @@index([gameId, cardType])
+}
+
+/// One National Pokédex id of a Pokémon card (a tag-team card has several): the indexed way to
+/// find "all cards of Jirachi" without matching names. Filled by the catalog sync and backfilled
+/// at startup from Card.attributes (packages/db/src/dex.ts).
+model CardDex {
+  cardId String
+  card   Card   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  dexId  Int
+
+  @@id([cardId, dexId])
+  @@index([dexId])
 }
 
 /// A card as it appears in one set: number, art, rarity, artist.

@@ -19,7 +19,11 @@ export async function register() {
       backfillImageKeys,
       mergeStraySets,
       backfillSubsets,
+      backfillCardDex,
     } = await import("@tcg-vault/db");
+    await backfillCardDex().catch((err) =>
+      console.warn("[startup] could not fill Pokédex ids:", err),
+    );
     await enableConcurrentReads();
     await ensureBaseData();
     await backfillImageKeys().catch((err) =>

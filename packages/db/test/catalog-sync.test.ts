@@ -326,3 +326,18 @@ describe("set logos backfill", () => {
     expect(await backfillSetLogos(adapter)).toBe(0); // idempotent
   });
 });
+
+describe("Pokédex ids", () => {
+  it("the sync stores a card's dex ids and keeps them current", async () => {
+    const adapter = new FakeAdapter(["s1"], 1);
+    adapter.sets[0]!.cards = [printing("s1", 1, { attributes: { dexId: [385] } })];
+    const clock = fakeClock();
+    await runCatalogSync(adapter, fast(clock));
+    expect((await prisma.cardDex.findMany()).map((r) => r.dexId)).toEqual([385]);
+
+    adapter.sets[0]!.cards = [printing("s1", 1, { attributes: { dexId: [385, 386] } })];
+    clock.advance(60 * 86_400_000);
+    await runCatalogSync(adapter, fast(clock));
+    expect((await prisma.cardDex.findMany()).map((r) => r.dexId).sort()).toEqual([385, 386]);
+  });
+});

@@ -16,9 +16,11 @@ interface Stored<F> {
  */
 export function useListState<F extends object>(
   defaultFilters: F,
+  /** Extra key for pages whose state belongs to one query (the search page: one entry per search). */
+  scope?: string,
 ): [F, Dispatch<SetStateAction<F>>] {
   const pathname = usePathname();
-  const storageKey = `list-state:${pathname}`;
+  const storageKey = `list-state:${pathname}${scope ? `?${scope}` : ""}`;
 
   const [filters, setFilters] = useState<F>(() => {
     if (typeof window === "undefined") return defaultFilters;
