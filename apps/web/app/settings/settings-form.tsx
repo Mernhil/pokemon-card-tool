@@ -6,7 +6,7 @@ import { CheckCircle2, CircleAlert, KeyRound, PlugZap, RefreshCw } from "lucide-
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { CheckForUpdatesButton } from "../../components/check-for-updates-button";
-import { Button } from "../../components/ui/button";
+import { Button, buttonClass } from "../../components/ui/button";
 import { useToast } from "../../components/ui/toast";
 import {
   refreshAllPricesAction,
@@ -419,6 +419,22 @@ export function SettingsForm({
           cards in your collection, which are never removed). Least recently viewed images are
           removed first. Stored in {storage.cacheDir}.
         </p>
+      </section>
+
+      <section className="panel p-5">
+        <h2 className="text-sm font-semibold">Export &amp; backup</h2>
+        <p className="mt-2 text-xs text-neutral-500">
+          Everything lives in one local database file. Download a spreadsheet of your collection, or
+          a full backup you can restore later.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <a className={buttonClass("secondary")} href="/api/export/collection" download>
+            Collection (CSV)
+          </a>
+          <a className={buttonClass("secondary")} href="/api/export/database" download>
+            Full backup (.db)
+          </a>
+        </div>
       </section>
 
       <section className="panel p-5">
