@@ -13,6 +13,7 @@ import { AddToCollection } from "../../../../components/add-to-collection";
 import { CardViewer } from "../../../../components/card-viewer";
 import { FinishBadge, PriceChip, finishLabel } from "../../../../components/money";
 import { PriceHistory } from "../../../../components/prices/price-history";
+import { CustomImageControl } from "../../../../components/custom-image-control";
 import { PriceRefresh } from "../../../../components/prices/price-refresh";
 import { PricesSection } from "../../../../components/prices/prices-section";
 import { priceProviders, requestPriceRefresh } from "../../../../lib/background";
@@ -182,6 +183,9 @@ export default async function CardPage({
             rarityName={printing.rarity?.name ?? null}
             variants={variants.map((v) => ({ id: v.id, finish: v.finish }))}
           />
+          <div className="mt-3">
+            <CustomImageControl printingId={printing.id} hasCustom={!!printing.customImageKey} />
+          </div>
         </div>
 
         <div className="flex min-w-0 flex-col gap-5">

@@ -72,6 +72,14 @@ export default async function SyncPage({
         }
       />
 
+      <p className="mb-4 text-xs text-neutral-500">
+        Missing a card scan no source has?{" "}
+        <Link href="/import-images" className="text-accent underline">
+          Import images from a folder
+        </Link>
+        , or use &quot;Set custom image&quot; on the card.
+      </p>
+
       {syncableGames.length > 1 ? (
         <div className="mb-6 flex gap-2 border-b">
           {syncableGames.map((g) => (

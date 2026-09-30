@@ -3,6 +3,7 @@
 import { Search } from "lucide-react";
 import { useMemo } from "react";
 import { CardTile } from "./card-tile";
+import { CustomImageControl } from "./custom-image-control";
 import { useListState } from "../lib/list-state";
 
 export interface SetGridCard {
@@ -137,6 +138,7 @@ export function SetGrid({ cards }: { cards: SetGridCard[] }) {
                 pricePrefix={c.multiPrice ? "from " : ""}
                 owned={c.owned}
                 dimmed={dim && anyOwned && c.owned === 0}
+                imageAction={<CustomImageControl printingId={c.id} compact />}
               />
             </li>
           ))}

@@ -19,6 +19,7 @@ export function CardTile({
   pricePrefix,
   owned = 0,
   dimmed = false,
+  imageAction,
 }: {
   href: string;
   imageKey: string | null;
@@ -30,6 +31,8 @@ export function CardTile({
   pricePrefix?: string;
   owned?: number;
   dimmed?: boolean;
+  /** Shown inside the tile when the card has no image (e.g. "Set custom image"). */
+  imageAction?: React.ReactNode;
 }) {
   return (
     <Link
@@ -39,7 +42,7 @@ export function CardTile({
       } ${owned > 0 ? "ring-1 ring-accent/50" : ""}`}
     >
       <div className="card-tile__img overflow-hidden rounded-md">
-        <CardImage imageKey={imageKey} name={name} number={number} />
+        <CardImage imageKey={imageKey} name={name} number={number} action={imageAction} />
       </div>
       {owned > 0 ? (
         <span

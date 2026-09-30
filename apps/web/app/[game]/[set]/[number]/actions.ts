@@ -1,6 +1,14 @@
 "use server";
 
-import { enqueuePriceRefresh, prisma, pricesUpdating } from "@tcg-vault/db";
+import {
+  MAX_CUSTOM_IMAGE_BYTES,
+  customImageErrorText,
+  enqueuePriceRefresh,
+  prisma,
+  pricesUpdating,
+  removeCustomImage,
+  setCustomImage,
+} from "@tcg-vault/db";
 import { PRICE_PROVIDERS, type PriceProviderId } from "@tcg-vault/shared";
 import { revalidatePath } from "next/cache";
 import {
@@ -82,4 +90,24 @@ export async function setMappingAction(input: {
   scheduleValuations();
   revalidatePath("/", "layout");
   return { ok: true };
+}
+
+/** "Set custom image": validates (type by content, size) and stores the file on the printing. */
+export async function setCustomImageAction(
+  formData: FormData,
+): Promise<{ ok: boolean; error?: string }> {
+  const printingId = String(formData.get("printingId") ?? "");
+  const file = formData.get("file");
+  if (!printingId || !(file instanceof File)) return { ok: false, error: "Choose an image file." };
+  if (file.size > MAX_CUSTOM_IMAGE_BYTES) return { ok: false, error: customImageErrorText("too-big") };
+  const result = await setCustomImage(printingId, new Uint8Array(await file.arrayBuffer()));
+  if (!result.ok) return { ok: false, error: customImageErrorText(result.error) };
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export async function removeCustomImageAction(printingId: string): Promise<{ ok: boolean }> {
+  const removed = await removeCustomImage(printingId);
+  revalidatePath("/", "layout");
+  return { ok: removed };
 }

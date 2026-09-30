@@ -11,3 +11,4 @@ export * from "./fx";
 export * from "./price-refresh";
 export * from "./settings";
 export * from "./image-fetch";
+export * from "./custom-image";
