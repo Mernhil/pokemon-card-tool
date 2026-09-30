@@ -1,10 +1,12 @@
 import {
+  cleanupPriceQueue,
   computeValuations,
   getSettings,
   readSecrets,
   refreshFxRates,
   runCatalogSync,
   runPriceRefresh,
+  runnableProviders,
   snapshotPortfolio,
   type AppSettings,
 } from "@tcg-vault/db";
@@ -163,6 +165,21 @@ export async function priceProviders(): Promise<{
   return { settings, providers: providerCache.providers };
 }
 
+/** Providers that will actually run for a game right now (enabled, configured, supports it). */
+export async function runnablePriceProviders(game: string): Promise<PriceProviderId[]> {
+  const { settings, providers } = await priceProviders();
+  return runnableProviders(game, providers, settings.providers);
+}
+
+/** Drops price-queue rows that can never run (see cleanupPriceQueue). */
+export async function cleanupOrphanedPriceRows(): Promise<void> {
+  const { settings, providers } = await priceProviders();
+  const removed = await cleanupPriceQueue((game) =>
+    runnableProviders(game, providers, settings.providers),
+  );
+  if (removed > 0) console.log(`[background] cleaned up ${removed} orphaned price queue rows`);
+}
+
 let valuationTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Recomputes values + today's portfolio snapshot once price runs settle (debounced). */
@@ -213,6 +230,7 @@ export function requestFxRefresh(): void {
 export function startBackgroundJobs(delayMs = 10_000): void {
   if (state.__tcgVaultStarted) return;
   state.__tcgVaultStarted = true;
+  void cleanupOrphanedPriceRows().catch(() => {});
   const timer = setTimeout(() => {
     requestCatalogSync();
     requestFxRefresh();

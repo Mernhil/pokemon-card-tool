@@ -290,9 +290,73 @@ export async function enqueueStalePrices(
   return queued;
 }
 
-/** "Refresh prices" button: queue these variants for every provider now, stale or not. */
-export async function enqueuePriceRefresh(variantIds: string[], game: string): Promise<void> {
-  for (const provider of PRICE_PROVIDERS) {
+/**
+ * Providers that will actually run for a game right now: turned on in
+ * Settings, configured (API key present where one is needed) and supporting
+ * the game. The single answer used both to queue work and to tell whether
+ * "something is updating" — queueing for a provider that can't run leaves
+ * rows `pending` forever.
+ */
+export function runnableProviders(
+  game: string,
+  providers: Record<PriceProviderId, PriceProvider>,
+  enabled: Record<PriceProviderId, { enabled: boolean }>,
+): PriceProviderId[] {
+  return PRICE_PROVIDERS.filter((id) => {
+    const p = providers[id];
+    return enabled[id].enabled && p.isConfigured() && p.capabilities.games.includes(game);
+  });
+}
+
+/** Queued/running rows older than this are dead (a crashed run), not "updating". */
+export const STALE_UPDATING_MS = 10 * 60_000;
+
+/**
+ * Removes queue rows that can never run (`pending`/`syncing` for providers
+ * that aren't runnable for the game) and re-queues `syncing` rows left
+ * behind by a dead run. Called at startup and on every enqueue, so no data
+ * migration is needed. Returns how many rows it touched.
+ */
+export async function cleanupPriceQueue(
+  runnable: (game: string) => PriceProviderId[],
+  now = new Date(),
+): Promise<number> {
+  const games = await prisma.syncState.findMany({
+    where: { job: { startsWith: "price:" } },
+    distinct: ["game"],
+    select: { game: true },
+  });
+  let touched = 0;
+  const cutoff = new Date(now.getTime() - STALE_UPDATING_MS);
+  for (const { game } of games) {
+    const jobs = runnable(game).map(priceJob);
+    const dead = await prisma.syncState.deleteMany({
+      where: {
+        game,
+        job: { startsWith: "price:", notIn: jobs },
+        status: { in: ["pending", "syncing"] },
+      },
+    });
+    const stuck = await prisma.syncState.updateMany({
+      where: { game, job: { in: jobs }, status: "syncing", updatedAt: { lt: cutoff } },
+      data: { status: "pending" },
+    });
+    touched += dead.count + stuck.count;
+  }
+  return touched;
+}
+
+/**
+ * "Refresh prices" button: queue these variants for the given providers now,
+ * stale or not. `providers` defaults to all of them (CLI / tests); the app
+ * passes {@link runnableProviders}.
+ */
+export async function enqueuePriceRefresh(
+  variantIds: string[],
+  game: string,
+  providers: readonly PriceProviderId[] = PRICE_PROVIDERS,
+): Promise<void> {
+  for (const provider of providers) {
     await enqueueItems(
       priceJob(provider),
       game,
@@ -302,13 +366,24 @@ export async function enqueuePriceRefresh(variantIds: string[], game: string): P
   }
 }
 
-/** Whether any of these variants has a price refresh queued or running (for "Updating…"). */
-export async function pricesUpdating(variantIds: string[]): Promise<boolean> {
+/**
+ * Whether any of these variants has a price refresh queued or running (for
+ * "Updating…"). Only counts the given (runnable) providers and rows touched
+ * in the last {@link STALE_UPDATING_MS}, so an orphaned row never shows a
+ * phantom "Updating…".
+ */
+export async function pricesUpdating(
+  variantIds: string[],
+  opts: { providers?: readonly PriceProviderId[]; game?: string; now?: Date } = {},
+): Promise<boolean> {
+  const now = opts.now ?? new Date();
   const n = await prisma.syncState.count({
     where: {
-      job: { startsWith: "price:" },
+      job: opts.providers ? { in: opts.providers.map(priceJob) } : { startsWith: "price:" },
+      ...(opts.game ? { game: opts.game } : {}),
       itemKey: { in: variantIds },
       status: { in: ["pending", "syncing"] },
+      updatedAt: { gte: new Date(now.getTime() - STALE_UPDATING_MS) },
     },
   });
   return n > 0;

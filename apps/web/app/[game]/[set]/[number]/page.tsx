@@ -1,7 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { enqueueStalePrices, latestValuations, prisma, recordCardView } from "@tcg-vault/db";
-import { PRICE_PROVIDERS, mediaUrl } from "@tcg-vault/shared";
+import {
+  enqueueStalePrices,
+  latestValuations,
+  prisma,
+  recordCardView,
+  runnableProviders,
+} from "@tcg-vault/db";
+import { mediaUrl } from "@tcg-vault/shared";
 import { AddToCollection } from "../../../../components/add-to-collection";
 import { CardViewer } from "../../../../components/card-viewer";
 import { FinishBadge, PriceChip, finishLabel } from "../../../../components/money";
@@ -89,9 +95,7 @@ export default async function CardPage({
   // Remember the view (recently viewed cards get refreshed) and queue a
   // background refresh for stale prices. Neither ever blocks on a provider.
   const { settings, providers } = await priceProviders();
-  const active = PRICE_PROVIDERS.filter(
-    (id) => settings.providers[id].enabled && providers[id].isConfigured(),
-  );
+  const active = runnableProviders(game.slug, providers, settings.providers);
   await recordCardView(printing.id).catch(() => {});
   const queued = await enqueueStalePrices(
     variantIds,
@@ -112,6 +116,7 @@ export default async function CardPage({
       ? loadCardPrices(selected.id, variantIds, {
           name: printing.card.name,
           number: printing.collectorNumber,
+          game: game.slug,
         })
       : null,
   ]);
@@ -237,6 +242,13 @@ export default async function CardPage({
                       variantIds={variantIds}
                       game={game.slug}
                       initiallyUpdating={prices.updating || queued}
+                      providers={prices.panels.map((p) => ({
+                        id: p.id,
+                        label: p.label,
+                        state: p.state,
+                        message: p.message,
+                        updatedAt: p.updatedAt,
+                      }))}
                     />
                   </div>
                 }

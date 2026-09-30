@@ -3,18 +3,37 @@
 import { enqueuePriceRefresh, prisma, pricesUpdating } from "@tcg-vault/db";
 import { PRICE_PROVIDERS, type PriceProviderId } from "@tcg-vault/shared";
 import { revalidatePath } from "next/cache";
-import { requestPriceRefresh, scheduleValuations } from "../../../../lib/background";
+import {
+  cleanupOrphanedPriceRows,
+  requestPriceRefresh,
+  runnablePriceProviders,
+  scheduleValuations,
+} from "../../../../lib/background";
 
-/** "Refresh prices": queues these variants first for every provider and starts the runs. */
-export async function refreshPricesAction(variantIds: string[], game: string): Promise<void> {
-  if (variantIds.length === 0 || variantIds.length > 20) return;
-  await enqueuePriceRefresh(variantIds, game);
-  requestPriceRefresh();
+/**
+ * "Refresh prices": queues these variants first for every provider that can
+ * actually run (enabled, configured, supports the game) and starts the runs.
+ * `started` is false when no provider can run, so the button doesn't wait.
+ */
+export async function refreshPricesAction(
+  variantIds: string[],
+  game: string,
+): Promise<{ started: boolean }> {
+  if (variantIds.length === 0 || variantIds.length > 20) return { started: false };
+  const runnable = await runnablePriceProviders(game);
+  await cleanupOrphanedPriceRows();
+  if (runnable.length === 0) return { started: false };
+  await enqueuePriceRefresh(variantIds, game, runnable);
+  requestPriceRefresh(runnable);
+  return { started: true };
 }
 
 /** Polled by the "Updating…" indicator; true while a refresh for these is queued or running. */
-export async function pricesUpdatingAction(variantIds: string[]): Promise<boolean> {
-  return pricesUpdating(variantIds.slice(0, 20));
+export async function pricesUpdatingAction(variantIds: string[], game: string): Promise<boolean> {
+  return pricesUpdating(variantIds.slice(0, 20), {
+    game,
+    providers: await runnablePriceProviders(game),
+  });
 }
 
 /**
@@ -56,8 +75,10 @@ export async function setMappingAction(input: {
     });
   }
   // A new mapping means earlier numbers may belong to another card: refetch now.
-  await enqueuePriceRefresh([input.variantId], input.game);
-  requestPriceRefresh([provider]);
+  if ((await runnablePriceProviders(input.game)).includes(provider)) {
+    await enqueuePriceRefresh([input.variantId], input.game, [provider]);
+    requestPriceRefresh([provider]);
+  }
   scheduleValuations();
   revalidatePath("/", "layout");
   return { ok: true };

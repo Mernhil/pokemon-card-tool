@@ -13,6 +13,8 @@ export default function setup() {
     cwd: join(__dirname, ".."),
     env: { ...process.env, DATABASE_URL: url },
     stdio: "pipe",
+    // npx is npx.cmd on Windows, which execFile can only start through a shell.
+    shell: process.platform === "win32",
   });
   return () => rmSync(dir, { recursive: true, force: true });
 }

@@ -15,7 +15,7 @@ import {
   type PriceKind,
   type PriceProviderId,
 } from "@tcg-vault/shared";
-import { priceProviders } from "./background";
+import { priceProviders, runnablePriceProviders } from "./background";
 
 /**
  * Everything the card page's Prices section shows, read from the DB only —
@@ -105,7 +105,7 @@ export interface CardPrices {
 export async function loadCardPrices(
   variantId: string,
   allVariantIds: string[],
-  card: { name: string; number: string },
+  card: { name: string; number: string; game: string },
 ): Promise<CardPrices> {
   const now = Date.now();
   const [settings, rates, pointsByVariant, mappings, health, updating, { providers }] =
@@ -115,7 +115,7 @@ export async function loadCardPrices(
       pricePoints([variantId]),
       prisma.providerMapping.findMany({ where: { variantId } }),
       prisma.providerStatus.findMany(),
-      pricesUpdating(allVariantIds),
+      pricesUpdating(allVariantIds, { game: card.game, providers: await runnablePriceProviders(card.game) }),
       priceProviders(),
     ]);
   const points = pointsByVariant.get(variantId) ?? [];

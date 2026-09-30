@@ -10,12 +10,15 @@ import { prisma } from "../src/client";
 import { loadFxRates, parseEcbXml, refreshFxRates } from "../src/fx";
 import {
   PRICE_PRIORITY,
+  cleanupPriceQueue,
+  enqueuePriceRefresh,
   enqueueStalePrices,
   priceJob,
   priceRefreshItems,
   pricesUpdating,
   recordCardView,
   runPriceRefresh,
+  runnableProviders,
 } from "../src/price-refresh";
 import { normalizeObservation, pricePoints, recordPrices } from "../src/prices";
 import {
@@ -118,6 +121,67 @@ async function makeCard(name: string, { owned = false } = {}) {
   }
   return { printingId: printing.id, variantId: variant.id };
 }
+
+describe("\"Updating…\" never gets stuck", () => {
+  const enabled = {
+    cardmarket: { enabled: true },
+    tcgplayer: { enabled: true },
+    cardtrader: { enabled: true },
+    ebay: { enabled: false },
+  };
+  const all = () => ({
+    cardmarket: fakeProvider("cardmarket"),
+    tcgplayer: fakeProvider("tcgplayer"),
+    cardtrader: { ...fakeProvider("cardtrader"), isConfigured: () => false },
+    ebay: fakeProvider("ebay"),
+  });
+
+  it("runnable = enabled AND configured AND supports the game", () => {
+    const providers = all();
+    expect(runnableProviders("pokemon", providers, enabled)).toEqual(["cardmarket", "tcgplayer"]);
+    expect(runnableProviders("yugioh", providers, enabled)).toEqual([]);
+  });
+
+  it("rows queued for a provider that can't run don't count, and are cleaned up", async () => {
+    const { variantId } = await makeCard("A", { owned: true });
+    // The old behaviour: queue for every provider, including unconfigured ones.
+    await enqueuePriceRefresh([variantId], "pokemon");
+    const runnable = runnableProviders("pokemon", all(), enabled);
+    expect(await pricesUpdating([variantId], { game: "pokemon", providers: runnable })).toBe(true);
+
+    // Only the runnable providers finish; cardtrader/ebay rows stay pending.
+    for (const id of runnable) {
+      await prisma.syncState.updateMany({ where: { job: priceJob(id) }, data: { status: "done" } });
+    }
+    expect(await pricesUpdating([variantId], { game: "pokemon", providers: runnable })).toBe(false);
+
+    expect(await cleanupPriceQueue(() => runnable)).toBe(2);
+    expect(await prisma.syncState.findMany({ where: { status: "pending" } })).toEqual([]);
+  });
+
+  it("enqueues only the given providers", async () => {
+    const { variantId } = await makeCard("A");
+    await enqueuePriceRefresh([variantId], "pokemon", ["cardmarket"]);
+    const rows = await prisma.syncState.findMany();
+    expect(rows.map((r) => r.job)).toEqual([priceJob("cardmarket")]);
+  });
+
+  it("ignores stale queued/running rows, and re-queues dead syncing ones", async () => {
+    const { variantId } = await makeCard("A");
+    await enqueuePriceRefresh([variantId], "pokemon", ["cardmarket"]);
+    const opts = { game: "pokemon", providers: ["cardmarket" as const] };
+    expect(await pricesUpdating([variantId], opts)).toBe(true);
+    // 11 minutes later the row is considered dead, not "updating".
+    const later = new Date(Date.now() + 11 * 60_000);
+    expect(await pricesUpdating([variantId], { ...opts, now: later })).toBe(false);
+
+    await prisma.syncState.updateMany({
+      data: { status: "syncing", updatedAt: new Date(Date.now() - 20 * 60_000) },
+    });
+    expect(await cleanupPriceQueue(() => ["cardmarket"])).toBe(1);
+    expect((await prisma.syncState.findFirstOrThrow()).status).toBe("pending");
+  });
+});
 
 const fast = (clock = fakeClock()) => ({ now: clock.now, sleep: async () => {}, random: () => 1 });
 
