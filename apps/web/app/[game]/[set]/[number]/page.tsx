@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import {
   enqueueLanguagePrices,
   enqueueStalePrices,
+  findLanguageSiblings,
   getCardImageResult,
   latestValuations,
   listAlerts,
@@ -131,15 +132,20 @@ export default async function CardPage({
     settings.staleAfterHours * 3_600_000,
   ).catch(() => false);
   if (queued) requestPriceRefresh(active);
-  // The price language the panels show: the setting, unless the page asked for another one.
-  const language = isPriceLanguage(searchParams.lang) ? searchParams.lang : settings.priceLanguage;
+  // The price language the panels show: this card's own language when it isn't English
+  // (a Japanese card shows Japanese prices), else the setting, unless the page asked for another.
+  const cardLanguage = selected?.languageCode ?? "en";
+  const defaultLanguage =
+    cardLanguage !== "en" && isPriceLanguage(cardLanguage) ? cardLanguage : settings.priceLanguage;
+  const language = isPriceLanguage(searchParams.lang) ? searchParams.lang : defaultLanguage;
   const langQueued =
-    priceable && language !== settings.priceLanguage
+    priceable && language !== defaultLanguage
       ? await enqueueLanguagePrices(variantIds, game.slug, language, active).catch(() => false)
       : false;
   if (langQueued) requestPriceRefresh(["ebay"]);
-  const langParam = language !== settings.priceLanguage ? `&lang=${language}` : "";
+  const langParam = language !== defaultLanguage ? `&lang=${language}` : "";
 
+  const siblings = await findLanguageSiblings(printing.id).catch(() => []);
   const [values, neighbours, prices, alertRows] = await Promise.all([
     latestValuations(variantIds),
     prisma.printing.findMany({
@@ -320,8 +326,12 @@ export default async function CardPage({
                     )}
                     <PriceLanguageSelect
                       language={prices.language}
-                      defaultLanguage={settings.priceLanguage}
+                      defaultLanguage={defaultLanguage}
                       canFilter={prices.languageFilterable}
+                      siblings={siblings.map((s) => ({
+                        language: s.languageCode,
+                        href: cardHref(game.slug, s.setCode, s.collectorNumber),
+                      }))}
                     />
                     <PriceRefresh
                       variantIds={variantIds}

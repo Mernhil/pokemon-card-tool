@@ -22,6 +22,8 @@ const ENGLISH = { categoryId: 3, prefix: "EN-", languageCode: "en" } as const;
 
 /** Japanese groups worth importing: every promo-like one. */
 const JAPAN_GROUP = /promo|player placement|corocoro|information|unnumbered/i;
+/** TCGdex's Japanese catalog already has these (with Cardmarket prices). */
+const JAPAN_IN_TCGDEX = /^(SV-P|M-P)/i;
 /**
  * English groups TCGdex has no set for. (Sets like "SVP" or "McDonald's" are
  * already there, so a plain /promo/ would duplicate them.)
@@ -169,7 +171,7 @@ export class TcgcsvPromoAdapter {
       ] as const) {
         const groups = await this.json<Group[]>(`${BASE}/${region.categoryId}/groups`);
         const taken = new Set<string>();
-        for (const group of groups.filter((g) => wanted.test(g.name))) {
+        for (const group of groups.filter((g) => wanted.test(g.name) && !(region === JAPAN && JAPAN_IN_TCGDEX.test(g.name)))) {
           let code = tcgcsvSetCode(region, group);
           if (taken.has(code)) code = `${code}-${group.groupId}`;
           taken.add(code);

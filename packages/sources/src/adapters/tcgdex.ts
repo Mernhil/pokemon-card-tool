@@ -323,15 +323,39 @@ function chunk<T>(items: T[], size: number): T[][] {
  * this to populate Set/Card/Printing/PrintVariant.
  */
 export class TcgdexPokemonAdapter implements CatalogSourceAdapter {
-  readonly slug = "tcgdex-pokemon";
+  readonly slug: string;
   readonly game = "pokemon";
-  readonly languageCode = "en";
+  readonly languageCode: string;
   private readonly client: TCGdex;
   private readonly concurrency: number;
+  private readonly codePrefix: string;
 
-  constructor(client: TCGdex = new TCGdex("en"), options: { concurrency?: number } = {}) {
-    this.client = client;
+  /**
+   * `language` is a TCGdex language ("en", "ja", ...). Non-English catalogs get
+   * their own source slug and a `codePrefix` on every set code (TCGdex reuses
+   * ids like "neo1" across languages, and our set codes are unique per game).
+   */
+  constructor(
+    client?: TCGdex,
+    options: { concurrency?: number; language?: string; codePrefix?: string } = {},
+  ) {
+    this.languageCode = options.language ?? "en";
+    this.client = client ?? new TCGdex(this.languageCode as ConstructorParameters<typeof TCGdex>[0]);
+    this.slug = this.languageCode === "en" ? "tcgdex-pokemon" : `tcgdex-pokemon-${this.languageCode}`;
+    this.codePrefix = options.codePrefix ?? "";
     this.concurrency = Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY);
+  }
+
+  private tagSet(set: SourceSet): SourceSet {
+    return {
+      ...set,
+      code: this.codePrefix + set.code,
+      ...(this.languageCode !== "en" ? { languageCode: this.languageCode } : {}),
+    };
+  }
+
+  private bare(code: string): string {
+    return code.startsWith(this.codePrefix) ? code.slice(this.codePrefix.length) : code;
   }
 
   async listSets(): Promise<SourceSet[]> {
@@ -350,7 +374,7 @@ export class TcgdexPokemonAdapter implements CatalogSourceAdapter {
         }),
       );
       for (const set of details) {
-        if (set) results.push(mapTcgdexSetToSourceSet(set));
+        if (set) results.push(this.tagSet(mapTcgdexSetToSourceSet(set)));
       }
     }
 
@@ -359,8 +383,8 @@ export class TcgdexPokemonAdapter implements CatalogSourceAdapter {
 
   /** One set's details, or null when TCGdex has no set with that id. */
   async getSet(setCode: string): Promise<SourceSet | null> {
-    const set = await this.client.set.get(setCode);
-    return set ? mapTcgdexSetToSourceSet(set) : null;
+    const set = await this.client.set.get(this.bare(setCode));
+    return set ? this.tagSet(mapTcgdexSetToSourceSet(set)) : null;
   }
 
   /**
@@ -372,12 +396,12 @@ export class TcgdexPokemonAdapter implements CatalogSourceAdapter {
     const resumes = await this.client.set.list();
     if (resumes.length === 0) throw new Error("TCGdex returned an empty set list");
     return resumes
-      .map((r) => ({ code: r.id, name: r.name, totalCards: r.cardCount?.total }))
+      .map((r) => ({ code: this.codePrefix + r.id, name: r.name, totalCards: r.cardCount?.total }))
       .reverse();
   }
 
   async listPrintings(setCode: string): Promise<SourcePrinting[]> {
-    const set = await this.client.set.get(setCode);
+    const set = await this.client.set.get(this.bare(setCode));
     if (!set) return [];
 
     const results: SourcePrinting[] = [];

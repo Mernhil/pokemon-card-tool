@@ -12,7 +12,7 @@ import { EbayProvider, ebayObservations, parseEbaySearch } from "./ebay";
 import { ebayQueryFor, filterListings } from "./ebay-filter";
 import { AuthError, RateLimitedError, parseRetryAfter, requestJson } from "./http";
 import { normalizeName, normalizeNumber, scoreCardMatch, scoreSetMatch } from "./matching";
-import { TcgdexMarketProvider, TcgdexPriceClient, quoteToObservations } from "./tcgdex-prices";
+import { TcgdexMarketProvider, TcgdexPriceClient, quoteToObservations, tcgdexCardId } from "./tcgdex-prices";
 import type { PricedCard } from "./types";
 
 const fixture = (name: string) =>
@@ -517,5 +517,18 @@ describe("scoreSetMatch: galleries filed in the parent expansion", () => {
       scoreSetMatch({ code: "swsh10tg", name: "Astral Radiance Trainer Gallery" }, { name: "Lost Origin" })
         .score,
     ).toBe(0);
+  });
+});
+
+describe("tcgdexCardId", () => {
+  const base = { setCode: "sv01", collectorNumber: "001/198", externalIds: {} as Record<string, string> };
+  it("uses the id of the card's own language catalog", () => {
+    expect(tcgdexCardId({ ...base, languageCode: "ja", externalIds: { "tcgdex-pokemon-ja": "SV1S-001" } } as never)).toBe("SV1S-001");
+    expect(tcgdexCardId({ ...base, languageCode: "en", externalIds: { "tcgdex-pokemon": "sv01-001" } } as never)).toBe("sv01-001");
+  });
+  it("never guesses an English id for a Japanese card or a tcgcsv promo", () => {
+    expect(tcgdexCardId({ ...base, languageCode: "ja" } as never)).toBeNull();
+    expect(tcgdexCardId({ ...base, setCode: "JP-sm-p", languageCode: "ja" } as never)).toBeNull();
+    expect(tcgdexCardId({ ...base, languageCode: "en" } as never)).toBe("sv01-001");
   });
 });

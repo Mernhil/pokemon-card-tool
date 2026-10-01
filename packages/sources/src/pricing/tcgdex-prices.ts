@@ -57,11 +57,20 @@ export function quoteToObservations(
   return out;
 }
 
-/** The TCGdex card id for one of our printings. */
-export function tcgdexCardId(card: PricedCard): string {
-  return (
-    card.externalIds["tcgdex-pokemon"] ?? `${card.setCode}-${card.collectorNumber.split("/")[0]}`
-  );
+/** Sets that come from tcgcsv (promos TCGdex lacks), not TCGdex: see adapters/tcgcsv-promos.ts. */
+const NOT_TCGDEX_SET = /^(JP|EN)-/;
+
+/**
+ * The TCGdex card id for one of our printings, or null when TCGdex doesn't
+ * have it (tcgcsv promos). Each language is its own TCGdex catalog, with its
+ * own ids and its own Cardmarket products.
+ */
+export function tcgdexCardId(card: PricedCard): string | null {
+  const lang = card.languageCode || "en";
+  const known = card.externalIds[lang === "en" ? "tcgdex-pokemon" : `tcgdex-pokemon-${lang}`];
+  if (known) return known;
+  if (lang !== "en" || NOT_TCGDEX_SET.test(card.setCode)) return null;
+  return `${card.setCode}-${card.collectorNumber.split("/")[0]}`;
 }
 
 /**
@@ -84,18 +93,19 @@ export class TcgdexPriceClient {
     } = {},
   ) {}
 
-  card(id: string): Promise<{ pricing?: TcgdexPricing; hash: string }> {
+  card(id: string, lang = this.options.lang ?? "en"): Promise<{ pricing?: TcgdexPricing; hash: string }> {
     const now = Date.now();
-    const hit = this.cache.get(id);
+    const key = `${lang}/${id}`;
+    const hit = this.cache.get(key);
     if (hit && now - hit.at < (this.options.cacheMs ?? 10 * 60_000)) return hit.value;
     const base = this.options.baseUrl ?? "https://api.tcgdex.net/v2";
     const value = requestJson<{ pricing?: TcgdexPricing }>(
-      `${base}/${this.options.lang ?? "en"}/cards/${encodeURIComponent(id)}`,
+      `${base}/${lang}/cards/${encodeURIComponent(id)}`,
       { headers: { Accept: "application/json" } },
       { provider: "tcgdex", fetch: this.options.fetch, throttle: this.throttle },
     ).then(({ data, hash }) => ({ pricing: data.pricing, hash }));
-    value.catch(() => this.cache.delete(id));
-    this.cache.set(id, { at: now, value });
+    value.catch(() => this.cache.delete(key));
+    this.cache.set(key, { at: now, value });
     if (this.cache.size > 500) this.cache.delete(this.cache.keys().next().value!);
     return value;
   }
@@ -137,16 +147,40 @@ export class TcgdexMarketProvider implements PriceProvider {
   }
 
   private async quotes(card: PricedCard) {
-    const { pricing, hash } = await this.client.card(tcgdexCardId(card));
+    const id = tcgdexCardId(card);
+    if (!id) return { quotes: [] as SourcePriceQuote[], hash: "", noTcgdex: true };
+    const { pricing, hash } = await this.client.card(id, card.languageCode || "en");
     const quotes = pricesFor(pricing, card.printingFinishes).filter(
       (q) => q.source === SOURCE_FOR[this.id] && q.finish === card.finish,
     );
-    return { quotes, hash };
+    return { quotes, hash, noTcgdex: false };
   }
 
   async resolveMapping(card: PricedCard): Promise<ResolvedMapping> {
-    const { quotes } = await this.quotes(card);
+    const { quotes, noTcgdex } = await this.quotes(card);
     const quote = quotes[0];
+    if (noTcgdex) {
+      // Not a TCGdex card (a tcgcsv promo): its prices came with the catalog, so keep that link.
+      const own = card.externalIds[this.id];
+      return own
+        ? {
+            externalId: own,
+            query: null,
+            url:
+              this.id === "tcgplayer" ? `https://www.tcgplayer.com/product/${encodeURIComponent(own)}` : null,
+            confidence: 1,
+            status: "matched",
+            notes: "Priced with the catalog",
+          }
+        : {
+            externalId: null,
+            query: null,
+            url: null,
+            confidence: 0,
+            status: "not_found",
+            notes: "No Cardmarket price for this promo",
+          };
+    }
     if (!quote) {
       return {
         externalId: null,

@@ -12,11 +12,14 @@ export function PriceLanguageSelect({
   language,
   defaultLanguage,
   canFilter,
+  siblings = [],
 }: {
   language: string;
   defaultLanguage: string;
   /** False when no configured provider can split by language: the choice would change nothing. */
   canFilter: boolean;
+  /** The same card in other languages: choosing one of those opens that card. */
+  siblings?: Array<{ language: string; href: string }>;
 }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -24,7 +27,7 @@ export function PriceLanguageSelect({
     <label
       className="flex items-center gap-1.5 text-xs text-neutral-500"
       title={
-        canFilter
+        canFilter || siblings.length > 0
           ? undefined
           : "Only eBay and CardTrader can split prices by language. Add an API key in Settings."
       }
@@ -32,9 +35,14 @@ export function PriceLanguageSelect({
       Language
       <select
         className="field py-1 text-xs disabled:opacity-50"
-        disabled={!canFilter}
+        disabled={!canFilter && siblings.length === 0}
         value={language}
         onChange={(e) => {
+          const sibling = siblings.find((s) => s.language === e.target.value);
+          if (sibling) {
+            router.push(sibling.href);
+            return;
+          }
           const next = new URLSearchParams(params.toString());
           if (e.target.value === defaultLanguage) next.delete("lang");
           else next.set("lang", e.target.value);
@@ -46,6 +54,7 @@ export function PriceLanguageSelect({
         {PRICE_LANGUAGES.map((l) => (
           <option key={l.code} value={l.code}>
             {l.label}
+            {siblings.some((s) => s.language === l.code) ? " — open card" : ""}
             {l.code === defaultLanguage ? " (default)" : ""}
           </option>
         ))}

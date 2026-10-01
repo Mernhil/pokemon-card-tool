@@ -43,9 +43,14 @@ const pokemonImageFallback = new PokemonTcgIoImageFallback();
 const CATALOG_ADAPTERS: Array<() => CatalogSourceAdapter> = [
   () =>
     withExtraSets(
-      withImageFallback(new TcgdexPokemonAdapter(), pokemonImageFallback),
-      new TcgcsvPromoAdapter(),
-      TCGCSV_SET_PREFIXES,
+      withExtraSets(
+        withImageFallback(new TcgdexPokemonAdapter(), pokemonImageFallback),
+        new TcgcsvPromoAdapter(),
+        TCGCSV_SET_PREFIXES,
+      ),
+      // The Japanese catalog: its own sets (ja- prefix), cards and Cardmarket prices.
+      new TcgdexPokemonAdapter(undefined, { language: "ja", codePrefix: "ja-" }),
+      ["ja-"],
     ),
   () => new YgoprodeckAdapter(),
   () => new OptcgAdapter(),
