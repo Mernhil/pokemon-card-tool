@@ -308,7 +308,12 @@ async function writeSet(
   merge: { setId: number; code: string; sortOffset: number } | null = null,
 ): Promise<Counters> {
   const counters = emptyCounters();
-  const languageCode = adapter.languageCode;
+  const languageCode = sourceSet.languageCode ?? adapter.languageCode;
+  await prisma.language.upsert({
+    where: { code: languageCode },
+    update: {},
+    create: { code: languageCode, name: languageCode },
+  });
 
   await prisma.$transaction(
     async (tx) => {

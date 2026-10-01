@@ -13,6 +13,9 @@ import {
 import { PRICE_PROVIDERS, type PriceProviderId } from "@tcg-vault/shared";
 import {
   OptcgAdapter,
+  TCGCSV_SET_PREFIXES,
+  TcgcsvPromoAdapter,
+  withExtraSets,
   PokemonTcgIoImageFallback,
   TcgdexPokemonAdapter,
   YgoprodeckAdapter,
@@ -38,7 +41,12 @@ import {
 const pokemonImageFallback = new PokemonTcgIoImageFallback();
 
 const CATALOG_ADAPTERS: Array<() => CatalogSourceAdapter> = [
-  () => withImageFallback(new TcgdexPokemonAdapter(), pokemonImageFallback),
+  () =>
+    withExtraSets(
+      withImageFallback(new TcgdexPokemonAdapter(), pokemonImageFallback),
+      new TcgcsvPromoAdapter(),
+      TCGCSV_SET_PREFIXES,
+    ),
   () => new YgoprodeckAdapter(),
   () => new OptcgAdapter(),
 ];

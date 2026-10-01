@@ -9,6 +9,8 @@ export interface SourceSet {
   totalCards?: number;
   logoUrl?: string;
   symbolUrl?: string;
+  /** Language.code of this set's cards when it differs from the adapter's (e.g. Japanese promos). */
+  languageCode?: string;
 }
 
 export interface SourcePrinting {

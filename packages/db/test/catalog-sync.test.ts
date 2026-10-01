@@ -341,3 +341,27 @@ describe("Pokédex ids", () => {
     expect((await prisma.cardDex.findMany()).map((r) => r.dexId).sort()).toEqual([385, 386]);
   });
 });
+
+describe("sets in another language", () => {
+  beforeEach(resetDb);
+
+  it("a set tagged ja gets Japanese variants and prices, next to English sets", async () => {
+    const adapter = new FakeAdapter(["EN1", "JP1"], 1);
+    adapter.sets[1]!.languageCode = "ja";
+    adapter.sets[1]!.cards = [
+      printing("JP1", 1, {
+        finishes: ["NON_FOIL"],
+        prices: [{ finish: "NON_FOIL", source: "TCGPLAYER", currency: "USD", market: 6400, externalId: "598114" }],
+      }),
+    ];
+    await runCatalogSync(adapter, { ...fast(), skipImages: true } as never);
+
+    const jp = await prisma.set.findFirstOrThrow({ where: { code: "JP1" } });
+    expect(jp.primaryLangCode).toBe("ja");
+    const variants = await prisma.printVariant.findMany({ where: { printing: { set: { code: "JP1" } } } });
+    expect(variants.map((v) => v.languageCode)).toEqual(["ja"]);
+    expect(await prisma.priceObservation.count({ where: { variant: { languageCode: "ja" } } })).toBeGreaterThan(0);
+    const en = await prisma.printVariant.findMany({ where: { printing: { set: { code: "EN1" } } } });
+    expect(new Set(en.map((v) => v.languageCode))).toEqual(new Set(["en"]));
+  });
+});
