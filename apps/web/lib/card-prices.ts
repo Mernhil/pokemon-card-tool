@@ -100,14 +100,27 @@ const serialize = (p: PricePoint): SerializedPoint => ({
   t: p.observedAt.getTime(),
 });
 
+/** The marketplace's own product page (with its listings), when we know the product id. */
+function productUrl(provider: PriceProviderId, externalId: string | null): string | null {
+  if (!externalId || !/^\d+$/.test(externalId)) return null;
+  if (provider === "cardmarket")
+    return `https://www.cardmarket.com/en/Pokemon/Products?idProduct=${externalId}`;
+  if (provider === "tcgplayer") return `https://www.tcgplayer.com/product/${externalId}`;
+  return null;
+}
+
 /** Where to look the card up on a provider when we have no product link. */
-function searchUrl(provider: PriceProviderId, name: string, number: string): string {
+function searchUrl(provider: PriceProviderId, name: string, number: string, game: string): string {
   const q = encodeURIComponent(`${name} ${number.split("/")[0]}`);
   switch (provider) {
-    case "cardmarket":
-      return `https://www.cardmarket.com/en/Pokemon/Products/Search?searchString=${q}`;
-    case "tcgplayer":
-      return `https://www.tcgplayer.com/search/pokemon/product?q=${q}`;
+    case "cardmarket": {
+      const cmGame = { yugioh: "YuGiOh", "one-piece": "OnePiece" }[game] ?? "Pokemon";
+      return `https://www.cardmarket.com/en/${cmGame}/Products/Search?searchString=${q}`;
+    }
+    case "tcgplayer": {
+      const tpGame = { yugioh: "yugioh", "one-piece": "one-piece-card-game" }[game] ?? "pokemon";
+      return `https://www.tcgplayer.com/search/${tpGame}/product?q=${q}`;
+    }
     case "cardtrader":
       return `https://www.cardtrader.com/search?q=${q}`;
     case "ebay":
@@ -225,7 +238,7 @@ export async function loadCardPrices(
             status: mappingRow.status,
             confidence: mappingRow.confidence,
             notes: mappingRow.notes,
-            url: mappingRow.url ?? searchUrl(id, card.name, card.number),
+            url: mappingRow.url ?? productUrl(id, mappingRow.externalId) ?? searchUrl(id, card.name, card.number, card.game),
             externalId: mappingRow.externalId,
             query: mappingRow.query,
             manualOverride: mappingRow.manualOverride,

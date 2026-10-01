@@ -1,5 +1,6 @@
 import type {
   CatalogSourceAdapter,
+  SourcePriceQuote,
   SourcePrinting,
   SourceSet,
   SourceSetSummary,
@@ -34,6 +35,8 @@ export interface OptcgCard {
   counter_amount?: string | null;
   attribute?: string | null;
   card_image?: string | null;
+  /** TCGplayer market price in USD. */
+  market_price?: number | string | null;
 }
 
 /** Pure, network-free: an allSets/ row -> our SourceSet. */
@@ -75,6 +78,18 @@ export function mapOptcgCardToSourcePrinting(card: OptcgCard): SourcePrinting {
     rarityName: card.rarity ?? undefined,
     imageUrls: card.card_image ? [card.card_image] : undefined,
     attributes,
+    ...optcgPrices(card),
+  };
+}
+
+/** The bundled TCGplayer market price (USD) as a quote, when the card has one. */
+function optcgPrices(card: OptcgCard): { prices?: SourcePriceQuote[] } {
+  const usd = Number(card.market_price);
+  if (!Number.isFinite(usd) || usd <= 0) return {};
+  return {
+    prices: [
+      { finish: "NON_FOIL", source: "TCGPLAYER", currency: "USD", market: Math.round(usd * 100) },
+    ],
   };
 }
 

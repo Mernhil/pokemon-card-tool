@@ -90,6 +90,7 @@ describe("ygoprodeckPrintingsForSet", () => {
         def: 2500,
         level: 8,
       },
+      prices: [{ finish: "NON_FOIL", source: "TCGPLAYER", currency: "USD", market: 500 }],
     });
   });
 

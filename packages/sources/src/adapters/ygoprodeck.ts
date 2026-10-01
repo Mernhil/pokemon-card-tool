@@ -1,5 +1,6 @@
 import type {
   CatalogSourceAdapter,
+  SourcePriceQuote,
   SourcePrinting,
   SourceSet,
   SourceSetSummary,
@@ -59,6 +60,7 @@ export interface YgoprodeckCard {
   archetype?: string;
   card_sets?: YgoprodeckCardSetEntry[];
   card_images?: YgoprodeckCardImage[];
+  card_prices?: { tcgplayer_price?: string }[];
 }
 
 /**
@@ -140,7 +142,24 @@ export function ygoprodeckPrintingsForSet(
     rarityName: entry.set_rarity,
     imageUrls,
     attributes,
+    ...ygoprodeckPrices(entry, card),
   }));
+}
+
+/** TCGplayer price (USD) for one printing: the set-specific one, else the card's overall one. */
+function ygoprodeckPrices(
+  entry: YgoprodeckCardSetEntry,
+  card: YgoprodeckCard,
+): { prices?: SourcePriceQuote[] } {
+  const usd = [entry.set_price, card.card_prices?.[0]?.tcgplayer_price]
+    .map(Number)
+    .find((n) => Number.isFinite(n) && n > 0);
+  if (usd === undefined) return {};
+  return {
+    prices: [
+      { finish: "NON_FOIL", source: "TCGPLAYER", currency: "USD", market: Math.round(usd * 100) },
+    ],
+  };
 }
 
 /** Thrown internally when the API's 400-with-error-body means "no matches", not a real failure. */
