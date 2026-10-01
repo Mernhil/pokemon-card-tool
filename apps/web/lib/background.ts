@@ -10,12 +10,14 @@ import {
   snapshotPortfolio,
   type AppSettings,
 } from "@tcg-vault/db";
-import { PRICE_PROVIDERS, type PriceProviderId } from "@tcg-vault/shared";
+import { PRICE_PROVIDERS, TCGDEX_LANGUAGES, type PriceProviderId } from "@tcg-vault/shared";
 import {
   OptcgAdapter,
   TCGCSV_SET_PREFIXES,
+  TcgcsvJapanFallback,
   TcgcsvPromoAdapter,
   withExtraSets,
+  withTcgcsvJapanFallback,
   PokemonTcgIoImageFallback,
   TcgdexPokemonAdapter,
   YgoprodeckAdapter,
@@ -40,18 +42,40 @@ import {
 // back to the "no image yet" placeholder.
 const pokemonImageFallback = new PokemonTcgIoImageFallback();
 
+/** A language's catalog that lists no sets while that language is switched off in Settings. */
+function whenLanguageEnabled(adapter: CatalogSourceAdapter, code: string): CatalogSourceAdapter {
+  const on = async () => (await getSettings()).catalogLanguages.includes(code);
+  const gated: CatalogSourceAdapter = Object.create(adapter);
+  gated.listSets = async () => ((await on()) ? adapter.listSets() : []);
+  gated.listSetSummaries = async () => ((await on()) ? adapter.listSetSummaries() : []);
+  return gated;
+}
+
+/**
+ * Pokémon: English TCGdex (with a pokemontcg.io image fallback), the tcgcsv promos TCGdex lacks,
+ * and one catalog per other TCGdex language (set codes prefixed with the language). Japanese
+ * cards TCGdex has no scan or TCGplayer price for get them from tcgcsv's Japanese catalog.
+ */
+function pokemonAdapter(): CatalogSourceAdapter {
+  const japanFallback = new TcgcsvJapanFallback();
+  let adapter = withExtraSets(
+    withImageFallback(new TcgdexPokemonAdapter(), pokemonImageFallback),
+    new TcgcsvPromoAdapter(),
+    TCGCSV_SET_PREFIXES,
+  );
+  for (const lang of TCGDEX_LANGUAGES) {
+    let catalog: CatalogSourceAdapter = new TcgdexPokemonAdapter(undefined, {
+      language: lang.tcgdex,
+      codePrefix: lang.prefix,
+    });
+    if (lang.code === "ja") catalog = withTcgcsvJapanFallback(catalog, japanFallback, lang.prefix);
+    adapter = withExtraSets(adapter, whenLanguageEnabled(catalog, lang.code), [lang.prefix]);
+  }
+  return adapter;
+}
+
 const CATALOG_ADAPTERS: Array<() => CatalogSourceAdapter> = [
-  () =>
-    withExtraSets(
-      withExtraSets(
-        withImageFallback(new TcgdexPokemonAdapter(), pokemonImageFallback),
-        new TcgcsvPromoAdapter(),
-        TCGCSV_SET_PREFIXES,
-      ),
-      // The Japanese catalog: its own sets (ja- prefix), cards and Cardmarket prices.
-      new TcgdexPokemonAdapter(undefined, { language: "ja", codePrefix: "ja-" }),
-      ["ja-"],
-    ),
+  pokemonAdapter,
   () => new YgoprodeckAdapter(),
   () => new OptcgAdapter(),
 ];

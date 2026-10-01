@@ -4,6 +4,7 @@ import {
   DEFAULT_BULK_THRESHOLD,
   DEFAULT_PRICE_LANGUAGE,
   PRICE_PROVIDERS,
+  TCGDEX_LANGUAGES,
   appDataDir,
   isPriceLanguage,
   type PriceLanguage,
@@ -38,6 +39,11 @@ export interface AppSettings {
   /** Sets are re-synced once their last sync is older than this. */
   catalogRefreshDays: number;
   imageCacheMaxMb: number;
+  /**
+   * Pokémon card languages to sync besides English (TCGDEX_LANGUAGES codes). Each is a full
+   * catalog of its own; turning one off stops syncing it but keeps what was already synced.
+   */
+  catalogLanguages: string[];
   /** Show the digital-only Pokémon TCG Pocket sets (off hides that section entirely). */
   showPocketSets: boolean;
   /** Collection cards worth less than this each (EUR minor units) fold into the Bulk section; 0 = off. */
@@ -64,6 +70,7 @@ export function defaultSettings(): AppSettings {
     catalogRefreshDays: envNumber("CATALOG_REFRESH_DAYS", 30),
     imageCacheMaxMb: envNumber("IMAGE_CACHE_MAX_MB", 500),
     showPocketSets: true,
+    catalogLanguages: TCGDEX_LANGUAGES.map((l) => l.code),
     bulkThresholdCents: DEFAULT_BULK_THRESHOLD,
     providers: {
       cardmarket: { enabled: true },
@@ -115,6 +122,9 @@ export function sanitizeSettings(
     imageCacheMaxMb: clamp(raw.imageCacheMaxMb, 50, 100_000, base.imageCacheMaxMb),
     showPocketSets:
       typeof raw.showPocketSets === "boolean" ? raw.showPocketSets : base.showPocketSets,
+    catalogLanguages: Array.isArray(raw.catalogLanguages)
+      ? TCGDEX_LANGUAGES.map((l) => l.code).filter((c) => (raw.catalogLanguages as unknown[]).includes(c))
+      : base.catalogLanguages,
     bulkThresholdCents: clamp(raw.bulkThresholdCents, 0, 1_000_000, base.bulkThresholdCents),
     providers: Object.fromEntries(
       PRICE_PROVIDERS.map((id) => [

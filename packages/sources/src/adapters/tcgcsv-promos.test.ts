@@ -37,3 +37,49 @@ describe("tcgcsvSetCode", () => {
     expect(tcgcsvSetCode({ categoryId: 85, prefix: "JP-", languageCode: "ja" }, g)).toBe("JP-sm-p");
   });
 });
+
+import { TcgcsvJapanFallback } from "./tcgcsv-promos";
+import { tcgdexLanguageOf } from "../pricing/tcgdex-prices";
+
+describe("TcgcsvJapanFallback", () => {
+  const fake = (async (url: string) => {
+    const body = url.endsWith("/groups")
+      ? [{ groupId: 7, name: "SV11W: White Flare" }]
+      : url.endsWith("/products")
+        ? [
+            { productId: 1, name: "Lillipup - 001/086", imageUrl: "https://cdn/1_200w.jpg", extendedData: ext({ Number: "001/086", CardType: "Colorless", HP: "60" }) },
+            { productId: 2, name: "Lillipup (Pattern) - 001/086", imageUrl: "https://cdn/2_200w.jpg", extendedData: ext({ Number: "001/086", CardType: "Colorless", HP: "60" }) },
+          ]
+        : [{ productId: 1, lowPrice: 0.1, midPrice: 0.2, marketPrice: 0.15, subTypeName: "Normal" }];
+    return { ok: true, json: async () => ({ results: body }) } as Response;
+  }) as unknown as typeof fetch;
+
+  it("fills a missing picture and TCGplayer price by set id + card number, keeping what TCGdex had", async () => {
+    const fb = new TcgcsvJapanFallback(fake);
+    const base = { cardType: "Pokemon", subtypes: [], attributes: {}, finishes: ["NON_FOIL"] };
+    const out = await fb.fill("SV11W", [
+      { ...base, externalCardId: "a", cardName: "A", collectorNumber: "001/86" },
+      { ...base, externalCardId: "b", cardName: "B", collectorNumber: "002/86", imageUrls: ["keep"] },
+    ]);
+    expect(out[0]!.imageUrls![0]).toContain("1_in_1000x1000");
+    expect(out[0]!.prices).toEqual([
+      { finish: "NON_FOIL", source: "TCGPLAYER", currency: "USD", market: 15, mid: 20, low: 10, externalId: "1" },
+    ]);
+    expect(out[1]).toEqual(expect.objectContaining({ imageUrls: ["keep"] })); // no card 2 there
+    expect(out[1]!.prices).toBeUndefined();
+  });
+
+  it("leaves printings alone when the set has no tcgcsv group", async () => {
+    const fb = new TcgcsvJapanFallback(fake);
+    const p = { externalCardId: "a", cardName: "A", cardType: "Pokemon", subtypes: [], attributes: {}, collectorNumber: "1" };
+    expect(await fb.fill("NOPE", [p])).toEqual([p]);
+  });
+});
+
+describe("tcgdexLanguageOf", () => {
+  it("maps our language codes back to TCGdex ids", () => {
+    expect(tcgdexLanguageOf({ languageCode: "zh-Hant" })).toBe("zh-tw");
+    expect(tcgdexLanguageOf({ languageCode: "ja" })).toBe("ja");
+    expect(tcgdexLanguageOf({ languageCode: "en" })).toBe("en");
+  });
+});

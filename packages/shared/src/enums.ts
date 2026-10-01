@@ -129,8 +129,35 @@ export const PRICE_LANGUAGES = [
   { code: "ko", label: "Korean" },
   { code: "zh-Hans", label: "Chinese (Simplified)" },
   { code: "zh-Hant", label: "Chinese (Traditional)" },
+  { code: "id", label: "Indonesian" },
+  { code: "th", label: "Thai" },
 ] as const;
 export type PriceLanguage = (typeof PRICE_LANGUAGES)[number]["code"];
+/**
+ * Pokémon catalogs TCGdex serves besides English: its language id, ours, and the
+ * prefix on their set codes (TCGdex reuses ids like "neo1" across languages).
+ * Cardmarket gives one product (and one price) to every European print of a card;
+ * the Asian languages have products of their own.
+ */
+export const TCGDEX_LANGUAGES = [
+  { tcgdex: "ja", code: "ja", prefix: "ja-" },
+  { tcgdex: "fr", code: "fr", prefix: "fr-" },
+  { tcgdex: "de", code: "de", prefix: "de-" },
+  { tcgdex: "it", code: "it", prefix: "it-" },
+  { tcgdex: "es", code: "es", prefix: "es-" },
+  { tcgdex: "pt", code: "pt", prefix: "pt-" },
+  { tcgdex: "ko", code: "ko", prefix: "ko-" },
+  { tcgdex: "zh-cn", code: "zh-Hans", prefix: "zh-cn-" },
+  { tcgdex: "zh-tw", code: "zh-Hant", prefix: "zh-tw-" },
+  { tcgdex: "id", code: "id", prefix: "id-" },
+  { tcgdex: "th", code: "th", prefix: "th-" },
+] as const;
+
+/** Set codes of sets that don't come from the English TCGdex catalog (other languages, tcgcsv promos). */
+export function isForeignCatalogSet(code: string): boolean {
+  return /^(JP|EN)-/.test(code) || TCGDEX_LANGUAGES.some((l) => code.startsWith(l.prefix));
+}
+
 export const DEFAULT_PRICE_LANGUAGE: PriceLanguage = "en";
 
 export function isPriceLanguage(value: unknown): value is PriceLanguage {

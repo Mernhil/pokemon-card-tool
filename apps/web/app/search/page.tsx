@@ -8,6 +8,7 @@ import {
   computeTotals,
   hasRarityTiers,
   isRarityTier,
+  priceLanguageLabel,
   rarityTier,
   type CostCard,
 } from "@tcg-vault/shared";
@@ -36,7 +37,11 @@ export default async function SearchPage({
   const rarityId = searchParams.rarity ? Number(searchParams.rarity) : undefined;
   const finish = searchParams.finish || undefined;
   const owned_ = searchParams.owned === "1";
-  const lang = searchParams.lang || undefined;
+  // English unless asked otherwise: with a dozen languages synced, a bare "Pikachu" would
+  // list every print of it. A chosen set, "owned only" or "any language" lifts that.
+  const langParam = searchParams.lang;
+  const lang =
+    langParam === "all" ? undefined : langParam || (owned_ || searchParams.set ? undefined : "en");
   const tier = isRarityTier(searchParams.tier) ? searchParams.tier : undefined;
   // dex=0: the user chose the plain text search over the exact-Pokémon match.
   const plainText = searchParams.dex === "0";
@@ -126,7 +131,7 @@ export default async function SearchPage({
     if (rarityId) params.set("rarity", String(rarityId));
     if (finish) params.set("finish", finish);
     if (owned_) params.set("owned", "1");
-    if (lang) params.set("lang", lang);
+    if (langParam) params.set("lang", langParam);
     if (tier) params.set("tier", tier);
     if (plainText) params.set("dex", "0");
     if (sort !== "value") params.set("sort", sort);
@@ -271,11 +276,11 @@ export default async function SearchPage({
         {languages.length > 1 ? (
           <label className="label">
             Language
-            <select name="lang" defaultValue={lang ?? ""} className={select}>
-              <option value="">Any language</option>
+            <select name="lang" defaultValue={lang ?? "all"} className={select}>
+              <option value="all">Any language</option>
               {languages.map((l) => (
                 <option key={l.code} value={l.code}>
-                  {l.name}
+                  {priceLanguageLabel(l.code)}
                 </option>
               ))}
             </select>

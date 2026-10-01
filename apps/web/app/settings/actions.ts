@@ -12,6 +12,7 @@ import { PRICE_PROVIDERS, type PriceProviderId } from "@tcg-vault/shared";
 import { revalidatePath } from "next/cache";
 import {
   priceProviders,
+  requestCatalogSync,
   requestFxRefresh,
   requestPriceRefresh,
   scheduleValuations,
@@ -28,6 +29,9 @@ export async function saveSettingsAction(patch: Partial<AppSettings>): Promise<S
     await loadMoneyDisplay();
     // Values and the portfolio snapshot are quoted in the price language: redo them now.
     if (after.priceLanguage !== before.priceLanguage) scheduleValuations(0);
+    // A newly ticked language starts downloading right away.
+    if (after.catalogLanguages.some((c) => !before.catalogLanguages.includes(c)))
+      requestCatalogSync();
     revalidatePath("/", "layout");
     return { ok: true };
   } catch (err) {

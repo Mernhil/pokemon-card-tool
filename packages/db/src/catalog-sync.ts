@@ -7,6 +7,7 @@ import {
   restrictFinishes,
   subsetFor,
   mediaUrl,
+  priceLanguageLabel,
   putFile,
   remoteImageKey,
 } from "@tcg-vault/shared";
@@ -311,8 +312,8 @@ async function writeSet(
   const languageCode = sourceSet.languageCode ?? adapter.languageCode;
   await prisma.language.upsert({
     where: { code: languageCode },
-    update: {},
-    create: { code: languageCode, name: languageCode },
+    update: { name: priceLanguageLabel(languageCode) },
+    create: { code: languageCode, name: priceLanguageLabel(languageCode) },
   });
 
   await prisma.$transaction(

@@ -85,3 +85,13 @@ describe("secrets", () => {
     expect(secretsPath()).toBe(join(process.env.TCG_VAULT_DATA_DIR!, "secrets.json"));
   });
 });
+
+describe("catalog languages", () => {
+  it("default to every language, and keep only known ones in order", async () => {
+    const { sanitizeSettings, defaultSettings } = await import("../src/settings");
+    expect(defaultSettings().catalogLanguages).toContain("ja");
+    expect(sanitizeSettings({ catalogLanguages: ["fr", "xx", "ja"] }).catalogLanguages).toEqual(["ja", "fr"]);
+    expect(sanitizeSettings({ catalogLanguages: [] }).catalogLanguages).toEqual([]);
+    expect(sanitizeSettings({}).catalogLanguages).toEqual(defaultSettings().catalogLanguages);
+  });
+});

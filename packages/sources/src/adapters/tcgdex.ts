@@ -1,4 +1,5 @@
 import TCGdex from "@tcgdex/sdk";
+import { TCGDEX_LANGUAGES } from "@tcg-vault/shared";
 import type {
   CatalogSourceAdapter,
   SourcePriceQuote,
@@ -339,9 +340,11 @@ export class TcgdexPokemonAdapter implements CatalogSourceAdapter {
     client?: TCGdex,
     options: { concurrency?: number; language?: string; codePrefix?: string } = {},
   ) {
-    this.languageCode = options.language ?? "en";
-    this.client = client ?? new TCGdex(this.languageCode as ConstructorParameters<typeof TCGdex>[0]);
-    this.slug = this.languageCode === "en" ? "tcgdex-pokemon" : `tcgdex-pokemon-${this.languageCode}`;
+    const tcgdexLanguage = options.language ?? "en";
+    this.languageCode =
+      TCGDEX_LANGUAGES.find((l) => l.tcgdex === tcgdexLanguage)?.code ?? tcgdexLanguage;
+    this.client = client ?? new TCGdex(tcgdexLanguage as ConstructorParameters<typeof TCGdex>[0]);
+    this.slug = tcgdexLanguage === "en" ? "tcgdex-pokemon" : `tcgdex-pokemon-${tcgdexLanguage}`;
     this.codePrefix = options.codePrefix ?? "";
     this.concurrency = Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY);
   }

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { getSettings, prisma } from "@tcg-vault/db";
 import {
   SET_CATEGORY_BADGES,
+  priceLanguageLabel,
   isSetCategory,
   specialSections,
   type SetCategory,
@@ -18,7 +19,13 @@ import { PageHeader } from "../../components/ui/page-header";
 /** Games with a manual set picker on the Sync page; others just sync in the background. */
 const MANUALLY_SYNCABLE = new Set(["pokemon", "yugioh", "one-piece"]);
 
-export default async function GameSetListPage({ params }: { params: { game: string } }) {
+export default async function GameSetListPage({
+  params,
+  searchParams,
+}: {
+  params: { game: string };
+  searchParams: { lang?: string };
+}) {
   const [game, settings] = await Promise.all([
     prisma.game.findUnique({
       where: { slug: params.game },
@@ -47,8 +54,17 @@ export default async function GameSetListPage({ params }: { params: { game: stri
 
   const categoryOf = (set: { category: string }): SetCategory =>
     isSetCategory(set.category) ? set.category : "main";
+  // One language at a time (English unless asked): every language is a full set of sets.
+  const languageOf = (s: { primaryLangCode: string | null }) => s.primaryLangCode ?? "en";
+  const setLanguages = [...new Set(game.sets.map(languageOf))].sort((a, b) =>
+    a === "en" ? -1 : b === "en" ? 1 : a.localeCompare(b),
+  );
+  const lang =
+    searchParams.lang && setLanguages.includes(searchParams.lang) ? searchParams.lang : "en";
   const visibleSets = game.sets.filter(
-    (s) => settings.showPocketSets || categoryOf(s) !== "pocket",
+    (s) =>
+      (settings.showPocketSets || categoryOf(s) !== "pocket") &&
+      (setLanguages.length < 2 || languageOf(s) === lang),
   );
   const tile = (set: (typeof game.sets)[number]): SetTileData => ({
     id: set.id,
@@ -109,6 +125,21 @@ export default async function GameSetListPage({ params }: { params: { game: stri
           ) : null
         }
       />
+
+      {setLanguages.length > 1 ? (
+        <nav aria-label="Card language" className="mb-5 flex flex-wrap gap-1.5 text-xs">
+          {setLanguages.map((code) => (
+            <Link
+              key={code}
+              href={code === "en" ? `/${game.slug}` : `/${game.slug}?lang=${code}`}
+              aria-current={code === lang ? "page" : undefined}
+              className={`rounded-full border px-3 py-1 ${code === lang ? "border-accent bg-accent-soft font-semibold" : "text-neutral-500 hover:text-neutral-900"}`}
+            >
+              {priceLanguageLabel(code)}
+            </Link>
+          ))}
+        </nav>
+      ) : null}
 
       {visibleSets.length === 0 ? (
         <EmptyState

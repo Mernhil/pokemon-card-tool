@@ -1,7 +1,13 @@
 "use client";
 
 import type { AppSettings, SecretStatus } from "@tcg-vault/db";
-import { PRICE_KIND_LABELS, PRICE_LANGUAGES, type PriceKind } from "@tcg-vault/shared/src/enums";
+import {
+  PRICE_KIND_LABELS,
+  PRICE_LANGUAGES,
+  TCGDEX_LANGUAGES,
+  priceLanguageLabel,
+  type PriceKind,
+} from "@tcg-vault/shared/src/enums";
 import { CheckCircle2, CircleAlert, KeyRound, PlugZap, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -357,6 +363,37 @@ export function SettingsForm({
           Off hides that whole section from Browse. Pocket sets are still synced; they have no
           market prices, so their prices are never refreshed.
         </p>
+        <fieldset className="mt-4">
+          <legend className="text-sm">Card languages to sync</legend>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-sm">
+            <label className="flex items-center gap-1.5 text-neutral-500">
+              <input type="checkbox" checked disabled /> English
+            </label>
+            {TCGDEX_LANGUAGES.map((l) => (
+              <label key={l.code} className="flex items-center gap-1.5">
+                <input
+                  type="checkbox"
+                  checked={settings.catalogLanguages.includes(l.code)}
+                  onChange={(e) =>
+                    save({
+                      catalogLanguages: e.target.checked
+                        ? [...settings.catalogLanguages, l.code]
+                        : settings.catalogLanguages.filter((c) => c !== l.code),
+                    })
+                  }
+                />
+                {priceLanguageLabel(l.code)}
+              </label>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-neutral-500">
+            Each language is a full catalog of its own, tens of thousands of cards, downloaded in
+            the background. Unticking one stops syncing it and keeps what you already have.
+            Cardmarket gives every European print of a card one product, so French, German,
+            Italian, Spanish and Portuguese cards show the same Cardmarket price as the English
+            card; the Asian languages have prices of their own.
+          </p>
+        </fieldset>
         <label className="mt-4 flex items-center gap-3 text-sm">
           Bulk threshold (€ per card)
           <input

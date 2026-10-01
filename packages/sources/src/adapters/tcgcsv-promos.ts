@@ -261,3 +261,116 @@ export function withExtraSets(
 }
 
 export const TCGCSV_SET_PREFIXES = [JAPAN.prefix, ENGLISH.prefix];
+
+/**
+ * TCGdex has no scan (and often no price) for many Japanese sets. tcgcsv's
+ * Japanese groups are named after the same set ids ("SV11W: White Flare"), so
+ * a Japanese printing missing either one is looked up there by set id + card
+ * number, and gets TCGplayer's picture and USD price.
+ */
+export class TcgcsvJapanFallback {
+  private readonly fetchImpl: typeof fetch;
+  private groupsCache: Promise<Map<string, Group>> | null = null;
+  private readonly setCache = new Map<number, Promise<Map<number, SourcePrinting>>>();
+
+  constructor(fetchImpl: typeof fetch = globalThis.fetch) {
+    this.fetchImpl = fetchImpl;
+  }
+
+  private async json<T>(url: string): Promise<T> {
+    const res = await this.fetchImpl(url, {
+      headers: { "User-Agent": "TCG-Vault/1.0 (personal collection tracker)", Accept: "application/json" },
+    });
+    if (!res.ok) throw new Error(`tcgcsv request failed: ${url} -> HTTP ${res.status}`);
+    return (((await res.json()) as { results?: T }).results ?? []) as T;
+  }
+
+  /** Group per lower-cased set id (the text before the colon or first space). */
+  private groups(): Promise<Map<string, Group>> {
+    this.groupsCache ??= this.json<Group[]>(`${BASE}/${JAPAN.categoryId}/groups`).then((groups) => {
+      const byId = new Map<string, Group>();
+      for (const g of groups) {
+        const id = g.name.split(/[:\s]/)[0]!.toLowerCase();
+        if (id && !byId.has(id)) byId.set(id, g);
+      }
+      return byId;
+    });
+    this.groupsCache.catch(() => (this.groupsCache = null));
+    return this.groupsCache;
+  }
+
+  /** The group's cards by their number's first part ("001/086" -> 1). */
+  private async cards(group: Group): Promise<Map<number, SourcePrinting>> {
+    let hit = this.setCache.get(group.groupId);
+    if (!hit) {
+      hit = (async () => {
+        const root = `${BASE}/${JAPAN.categoryId}/${group.groupId}`;
+        const [products, prices] = await Promise.all([
+          this.json<Product[]>(`${root}/products`),
+          this.json<PriceRow[]>(`${root}/prices`),
+        ]);
+        const byProduct = new Map<number, PriceRow[]>();
+        for (const row of prices)
+          byProduct.set(row.productId, [...(byProduct.get(row.productId) ?? []), row]);
+        const out = new Map<number, SourcePrinting>();
+        // Plain cards first: pattern/alternate versions share a number and must not win.
+        const ordered = [...products].sort(
+          (a, b) => Number(a.name.includes("(")) - Number(b.name.includes("(")),
+        );
+        for (const product of ordered) {
+          const printing = mapTcgcsvProduct(product, byProduct.get(product.productId) ?? []);
+          const n = parseInt(field(product, "Number")?.split("/")[0] ?? "", 10);
+          if (printing && Number.isFinite(n) && !out.has(n)) out.set(n, printing);
+        }
+        return out;
+      })();
+      hit.catch(() => this.setCache.delete(group.groupId));
+      this.setCache.set(group.groupId, hit);
+    }
+    return hit;
+  }
+
+  async fill(setId: string, printings: SourcePrinting[]): Promise<SourcePrinting[]> {
+    const noTcgplayer = (p: SourcePrinting) => !p.prices?.some((q) => q.source === "TCGPLAYER");
+    const needs = printings.some((p) => !p.imageUrls?.length || noTcgplayer(p));
+    if (!needs) return printings;
+    const group = (await this.groups()).get(setId.toLowerCase());
+    if (!group) return printings;
+    const cards = await this.cards(group);
+    return printings.map((p) => {
+      const n = parseInt(p.collectorNumber.split("/")[0] ?? "", 10);
+      const match = cards.get(n);
+      if (!match) return p;
+      const filled = { ...p };
+      if (!p.imageUrls?.length && match.imageUrls) filled.imageUrls = match.imageUrls;
+      if (noTcgplayer(p) && match.prices?.length) {
+        // Its finish names rarely line up with TCGdex's: price the printing's first finish.
+        const finishes = p.finishes?.length ? p.finishes : ["NON_FOIL"];
+        const row = match.prices.find((q) => finishes.includes(q.finish)) ?? match.prices[0]!;
+        filled.prices = [
+          ...(p.prices ?? []),
+          { ...row, finish: finishes.includes(row.finish) ? row.finish : finishes[0]! },
+        ];
+      }
+      return filled;
+    });
+  }
+}
+
+/** Wraps a prefixed Japanese adapter so its printings get {@link TcgcsvJapanFallback}'s pictures and prices. */
+export function withTcgcsvJapanFallback(
+  adapter: CatalogSourceAdapter,
+  fallback: Pick<TcgcsvJapanFallback, "fill">,
+  prefix: string,
+): CatalogSourceAdapter {
+  const wrapped: CatalogSourceAdapter = Object.create(adapter);
+  wrapped.listPrintings = async (code) => {
+    const printings = await adapter.listPrintings(code);
+    try {
+      return await fallback.fill(code.startsWith(prefix) ? code.slice(prefix.length) : code, printings);
+    } catch {
+      return printings; // the fallback being down never fails the sync
+    }
+  };
+  return wrapped;
+}

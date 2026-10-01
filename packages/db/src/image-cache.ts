@@ -1,6 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { appDataDir, getFile } from "@tcg-vault/shared";
+import { appDataDir, getFile, isForeignCatalogSet } from "@tcg-vault/shared";
 import { pokemonImageCandidates } from "@tcg-vault/sources";
 import { prisma } from "./client";
 import {
@@ -126,8 +126,8 @@ export interface CandidatePrinting {
 export function imageCandidatesFor(printing: CandidatePrinting): string[] {
   const known = parseImageUrls(printing.imageUrls);
   // Constructed addresses are English TCGdex / pokemontcg.io ones: no use for the Japanese
-  // catalog ("ja-") or the tcgcsv promos ("JP-", "EN-"), which list their own image URLs.
-  if (printing.set.game.slug !== "pokemon" || /^(ja|JP|EN)-/.test(printing.set.code)) return known;
+  // catalogs ("ja-", "fr-", ...) or the tcgcsv promos ("JP-", "EN-"), which list their own image URLs.
+  if (printing.set.game.slug !== "pokemon" || isForeignCatalogSet(printing.set.code)) return known;
   return pokemonImageCandidates(
     {
       setCode: printing.set.code,

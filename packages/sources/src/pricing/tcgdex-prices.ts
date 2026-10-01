@@ -1,4 +1,4 @@
-import type { PriceKind, PriceProviderId } from "@tcg-vault/shared";
+import { TCGDEX_LANGUAGES, type PriceKind, type PriceProviderId } from "@tcg-vault/shared";
 import { pricesFor, type TcgdexPricing } from "../adapters/tcgdex";
 import type { SourcePriceQuote } from "../types";
 import { createThrottle, requestJson } from "./http";
@@ -57,6 +57,12 @@ export function quoteToObservations(
   return out;
 }
 
+/** The TCGdex language id of a card's own language ("zh-Hant" -> "zh-tw"). */
+export function tcgdexLanguageOf(card: Pick<PricedCard, "languageCode">): string {
+  const code = card.languageCode || "en";
+  return TCGDEX_LANGUAGES.find((l) => l.code === code)?.tcgdex ?? code;
+}
+
 /** Sets that come from tcgcsv (promos TCGdex lacks), not TCGdex: see adapters/tcgcsv-promos.ts. */
 const NOT_TCGDEX_SET = /^(JP|EN)-/;
 
@@ -66,7 +72,7 @@ const NOT_TCGDEX_SET = /^(JP|EN)-/;
  * own ids and its own Cardmarket products.
  */
 export function tcgdexCardId(card: PricedCard): string | null {
-  const lang = card.languageCode || "en";
+  const lang = tcgdexLanguageOf(card);
   const known = card.externalIds[lang === "en" ? "tcgdex-pokemon" : `tcgdex-pokemon-${lang}`];
   if (known) return known;
   if (lang !== "en" || NOT_TCGDEX_SET.test(card.setCode)) return null;
@@ -149,7 +155,7 @@ export class TcgdexMarketProvider implements PriceProvider {
   private async quotes(card: PricedCard) {
     const id = tcgdexCardId(card);
     if (!id) return { quotes: [] as SourcePriceQuote[], hash: "", noTcgdex: true };
-    const { pricing, hash } = await this.client.card(id, card.languageCode || "en");
+    const { pricing, hash } = await this.client.card(id, tcgdexLanguageOf(card));
     const quotes = pricesFor(pricing, card.printingFinishes).filter(
       (q) => q.source === SOURCE_FOR[this.id] && q.finish === card.finish,
     );
