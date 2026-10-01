@@ -389,8 +389,9 @@ describe("candidates, retries, negative cache, custom images", () => {
   });
 });
 
-describe("sibling fallback (reprints with no scan of their own)", () => {
-  async function reprintOf(originalId: string, urls: string[] | null) {
+describe("reprints with no scan of their own", () => {
+  it("never borrow another printing's art: they report no image, and cache nothing", async () => {
+    const originalId = await makePrinting(["https://img.test/original.webp"]);
     const original = await prisma.printing.findUniqueOrThrow({ where: { id: originalId } });
     const reprint = await prisma.printing.create({
       data: {
@@ -398,61 +399,16 @@ describe("sibling fallback (reprints with no scan of their own)", () => {
         setId: original.setId,
         collectorNumber: "001/30",
         sortNumber: 1001,
-        imageUrls: urls ? JSON.stringify(urls) : null,
+        imageUrls: JSON.stringify(["https://img.test/missing-reprint.webp"]),
       },
     });
-    return reprint.id;
-  }
-
-  it("shows the original's art when the reprint has no scan, and caches nothing for the reprint", async () => {
-    const originalId = await makePrinting(["https://img.test/original.webp"]);
-    const reprintId = await reprintOf(originalId, ["https://img.test/missing-reprint.webp"]);
-    // Only the original's URL exists; the reprint's own and every constructed
-    // candidate answer 404.
-    const fetchImpl = fakeFetch({ "https://img.test/original.webp": () => imageResponse(55) });
-
-    const result = await getCardImageResult(reprintId, {
+    const result = await getCardImageResult(reprint.id, {
       dir,
-      fetch: fetchImpl,
-      sleep: noSleep,
-      now: fakeClock().now,
-    });
-
-    expect(result.status).toBe("sibling");
-    expect(result.image!.from).toBe("sibling");
-    expect(result.image!.body.length).toBe(55);
-    const cached = await prisma.imageCacheEntry.findMany();
-    expect(cached.map((c) => c.key)).toEqual([cacheFileName(originalId)]);
-  });
-
-  it("prefers the reprint's own scan when it has one", async () => {
-    const originalId = await makePrinting(["https://img.test/original.webp"]);
-    const reprintId = await reprintOf(originalId, ["https://img.test/reprint.webp"]);
-    const fetchImpl = fakeFetch({
-      "https://img.test/original.webp": () => imageResponse(55),
-      "https://img.test/reprint.webp": () => imageResponse(77),
-    });
-
-    const result = await getCardImageResult(reprintId, {
-      dir,
-      fetch: fetchImpl,
-      sleep: noSleep,
-      now: fakeClock().now,
-    });
-
-    expect(result.status).toBe("remote");
-    expect(result.image!.body.length).toBe(77);
-  });
-
-  it("still reports no image when no sibling has one", async () => {
-    const originalId = await makePrinting(null);
-    const reprintId = await reprintOf(originalId, null);
-    const result = await getCardImageResult(reprintId, {
-      dir,
-      fetch: fakeFetch({}),
+      fetch: fakeFetch({ "https://img.test/original.webp": () => imageResponse(55) }),
       sleep: noSleep,
       now: fakeClock().now,
     });
     expect(result.image).toBeNull();
+    expect(await prisma.imageCacheEntry.count()).toBe(0);
   });
 });

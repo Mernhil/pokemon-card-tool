@@ -49,15 +49,13 @@ export interface ImageCacheOptions {
 export interface CardImage {
   body: Buffer;
   contentType: string;
-  from: "cache" | "remote" | "custom" | "sibling";
+  from: "cache" | "remote" | "custom";
 }
 
 export type ImageStatus =
   | "custom"
   | "cache"
   | "remote"
-  /** No scan of its own: the art of another printing of the same card (a reprint's original). */
-  | "sibling"
   /** No candidate URL at all for this card. */
   | "no-source"
   /** Every candidate source answered 404. */
@@ -182,47 +180,9 @@ export async function getCardImageResult(
   const key = `${imageCacheDir(options)}\u0000${printingId}`;
   const pending = inFlight.get(key);
   if (pending) return pending;
-  const promise = loadWithSiblingFallback(printingId, options).finally(() => inFlight.delete(key));
+  const promise = loadCardImage(printingId, options).finally(() => inFlight.delete(key));
   inFlight.set(key, promise);
   return promise;
-}
-
-/**
- * A printing with no scan of its own (a reprint the source hasn't scanned yet,
- * like the 30th Celebration's Classic Collection) shows the art of the printing
- * it reprints: they share one Card row. Nothing is cached under the reprint's
- * own key, so its real scan is picked up as soon as a source has it.
- */
-async function loadWithSiblingFallback(
-  printingId: string,
-  options: ImageCacheOptions,
-): Promise<ImageResult> {
-  const own = await loadCardImage(printingId, options);
-  if (own.image || (own.status !== "no-source" && own.status !== "not-found")) return own;
-
-  const printing = await prisma.printing.findUnique({
-    where: { id: printingId },
-    select: { cardId: true },
-  });
-  if (!printing) return own;
-  const siblings = await prisma.printing.findMany({
-    where: { cardId: printing.cardId, id: { not: printingId } },
-    select: { id: true },
-    orderBy: { id: "asc" },
-    take: 6,
-  });
-  for (const sibling of siblings) {
-    const result = await loadCardImage(sibling.id, options);
-    if (result.image) {
-      return {
-        image: { ...result.image, from: "sibling" },
-        status: "sibling",
-        attempts: own.attempts,
-        reason: "",
-      };
-    }
-  }
-  return own;
 }
 
 const none = (status: ImageStatus, attempts: Attempt[], reason: string): ImageResult => ({

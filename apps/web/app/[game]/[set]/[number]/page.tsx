@@ -93,26 +93,15 @@ export default async function CardPage({
   const printing = await findPrinting(set.id, decodeURIComponent(params.number));
   if (!printing) notFound();
 
-  // Some sets (reprint collections like the 30th Anniversary Classic
-  // Collection) have no scan of their own from the source yet. Since a
-  // reprint shares its Card row with the printing(s) it reprints (see
-  // Card.canonicalKey), fall back to showing the art from any sibling
-  // printing that does have a scan, rather than a blank placeholder.
-  // (The printing's own image counts only if it can actually be loaded — every
-  // Pokémon printing has a lazy image key, but some sources have no scan.)
+  // A card with no scan of its own shows the "image not available" tile, never another
+  // printing's art: a stand-in would hide what's missing. Every Pokémon printing has a lazy
+  // image key, but some sources have no scan, so the key counts only if the image loads.
   const hasOwnImage = printing.imageKey
     ? await getCardImageResult(printing.id)
-        .then((r) => r.image !== null && r.status !== "sibling")
+        .then((r) => r.image !== null)
         .catch(() => false)
     : false;
-  const fallbackPrinting = hasOwnImage
-    ? null
-    : await prisma.printing.findFirst({
-        where: { cardId: printing.cardId, id: { not: printing.id }, imageKey: { not: null } },
-        select: { imageKey: true },
-      });
-  const imageKey = hasOwnImage ? printing.imageKey : (fallbackPrinting?.imageKey ?? null);
-  const imageIsFallback = !hasOwnImage && !!fallbackPrinting;
+  const imageKey = hasOwnImage ? printing.imageKey : null;
 
   const variants = sortByFinish(printing.variants);
   const selected = variants.find((v) => v.finish === searchParams.finish) ?? variants[0];
@@ -224,7 +213,6 @@ export default async function CardPage({
         <div className="lg:sticky lg:top-6 lg:self-start">
           <CardViewer
             imageSrc={imageKey ? mediaUrl(imageKey) : null}
-            imageIsFallback={imageIsFallback}
             name={printing.card.name}
             number={printing.collectorNumber}
             rarityName={printing.rarity?.name ?? null}
