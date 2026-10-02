@@ -12,6 +12,7 @@
     "seed": "dotenv -e ../../.env -- tsx prisma/seed.ts",
     "sync-catalog": "dotenv -e ../../.env -- tsx src/sync-catalog.ts",
     "validate": "prisma validate",
+    "postinstall": "prisma generate",
     "studio": "dotenv -e ../../.env -- prisma studio",
     "sync-prices": "dotenv -e ../../.env -- tsx src/sync-prices.ts",
     "image-report": "dotenv -e ../../.env -- tsx src/image-report.ts",
@@ -20,15 +21,18 @@
     "seed-demo": "dotenv -e ../../.env -- tsx prisma/seed-demo.ts"
   },
   "dependencies": {
-    "@prisma/client": "^5.20.0",
+    "@prisma/adapter-d1": "7.10.0",
+    "@prisma/adapter-libsql": "7.10.0",
+    "@prisma/client": "^7.10.0",
     "@tcg-vault/pricing": "workspace:*",
     "@tcg-vault/shared": "workspace:*",
     "@tcg-vault/sources": "workspace:*"
   },
   "devDependencies": {
+    "@libsql/client": "^0.18.0",
     "@types/node": "^20.16.11",
     "dotenv-cli": "^7.4.2",
-    "prisma": "^5.20.0",
+    "prisma": "^7.10.0",
     "tsx": "^4.19.1",
     "typescript": "^5.6.3",
     "vitest": "^2.1.2"

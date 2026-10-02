@@ -1,4 +1,4 @@
-import type { Prisma, PriceObservation } from "@prisma/client";
+import type { Prisma, PriceObservation } from "./generated/node/client";
 import type { PricePoint } from "@tcg-vault/pricing";
 import type { PriceKind } from "@tcg-vault/shared";
 import {

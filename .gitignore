@@ -44,3 +44,4 @@ Thumbs.db
 # misc
 coverage/
 *.tsbuildinfo
+packages/db/src/generated/

@@ -1,9 +1,18 @@
+// Prisma 7 generates a client per JS runtime: Node (desktop app, dev, tests —
+// better-sqlite3 adapter) and Cloudflare Workers (D1 adapter). The adapter is
+// chosen in src/client.ts / src/adapter.*.ts.
 generator client {
-  provider      = "prisma-client-js"
-  // "native" covers dev/CI on whatever OS is running; "windows" is required
-  // for the packaged desktop app since the Tauri sidecar always runs on
-  // Windows there regardless of what OS built the repo.
-  binaryTargets = ["native", "windows"]
+  provider     = "prisma-client"
+  output       = "../src/generated/node"
+  runtime      = "nodejs"
+  moduleFormat = "esm"
+}
+
+generator clientWorkers {
+  provider     = "prisma-client"
+  output       = "../src/generated/workerd"
+  runtime      = "workerd"
+  moduleFormat = "esm"
 }
 
 // Local-only desktop build: one SQLite file per install, no server, no auth.
@@ -11,7 +20,6 @@ generator client {
 // the architecture doc if this ever needs to grow back into a hosted app.)
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
 }
 
 // ---------- "ENUMS" ----------

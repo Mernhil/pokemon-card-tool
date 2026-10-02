@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma } from "../generated/node/client";
 import { prisma } from "../client";
 
 /**

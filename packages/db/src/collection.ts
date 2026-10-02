@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma } from "./generated/node/client";
 import { prisma } from "./client";
 
 /** Either the client or an interactive-transaction client. */
