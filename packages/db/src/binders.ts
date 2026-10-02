@@ -1,5 +1,6 @@
 import { cardSlug } from "@tcg-vault/shared";
-import { prisma } from "./client";
+import { interactiveTransaction, prisma } from "./client";
+import { inChunks } from "./chunk";
 import { BINDER_LAYOUTS } from "./binder-options";
 import { collectionItemValue, latestValuations } from "./valuations";
 
@@ -178,10 +179,9 @@ export async function getBinder(id: string): Promise<BinderDetail | null> {
   const wantIds = [
     ...new Set(slots.flatMap((s) => (s.placeholderVariantId ? [s.placeholderVariantId] : []))),
   ];
-  const wants = await prisma.printVariant.findMany({
-    where: { id: { in: wantIds } },
-    include: variantInclude,
-  });
+  const wants = await inChunks(wantIds, (chunk) =>
+    prisma.printVariant.findMany({ where: { id: { in: chunk } }, include: variantInclude }),
+  );
   const wantById = new Map(wants.map((w) => [w.id, w]));
   const values = await latestValuations([
     ...wantIds,
@@ -321,11 +321,13 @@ export async function createBinderFromSet(input: {
   // Spare owned copies per printing.
   const printingIds = set.printings.map((p) => p.id);
   const [items, used] = await Promise.all([
-    prisma.collectionItem.findMany({
-      where: { variant: { printingId: { in: printingIds } } },
-      include: { variant: true },
-      orderBy: { createdAt: "asc" },
-    }),
+    inChunks(printingIds, (chunk) =>
+      prisma.collectionItem.findMany({
+        where: { variant: { printingId: { in: chunk } } },
+        include: { variant: true },
+        orderBy: { createdAt: "asc" },
+      }),
+    ).then((rows) => rows.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())),
     slotsUsedByItem(),
   ]);
   const spare = new Map<string, { id: string; finish: string; left: number }[]>();
@@ -402,7 +404,10 @@ export async function trimEmptyBinderPages(binderId: string): Promise<number> {
     if (page._count.slots > 0) break;
     removable.push(page.id);
   }
-  await prisma.binderPage.deleteMany({ where: { id: { in: removable } } });
+  await inChunks(removable, async (chunk) => {
+    await prisma.binderPage.deleteMany({ where: { id: { in: chunk } } });
+    return [];
+  });
   return removable.length;
 }
 
@@ -463,7 +468,7 @@ export async function movePocket(input: {
   const toPage = await pageId(input.binderId, input.to.pageIndex, input.to.position);
   if (fromPage === toPage && input.from.position === input.to.position) return;
 
-  await prisma.$transaction(async (tx) => {
+  await interactiveTransaction(async (tx) => {
     const a = await tx.binderSlot.findUnique({
       where: { pageId_position: { pageId: fromPage, position: input.from.position } },
     });

@@ -9,6 +9,7 @@ import {
 } from "@tcg-vault/pricing";
 import { DEFAULT_PRICE_LANGUAGE, convertMinor, type FxRates } from "@tcg-vault/shared";
 import { prisma } from "./client";
+import { inChunks } from "./chunk";
 import { loadFxRates } from "./fx";
 import { normalizeObservation } from "./prices";
 import { getSettings } from "./settings";
@@ -141,11 +142,12 @@ export async function computeValuations(now = new Date(), language?: string): Pr
     written++;
   }
   const stale = [...existingToday];
-  for (let i = 0; i < stale.length; i += 500) {
+  await inChunks(stale, async (chunk) => {
     await prisma.variantValuation.deleteMany({
-      where: { day, bucket: "NM", variantId: { in: stale.slice(i, i + 500) } },
+      where: { day, bucket: "NM", variantId: { in: chunk } },
     });
-  }
+    return [];
+  });
   // Fresh values may have crossed someone's price alert.
   await evaluateAlerts(now).catch(() => 0);
   return written;
@@ -161,15 +163,18 @@ async function readLatest(
   since: Date | null,
   into: Map<string, LatestValue>,
 ): Promise<void> {
-  const rows = await prisma.variantValuation.findMany({
-    where: {
-      bucket: "NM",
-      ...(variantIds ? { variantId: { in: variantIds } } : {}),
-      ...(since ? { day: { gte: since } } : {}),
-    },
-    orderBy: { day: "desc" },
-    select: { variantId: true, valueEur: true, valueUsd: true, day: true },
-  });
+  const query = (ids: string[] | undefined) =>
+    prisma.variantValuation.findMany({
+      where: {
+        bucket: "NM",
+        ...(ids ? { variantId: { in: ids } } : {}),
+        ...(since ? { day: { gte: since } } : {}),
+      },
+      orderBy: { day: "desc" },
+      select: { variantId: true, valueEur: true, valueUsd: true, day: true },
+    });
+  // Newest first within each variant is all the loop below relies on.
+  const rows = variantIds ? await inChunks(variantIds, (chunk) => query(chunk)) : await query(undefined);
   for (const row of rows) {
     if (!into.has(row.variantId)) {
       into.set(row.variantId, { valueEur: row.valueEur, valueUsd: row.valueUsd, day: row.day });

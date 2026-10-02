@@ -1,8 +1,15 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { appDataDir, getFile, isForeignCatalogSet } from "@tcg-vault/shared";
+import {
+  appDataDir,
+  cacheDelete,
+  cacheGet,
+  cachePut,
+  getFile,
+  isForeignCatalogSet,
+} from "@tcg-vault/shared";
 import { pokemonImageCandidates } from "@tcg-vault/sources";
 import { prisma } from "./client";
+import { inChunks } from "./chunk";
 import {
   explainAttempts,
   fetchFirstImage,
@@ -196,7 +203,6 @@ async function loadCardImage(printingId: string, options: ImageCacheOptions): Pr
   const now = options.now ?? (() => new Date());
   const dir = imageCacheDir(options);
   const file = cacheFileName(printingId);
-  const path = join(dir, file);
 
   const printing = await prisma.printing.findUnique({
     where: { id: printingId },
@@ -228,7 +234,7 @@ async function loadCardImage(printingId: string, options: ImageCacheOptions): Pr
   const entry = await prisma.imageCacheEntry.findUnique({ where: { key: file } });
   if (entry) {
     try {
-      const body = await readFile(path);
+      const body = await cacheGet(dir, file);
       if (now().getTime() - entry.lastAccessedAt.getTime() > TOUCH_INTERVAL_MS) {
         await prisma.imageCacheEntry.update({
           where: { key: file },
@@ -288,8 +294,7 @@ async function loadCardImage(printingId: string, options: ImageCacheOptions): Pr
   }
 
   try {
-    await mkdir(dir, { recursive: true });
-    await writeFile(path, image.body);
+    await cachePut(dir, file, image.body);
     const data = {
       printingId,
       bytes: image.body.length,
@@ -357,7 +362,7 @@ async function evictNow(options: ImageCacheOptions) {
   for (const entry of candidates) {
     if (totalBytes <= maxBytes) break;
     if (entry.printingId && pinned.has(entry.printingId)) continue;
-    await rm(join(dir, entry.key), { force: true });
+    await cacheDelete(dir, entry.key);
     await prisma.imageCacheEntry.delete({ where: { key: entry.key } }).catch(() => {});
     totalBytes -= entry.bytes;
     freedBytes += entry.bytes;
@@ -375,10 +380,13 @@ export async function imageCacheStats(): Promise<{
     prisma.imageCacheEntry.aggregate({ _sum: { bytes: true }, _count: { _all: true } }),
     pinnedPrintingIds(),
   ]);
-  const pinnedAgg = await prisma.imageCacheEntry.aggregate({
-    where: { printingId: { in: [...pinned] } },
-    _sum: { bytes: true },
-  });
+  const pinnedSums = await inChunks([...pinned], async (chunk) => [
+    await prisma.imageCacheEntry.aggregate({
+      where: { printingId: { in: chunk } },
+      _sum: { bytes: true },
+    }),
+  ]);
+  const pinnedAgg = { _sum: { bytes: pinnedSums.reduce((n, a) => n + (a._sum.bytes ?? 0), 0) } };
   return {
     files: agg._count._all,
     bytes: agg._sum.bytes ?? 0,

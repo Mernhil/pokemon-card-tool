@@ -12,7 +12,7 @@ import {
   remoteImageKey,
 } from "@tcg-vault/shared";
 import type { CatalogSourceAdapter, SourcePrinting, SourceSet } from "@tcg-vault/sources";
-import { prisma } from "./client";
+import { interactiveTransaction, prisma } from "./client";
 import { SourceUnavailableError } from "./jobs/backoff";
 import { onJobEvent } from "./jobs/events";
 import {
@@ -316,7 +316,7 @@ async function writeSet(
     create: { code: languageCode, name: priceLanguageLabel(languageCode) },
   });
 
-  await prisma.$transaction(
+  await interactiveTransaction(
     async (tx) => {
       const setData = {
         name: sourceSet.name,

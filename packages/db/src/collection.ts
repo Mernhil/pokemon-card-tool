@@ -1,5 +1,5 @@
 import type { Prisma } from "./generated/node/client";
-import { prisma } from "./client";
+import { interactiveTransaction, prisma } from "./client";
 
 /** Either the client or an interactive-transaction client. */
 type Db = Prisma.TransactionClient;
@@ -25,7 +25,7 @@ export async function releaseBinderCopies(db: Db, collectionItemId: string, keep
 /** Deletes a collection row, freeing every binder pocket it occupied. */
 export async function deleteCollectionItem(id: string, db?: Db): Promise<void> {
   if (!db) {
-    await prisma.$transaction((tx) => deleteCollectionItem(id, tx));
+    await interactiveTransaction((tx) => deleteCollectionItem(id, tx));
     return;
   }
   await releaseBinderCopies(db, id, 0);
@@ -52,7 +52,7 @@ export interface VariantCopies {
  */
 export async function adjustCopies(variantId: string, delta: number): Promise<VariantCopies> {
   if (!Number.isInteger(delta) || delta === 0) throw new Error("delta must be a non-zero integer");
-  return prisma.$transaction(async (tx) => {
+  return interactiveTransaction(async (tx) => {
     await tx.printVariant.findUniqueOrThrow({ where: { id: variantId } });
     const items = await tx.collectionItem.findMany({
       where: { variantId },

@@ -1,9 +1,14 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "tcg-vault",
-  "main": ".open-next/worker.js",
+  "main": "worker.ts",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // Every 5 minutes (a tick may run for up to ~4 min): a slice of catalog / price / FX sync (see lib/cloud-tick.ts).
+  "triggers": { "crons": ["*/5 * * * *"] },
+  // Syncing parses large source files; the default 30 s of CPU is too tight.
+  "limits": { "cpu_ms": 120000 },
+  // CRON_SECRET: `wrangler secret put CRON_SECRET` (local: .dev.vars).
   "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
   "d1_databases": [
     {

@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { PrismaLibSql } from "@prisma/adapter-libsql";
-import { PrismaClient } from "./generated/node/client";
+import { PrismaClient, type Prisma } from "./generated/node/client";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -40,4 +40,12 @@ export const prisma = globalThis.__prisma ?? create();
 
 if (process.env.NODE_ENV !== "production") {
   globalThis.__prisma = prisma;
+}
+
+/** An interactive transaction: all-or-nothing on SQLite (desktop, dev, tests). */
+export function interactiveTransaction<T>(
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  options?: { timeout?: number; maxWait?: number },
+): Promise<T> {
+  return prisma.$transaction(fn, options);
 }

@@ -238,6 +238,12 @@ export async function readSecrets(): Promise<Secrets> {
 
 /** Sets (or with null/empty, removes) one secret. Atomic, owner-only file. */
 export async function writeSecret(name: SecretName, value: string | null): Promise<void> {
+  // Hosted on Cloudflare there is no writable disk: keys are Worker secrets.
+  if (process.env.TCG_VAULT_CLOUD === "1") {
+    throw new Error(
+      `On the hosted app, set this key with: wrangler secret put ${ENV_FALLBACK[name]}`,
+    );
+  }
   const current = await readSecretsFile();
   const trimmed = value?.trim();
   if (trimmed) current[name] = trimmed;

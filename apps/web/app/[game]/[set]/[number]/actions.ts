@@ -4,6 +4,7 @@ import {
   MAX_CUSTOM_IMAGE_BYTES,
   customImageErrorText,
   enqueuePriceRefresh,
+  inChunks,
   prisma,
   refreshGradedPrices,
   type GradedPriceSource,
@@ -36,8 +37,11 @@ export async function refreshPricesAction(
   if (runnable.length === 0) return { started: false };
   // A press on "Refresh prices" retries cards no provider could match before (the automatic
   // retry only comes after a week); mappings set by hand are kept.
-  await prisma.providerMapping.deleteMany({
-    where: { variantId: { in: variantIds }, status: "not_found", manualOverride: false },
+  await inChunks(variantIds, async (chunk) => {
+    await prisma.providerMapping.deleteMany({
+      where: { variantId: { in: chunk }, status: "not_found", manualOverride: false },
+    });
+    return [];
   });
   await enqueuePriceRefresh(variantIds, game, runnable);
   requestPriceRefresh(runnable);

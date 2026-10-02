@@ -7,6 +7,7 @@ import {
 import { LANGUAGE_AWARE_PROVIDERS } from "@tcg-vault/pricing";
 import type { PriceProvider, PricedCard, ResolvedMapping } from "@tcg-vault/sources";
 import { prisma } from "./client";
+import { inChunks } from "./chunk";
 import { NonRetryableError, errorMessage, retryAfterMs } from "./jobs/backoff";
 import {
   enqueueItems,
@@ -197,18 +198,20 @@ export async function priceRefreshItems(game: string, now = new Date()): Promise
       select: { printingId: true },
     }),
   ]);
-  const viewedVariants = viewed.length
-    ? await prisma.printVariant.findMany({
+  const viewedVariants = await inChunks(
+    viewed.map((v) => v.printingId),
+    (chunk) =>
+      prisma.printVariant.findMany({
         where: {
-          printingId: { in: viewed.map((v) => v.printingId) },
+          printingId: { in: chunk },
           printing: { set: { game: { slug: game }, category: { not: "pocket" } } },
         },
         select: {
           id: true,
           printing: { select: { card: { select: { name: true } }, collectorNumber: true } },
         },
-      })
-    : [];
+      }),
+  );
   const items = new Map<string, JobItem>();
   const label = (v: (typeof owned)[number]) =>
     `${v.printing.card.name} ${v.printing.collectorNumber}`;
@@ -299,9 +302,9 @@ export async function enqueueStalePrices(
   let queued = false;
   for (const provider of providers) {
     const job = priceJob(provider);
-    const states = await prisma.syncState.findMany({
-      where: { job, game, itemKey: { in: variantIds } },
-    });
+    const states = await inChunks(variantIds, (chunk) =>
+      prisma.syncState.findMany({ where: { job, game, itemKey: { in: chunk } } }),
+    );
     const byKey = new Map(states.map((s) => [s.itemKey, s]));
     const stale = variantIds.filter((id) => {
       const s = byKey.get(id);
@@ -425,7 +428,9 @@ export async function enqueueLanguagePrices(
   for (const provider of lookups) {
     const job = priceJob(provider);
     const keys = variantIds.map((id) => priceItemKey(id, language));
-    const states = await prisma.syncState.findMany({ where: { job, game, itemKey: { in: keys } } });
+    const states = await inChunks(keys, (chunk) =>
+      prisma.syncState.findMany({ where: { job, game, itemKey: { in: chunk } } }),
+    );
     const byKey = new Map(states.map((s) => [s.itemKey, s]));
     // Opening the page must not re-query eBay every time: skip what is queued, was looked up
     // within `freshMs`, or failed within the last hour (the same budget rules as stale prices).

@@ -49,3 +49,5 @@ apps/web/.d1-migrations/
 apps/web/.open-next/
 apps/web/.wrangler/
 apps/web/.dev.vars
+apps/web/*.log
+apps/web/.wrangler-dryrun/

@@ -3,7 +3,7 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { PrismaD1 } from "@prisma/adapter-d1";
-import { PrismaClient } from "./generated/workerd/client";
+import { PrismaClient, type Prisma } from "./generated/workerd/client";
 
 const clients = new WeakMap<object, PrismaClient>();
 let override: D1Database | undefined;
@@ -31,3 +31,16 @@ export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
     return typeof value === "function" ? value.bind(client) : value;
   },
 });
+
+/**
+ * D1 has no interactive transactions (Prisma refuses them), so the callback runs
+ * as plain sequential queries. Not atomic: callers must be safe to re-run after a
+ * partial failure (the sync jobs are: they upsert, and an item only counts as
+ * done once it returns).
+ */
+export function interactiveTransaction<T>(
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  _options?: { timeout?: number; maxWait?: number },
+): Promise<T> {
+  return fn(prisma as unknown as Prisma.TransactionClient);
+}

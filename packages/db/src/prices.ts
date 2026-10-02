@@ -7,6 +7,7 @@ import {
   type SourcePriceQuote,
 } from "@tcg-vault/sources";
 import { prisma } from "./client";
+import { inChunks } from "./chunk";
 
 type Db = Prisma.TransactionClient;
 
@@ -143,10 +144,14 @@ export async function pricePoints(
   variantIds: string[],
   since?: Date,
 ): Promise<Map<string, PricePoint[]>> {
-  const rows = await prisma.priceObservation.findMany({
-    where: { variantId: { in: variantIds }, ...(since ? { observedAt: { gte: since } } : {}) },
-    orderBy: { observedAt: "asc" },
-  });
+  const rows = (
+    await inChunks(variantIds, (chunk) =>
+      prisma.priceObservation.findMany({
+        where: { variantId: { in: chunk }, ...(since ? { observedAt: { gte: since } } : {}) },
+        orderBy: { observedAt: "asc" },
+      }),
+    )
+  ).sort((a, b) => a.observedAt.getTime() - b.observedAt.getTime());
   const out = new Map<string, PricePoint[]>(variantIds.map((id) => [id, []]));
   for (const row of rows) out.get(row.variantId)!.push(...normalizeObservation(row));
   return out;

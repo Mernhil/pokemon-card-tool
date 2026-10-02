@@ -29,9 +29,11 @@ const nextConfig = {
       // The Node and Workers clients share one source tree. Swap the Node database client
       // and generated Prisma client for the Workers ones as modules get resolved.
       const db = resolve(here, "../../packages/db/src").replaceAll("\\", "/");
+      const shared = resolve(here, "../../packages/shared/src").replaceAll("\\", "/");
       const swaps = new Map([
         [`${db}/client.ts`, `${db}/client.workers.ts`],
         [`${db}/generated/node/client.ts`, `${db}/generated/workerd/client.ts`],
+        [`${shared}/local-storage.ts`, `${shared}/local-storage.workers.ts`],
       ]);
       config.plugins.push({
         apply(compiler) {

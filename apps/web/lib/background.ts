@@ -107,6 +107,16 @@ export function catalogAdapter(game = "pokemon"): CatalogSourceAdapter {
  * more right after the current run if one is already going. Errors are
  * logged, never thrown: a background job must not take the server down.
  */
+const isCloud = process.env.TCG_VAULT_CLOUD === "1";
+
+/** On Workers a run must be handed to waitUntil, or it dies with the response. */
+function keepAlive(run: Promise<unknown>): void {
+  if (!isCloud) return;
+  void import("@opennextjs/cloudflare")
+    .then(({ getCloudflareContext }) => getCloudflareContext().ctx.waitUntil(run))
+    .catch(() => {});
+}
+
 export function requestRun(name: string, job: () => Promise<unknown>): void {
   const loop = loops.get(name) ?? { running: false, again: false };
   loops.set(name, loop);
@@ -115,7 +125,7 @@ export function requestRun(name: string, job: () => Promise<unknown>): void {
     return;
   }
   loop.running = true;
-  void (async () => {
+  const run = (async () => {
     try {
       do {
         loop.again = false;
@@ -129,6 +139,7 @@ export function requestRun(name: string, job: () => Promise<unknown>): void {
       loop.running = false;
     }
   })();
+  keepAlive(run);
 }
 
 export function isRunning(name: string): boolean {
@@ -143,6 +154,8 @@ const retryTimers = new Map<string, { timer: ReturnType<typeof setTimeout>; fail
  * schedule: 5 min, doubling up to an hour. A clean run resets it.
  */
 function scheduleRetry(name: string, unhealthy: boolean, run: () => void): void {
+  // No long-lived process on Workers: the next cron tick is the retry.
+  if (isCloud) return;
   const previous = retryTimers.get(name);
   if (previous) clearTimeout(previous.timer);
   if (!unhealthy) {
@@ -221,6 +234,14 @@ let valuationTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Recomputes values + today's portfolio snapshot once price runs settle (debounced). */
 export function scheduleValuations(delayMs = 30_000): void {
+  // On Workers a debounce timer would never fire: recompute right away, kept alive past the response.
+  if (isCloud) {
+    requestRun("valuations", async () => {
+      await computeValuations();
+      await snapshotPortfolio();
+    });
+    return;
+  }
   if (valuationTimer) clearTimeout(valuationTimer);
   valuationTimer = setTimeout(() => {
     valuationTimer = null;

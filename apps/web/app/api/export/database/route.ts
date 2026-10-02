@@ -13,6 +13,12 @@ export const dynamic = "force-dynamic";
  * running, unlike copying the live file.
  */
 export async function GET() {
+  if (process.env.TCG_VAULT_CLOUD === "1") {
+    return NextResponse.json(
+      { error: "On the hosted app, back up with: wrangler d1 export tcg-vault --remote --output backup.sql" },
+      { status: 501 },
+    );
+  }
   const dir = await mkdtemp(join(tmpdir(), "tcg-vault-backup-"));
   const file = join(dir, `${randomUUID()}.db`);
   try {

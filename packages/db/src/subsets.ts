@@ -1,5 +1,5 @@
 import { SET_MERGES, SUBSET_RULES, subsetFor } from "@tcg-vault/shared";
-import { prisma } from "./client";
+import { interactiveTransaction, prisma } from "./client";
 
 /**
  * Startup repairs for subsets (packages/shared/src/subsets.ts), both
@@ -29,7 +29,7 @@ export async function mergeStraySets(): Promise<number> {
     ]);
     if (!stray || !parent || stray.id === parent.id) continue;
 
-    await prisma.$transaction(async (tx) => {
+    await interactiveTransaction(async (tx) => {
       const printings = await tx.printing.findMany({
         where: { setId: stray.id },
         select: { id: true, collectorNumber: true, isAltArt: true, sortNumber: true },

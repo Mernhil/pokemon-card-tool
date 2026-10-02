@@ -21,7 +21,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -34,3 +34,7 @@ jobs:
 
       # Catches client components importing node-only code (webpack fails the build, tsc doesn't).
       - run: pnpm --filter @tcg-vault/web build
+
+      # The hosted build: Next -> OpenNext -> Worker bundle (wrangler validates the config and bindings).
+      - run: pnpm --filter @tcg-vault/web cf:build
+      - run: pnpm --filter @tcg-vault/web exec wrangler deploy --dry-run --outdir .wrangler-dryrun

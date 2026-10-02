@@ -1,4 +1,5 @@
 import { prisma } from "./client";
+import { inChunks } from "./chunk";
 import { latestValuations } from "./valuations";
 
 export type AlertDirection = "ABOVE" | "BELOW";
@@ -71,15 +72,21 @@ export interface AlertRow {
 
 /** Alerts with their card, triggered ones first; optionally only for some variants. */
 export async function listAlerts(variantIds?: string[]): Promise<AlertRow[]> {
-  const alerts = await prisma.priceAlert.findMany({
-    where: variantIds ? { variantId: { in: variantIds } } : {},
-    orderBy: { createdAt: "desc" },
-    include: {
-      variant: {
-        include: { printing: { include: { card: true, set: { include: { game: true } } } } },
+  const query = (where: { variantId?: { in: string[] } }) =>
+    prisma.priceAlert.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      include: {
+        variant: {
+          include: { printing: { include: { card: true, set: { include: { game: true } } } } },
+        },
       },
-    },
-  });
+    });
+  const alerts = variantIds
+    ? (await inChunks(variantIds, (chunk) => query({ variantId: { in: chunk } }))).sort(
+        (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+      )
+    : await query({});
   const values = await latestValuations([...new Set(alerts.map((a) => a.variantId))]);
   const rows = alerts.map((a): AlertRow => {
     const p = a.variant.printing;
