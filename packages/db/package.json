@@ -21,6 +21,7 @@
     "seed-demo": "dotenv -e ../../.env -- tsx prisma/seed-demo.ts"
   },
   "dependencies": {
+    "@opennextjs/cloudflare": "1.20.7",
     "@prisma/adapter-d1": "7.10.0",
     "@prisma/adapter-libsql": "7.10.0",
     "@prisma/client": "^7.10.0",
@@ -29,6 +30,7 @@
     "@tcg-vault/sources": "workspace:*"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261002.1",
     "@libsql/client": "^0.18.0",
     "@types/node": "^20.16.11",
     "dotenv-cli": "^7.4.2",

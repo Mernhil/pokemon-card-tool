@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tcg-vault",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tcg-vault",
+      // Replace with the id printed by `wrangler d1 create tcg-vault` before deploying.
+      // Local `wrangler dev` / `pnpm cf:preview` ignore it and use a local emulation.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": ".d1-migrations"
+    }
+  ],
+  "r2_buckets": [
+    // Card scans cache + uploaded images (replaces the on-disk cache of the desktop app).
+    { "binding": "MEDIA", "bucket_name": "tcg-vault-media" }
+  ]
+}
