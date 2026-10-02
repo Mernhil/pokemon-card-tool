@@ -24,7 +24,7 @@ import { SyncIndicator } from "./sync-indicator";
 import { UpdateCheck } from "./update-check";
 import { ThemeToggle } from "./theme-toggle";
 
-const NAV: Array<{ href: string; label: string; icon: LucideIcon; match?: RegExp }> = [
+export const NAV: Array<{ href: string; label: string; icon: LucideIcon; match?: RegExp }> = [
   { href: "/", label: "Home", icon: Home, match: /^\/$/ },
   {
     href: "/browse",
@@ -55,7 +55,7 @@ export function Sidebar({ initialCollapsed, theme }: { initialCollapsed: boolean
 
   return (
     <aside
-      className={`sticky top-0 flex h-screen shrink-0 flex-col border-r bg-sidebar transition-[width] duration-300 ease-out ${
+      className={`sticky top-0 hidden h-screen shrink-0 flex-col border-r md:flex bg-sidebar transition-[width] duration-300 ease-out ${
         collapsed ? "w-[68px]" : "w-60"
       }`}
     >

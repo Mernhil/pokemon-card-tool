@@ -93,7 +93,7 @@ export function LineChart({
   const hoverT = hover !== null ? times[hover] : undefined;
 
   return (
-    <div ref={wrap} className="relative w-full">
+    <div ref={wrap} className="relative w-full overflow-x-clip">
       {multi ? (
         <ul className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-neutral-600" aria-hidden>
           {series.map((s) => (
@@ -112,7 +112,7 @@ export function LineChart({
         aria-label={label}
         onPointerMove={onMove}
         onPointerLeave={() => setHover(null)}
-        className="block touch-none"
+        className="block h-auto max-w-full touch-none"
       >
         {yTicks.map((v) => (
           <g key={v}>
