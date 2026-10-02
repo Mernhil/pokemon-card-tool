@@ -53,7 +53,7 @@ export default async function CollectionPage() {
   const paidRows = rows.filter((r) => r.paidPerCard !== null);
   const cost = paidRows.reduce((s, r) => s + r.paidPerCard! * r.quantity, 0);
   const pnl = paidRows.reduce((s, r) => s + (r.value ?? 0), 0) - cost;
-  const view = cookies().get(COLLECTION_VIEW_COOKIE)?.value === "list" ? "list" : "grid";
+  const view = (await cookies()).get(COLLECTION_VIEW_COOKIE)?.value === "list" ? "list" : "grid";
 
   return (
     <main className="page">
