@@ -8,11 +8,12 @@ import { CompletionRing } from "../../../components/ui/completion-ring";
 import { cardHref, sortByFinish } from "../../../lib/cards";
 import { loadMoneyDisplay } from "../../../lib/money-config";
 
-export default async function SetCardGridPage({
-  params,
-}: {
-  params: { game: string; set: string };
-}) {
+export default async function SetCardGridPage(
+  props: {
+    params: Promise<{ game: string; set: string }>;
+  }
+) {
+  const params = await props.params;
   await loadMoneyDisplay();
   const game = await prisma.game.findUnique({ where: { slug: params.game } });
   if (!game) notFound();

@@ -19,13 +19,14 @@ import { PageHeader } from "../../components/ui/page-header";
 /** Games with a manual set picker on the Sync page; others just sync in the background. */
 const MANUALLY_SYNCABLE = new Set(["pokemon", "yugioh", "one-piece"]);
 
-export default async function GameSetListPage({
-  params,
-  searchParams,
-}: {
-  params: { game: string };
-  searchParams: { lang?: string };
-}) {
+export default async function GameSetListPage(
+  props: {
+    params: Promise<{ game: string }>;
+    searchParams: Promise<{ lang?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   const [game, settings] = await Promise.all([
     prisma.game.findUnique({
       where: { slug: params.game },

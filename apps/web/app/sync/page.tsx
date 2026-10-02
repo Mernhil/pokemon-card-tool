@@ -24,7 +24,8 @@ async function loadAvailableSets(game: string) {
   }
 }
 
-export default async function SyncPage({ searchParams }: { searchParams: { game?: string } }) {
+export default async function SyncPage(props: { searchParams: Promise<{ game?: string }> }) {
+  const searchParams = await props.searchParams;
   const games = await prisma.game.findMany({ orderBy: { name: "asc" } });
   const adapterSlugs = new Set(catalogAdapters().map((a) => a.game));
   const syncableGames = games.filter((g) => adapterSlugs.has(g.slug));

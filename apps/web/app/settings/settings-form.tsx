@@ -9,6 +9,7 @@ import {
   type PriceKind,
 } from "@tcg-vault/shared/src/enums";
 import { CheckCircle2, CircleAlert, KeyRound, PlugZap, RefreshCw } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { CheckForUpdatesButton } from "../../components/check-for-updates-button";
@@ -448,9 +449,9 @@ export function SettingsForm({
       <section className="panel p-5">
         <h2 className="text-sm font-semibold">Image cache</h2>
         <p className="mt-2 text-xs text-neutral-500">
-          <a className="underline" href="/missing-images">
+          <Link className="underline" href="/missing-images">
             Cards without a scan
-          </a>{" "}
+          </Link>{" "}
           lists what the sources have no image for.
         </p>
         <label className="mt-3 flex items-center gap-3 text-sm">

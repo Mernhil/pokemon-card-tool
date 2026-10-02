@@ -26,11 +26,12 @@ const LIMIT = 120;
 const SORTS = { value: "Highest value", name: "Name", number: "Set & number" } as const;
 type Sort = keyof typeof SORTS;
 
-export default async function SearchPage({
-  searchParams,
-}: {
-  searchParams: Record<string, string | undefined>;
-}) {
+export default async function SearchPage(
+  props: {
+    searchParams: Promise<Record<string, string | undefined>>;
+  }
+) {
+  const searchParams = await props.searchParams;
   await loadMoneyDisplay();
   const q = searchParams.q?.trim() ?? "";
   const setId = searchParams.set ? Number(searchParams.set) : undefined;

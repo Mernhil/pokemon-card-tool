@@ -74,13 +74,14 @@ async function findPrinting(setId: number, slug: string) {
  * they're stale, a background refresh is queued and the page says
  * "Updating…" until it lands.
  */
-export default async function CardPage({
-  params,
-  searchParams,
-}: {
-  params: { game: string; set: string; number: string };
-  searchParams: { finish?: string; lang?: string };
-}) {
+export default async function CardPage(
+  props: {
+    params: Promise<{ game: string; set: string; number: string }>;
+    searchParams: Promise<{ finish?: string; lang?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   await loadMoneyDisplay();
   const game = await prisma.game.findUnique({ where: { slug: params.game } });
   if (!game) notFound();
