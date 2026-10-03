@@ -11,3 +11,4 @@ export * from "./bulk";
 export * from "./csv";
 export * from "./checklist";
 export * from "./collection-import";
+export * from "./scan-text";

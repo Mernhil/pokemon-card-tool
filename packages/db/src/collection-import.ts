@@ -113,9 +113,11 @@ export async function matchImportRows(
     }
     candidates.sort((a, b) => b.score - a.score || a.setName.localeCompare(b.setName));
     const top = candidates[0];
+    // Without a set in the file the score is capped, but one exact number + name match is as sure as it gets.
+    const sure = top && (top.score >= SURE || (!row.set && candidates.length === 1 && top.score >= 0.85));
     const status: ImportStatus = !top
       ? "none"
-      : top.score >= SURE && (candidates[1]?.score ?? 0) < top.score - 0.04
+      : sure && (candidates[1]?.score ?? 0) < top.score - 0.04
         ? "matched"
         : "review";
     out.push({ row, status, candidates: candidates.slice(0, MAX_CANDIDATES) });

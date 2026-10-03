@@ -1,7 +1,7 @@
 "use client";
 
 import type { ImportCandidate, MatchedImportRow } from "@tcg-vault/db";
-import { CONDITIONS } from "@tcg-vault/shared";
+import { CONDITIONS } from "@tcg-vault/shared/src/enums";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { finishLabel } from "../../components/money";

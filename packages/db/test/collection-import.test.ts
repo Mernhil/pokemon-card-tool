@@ -60,6 +60,11 @@ describe("matchImportRows", () => {
     expect(r!.candidates.map((c) => c.setCode).sort()).toEqual(["base2", "sv3"]);
   });
 
+  it("accepts a lone exact number + name match when the file names no set", async () => {
+    const { rows } = parseCollectionCsv("Name,Number\nCharizard,4/102\n");
+    expect((await matchImportRows(rows))[0]!.status).toBe("matched");
+  });
+
   it("finds nothing for an unknown card or a wrong number", async () => {
     const { rows } = parseCollectionCsv("Name,Set,Number\nMissingno,Base Set,1\nCharizard,Base Set,99\n");
     expect((await matchImportRows(rows)).map((r) => r.status)).toEqual(["none", "none"]);

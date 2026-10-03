@@ -1,11 +1,11 @@
 "use client";
 
 import {
-  CONDITIONS,
   matchChecklistCard,
   parseChecklistEntry,
   pickChecklistFinish,
-} from "@tcg-vault/shared";
+} from "@tcg-vault/shared/src/checklist";
+import { CONDITIONS } from "@tcg-vault/shared/src/enums";
 import { Undo2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
