@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import {
+  addCopies,
   adjustCopies,
   createAlert,
   deleteAlert,
@@ -9,6 +10,7 @@ import {
   evaluateAlerts,
   prisma,
   releaseBinderCopies,
+  removeCopies,
   snapshotPortfolio,
 } from "@tcg-vault/db";
 import { CONDITIONS, GRADING_COMPANIES } from "@tcg-vault/shared";
@@ -164,4 +166,31 @@ export async function deletePriceAlertAction(id: string): Promise<ActionResult> 
   const result = await attempt(() => deleteAlert(id));
   if (result.ok) revalidatePath("/dashboard");
   return result;
+}
+
+/** Checklist mode with a condition other than the quick-add default; returns the row id for undo. */
+export async function addCopiesAction(
+  variantId: string,
+  quantity: number,
+  condition: string,
+): Promise<{ ok: true; itemId: string } | { ok: false; error: string }> {
+  if (!(CONDITIONS as readonly string[]).includes(condition))
+    return { ok: false, error: "Unknown condition" };
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 999)
+    return { ok: false, error: "Invalid quantity" };
+  try {
+    const itemId = await addCopies(variantId, quantity, condition);
+    await snapshotPortfolio();
+    revalidatePath("/", "layout");
+    return { ok: true, itemId };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Undo for addCopiesAction. */
+export async function removeCopiesAction(itemId: string, quantity: number): Promise<ActionResult> {
+  return run(async () => {
+    await removeCopies(itemId, quantity);
+  });
 }

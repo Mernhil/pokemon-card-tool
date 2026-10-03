@@ -33,6 +33,11 @@ export interface SourcePrinting {
    * source didn't say — the sync then falls back to a single NON_FOIL variant.
    */
   finishes?: string[];
+  /**
+   * Editions besides the ordinary (UNLIMITED) print this printing exists in,
+   * e.g. ["FIRST_EDITION"]; each gets its own variant per finish.
+   */
+  extraEditions?: string[];
   /** Market prices the source bundles with the card, one quote per finish x source. */
   prices?: SourcePriceQuote[];
 }
@@ -40,6 +45,8 @@ export interface SourcePrinting {
 /** A price snapshot for one finish of a printing, from one source. Amounts in minor units. */
 export interface SourcePriceQuote {
   finish: string; // Finish
+  /** Edition the quote is for; absent = UNLIMITED. */
+  edition?: string; // Edition
   source: string; // PriceSourceKind, see packages/shared/src/enums.ts
   currency: string;
   low?: number;

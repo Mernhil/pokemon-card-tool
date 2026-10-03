@@ -109,3 +109,48 @@ export async function adjustCopies(variantId: string, delta: number): Promise<Va
     return { plain, total };
   });
 }
+
+/**
+ * Adds `quantity` ungraded copies in an exact condition (checklist mode):
+ * bumps the oldest plain row of that condition, else creates one. Returns
+ * the row's id, so the entry can be undone with removeCopies.
+ */
+export async function addCopies(
+  variantId: string,
+  quantity: number,
+  condition: string,
+): Promise<string> {
+  if (!Number.isInteger(quantity) || quantity <= 0) throw new Error("quantity must be positive");
+  return prisma.$transaction(async (tx) => {
+    await tx.printVariant.findUniqueOrThrow({ where: { id: variantId } });
+    const row = await tx.collectionItem.findFirst({
+      where: { variantId, condition, gradingCompany: null, certNumber: null },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    });
+    if (row) {
+      await tx.collectionItem.update({
+        where: { id: row.id },
+        data: { quantity: { increment: quantity } },
+      });
+      return row.id;
+    }
+    const created = await tx.collectionItem.create({
+      data: { variantId, quantity, condition, acquiredAt: new Date() },
+    });
+    return created.id;
+  });
+}
+
+/** Takes `quantity` copies back out of one collection row (deleting it at 0). */
+export async function removeCopies(itemId: string, quantity: number): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const row = await tx.collectionItem.findUniqueOrThrow({ where: { id: itemId } });
+    const left = row.quantity - quantity;
+    if (left <= 0) {
+      await deleteCollectionItem(itemId, tx);
+      return;
+    }
+    await releaseBinderCopies(tx, itemId, left);
+    await tx.collectionItem.update({ where: { id: itemId }, data: { quantity: left } });
+  });
+}

@@ -1,10 +1,11 @@
+import { variantKind } from "@tcg-vault/shared/src/enums";
 import { ChartLine, Coins, Layers, Library, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { collectionItemValue, latestValuations, listAlerts, prisma } from "@tcg-vault/db";
 import { topMovers } from "@tcg-vault/pricing";
 import { SET_CATEGORY_BADGES, isSetCategory } from "@tcg-vault/shared";
 import { CardTile } from "../../components/card-tile";
-import { formatEur } from "../../components/money";
+import { finishLabel, formatEur } from "../../components/money";
 import { ButtonLink } from "../../components/ui/button";
 import { EmptyState } from "../../components/ui/empty-state";
 import { LineChart } from "../../components/ui/line-chart";
@@ -271,7 +272,7 @@ export default async function DashboardPage() {
               thresholdEur: a.thresholdEur,
               triggered: a.triggeredAt !== null,
               triggeredValueEur: a.triggeredValueEur,
-              label: `${a.name} ${a.number} (${a.finish === "NON_FOIL" ? "Normal" : a.finish.replace("_", " ").toLowerCase()})`,
+              label: `${a.name} ${a.number} (${finishLabel(variantKind(a))})`,
               href: cardHref(a.gameSlug, a.setCode, a.number),
             }))}
           />
@@ -380,7 +381,7 @@ export default async function DashboardPage() {
                   name={p.card.name}
                   number={p.collectorNumber}
                   subtitle={`${p.set.name} · ${p.collectorNumber}`}
-                  finishes={[item.variant.finish]}
+                  finishes={[variantKind(item.variant)]}
                   price={value}
                   owned={item.quantity}
                 />

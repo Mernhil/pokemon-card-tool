@@ -1,5 +1,8 @@
 import {
   EBAY_MARKETPLACES,
+  backupDir,
+  getBackupStatus,
+  listBackups,
   getSettings,
   imageCacheDir,
   imageCacheStats,
@@ -37,13 +40,15 @@ const PROVIDER_NOTES: Record<string, string> = {
 
 export default async function SettingsPage() {
   await loadMoneyDisplay();
-  const [settings, secrets, health, rates, cache, { providers }] = await Promise.all([
-    getSettings(),
+  const settings = await getSettings();
+  const [secrets, health, rates, cache, { providers }, backupStatus, backups] = await Promise.all([
     secretStatus(),
     prisma.providerStatus.findMany(),
     loadFxRates(),
     imageCacheStats(),
     priceProviders(),
+    getBackupStatus(),
+    listBackups(backupDir(settings.backupFolder)),
   ]);
 
   const providerViews: ProviderView[] = PRICE_PROVIDERS.map((id) => {
@@ -91,6 +96,12 @@ export default async function SettingsPage() {
           cacheBytes: cache.bytes,
           cacheFiles: cache.files,
           pinnedBytes: cache.pinnedBytes,
+        }}
+        backup={{
+          folder: backupDir(settings.backupFolder),
+          status: backupStatus,
+          count: backups.length,
+          newestAt: backups[0]?.at ?? null,
         }}
       />
     </main>

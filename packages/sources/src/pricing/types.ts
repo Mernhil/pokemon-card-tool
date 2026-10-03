@@ -13,6 +13,8 @@ export interface PricedCard {
   printedTotal?: number | null;
   /** This variant's Finish (packages/shared/src/enums.ts). */
   finish: string;
+  /** Edition of this variant (UNLIMITED for an ordinary print). */
+  edition?: string;
   /**
    * The language to price (PRICE_LANGUAGES code) for providers that can look
    * one language up (eBay). Defaults to the variant's own languageCode.

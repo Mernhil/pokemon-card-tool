@@ -15,6 +15,7 @@ import { CheckForUpdatesButton } from "../../components/check-for-updates-button
 import { Button, buttonClass } from "../../components/ui/button";
 import { useToast } from "../../components/ui/toast";
 import {
+  backupNowAction,
   refreshAllPricesAction,
   saveSecretAction,
   saveSettingsAction,
@@ -241,6 +242,7 @@ export function SettingsForm({
   rates,
   marketplaces,
   storage,
+  backup,
 }: {
   settings: AppSettings;
   providers: ProviderView[];
@@ -253,6 +255,12 @@ export function SettingsForm({
     cacheBytes: number;
     cacheFiles: number;
     pinnedBytes: number;
+  };
+  backup: {
+    folder: string;
+    status: { at: number; ok: boolean; detail: string } | null;
+    count: number;
+    newestAt: number | null;
   };
 }) {
   const router = useRouter();
@@ -453,6 +461,12 @@ export function SettingsForm({
           </a>{" "}
           lists what the sources have no image for.
         </p>
+        <p className="mt-2 text-xs text-neutral-500">
+          <a className="underline" href="/missing-prices">
+            Cards without a price
+          </a>{" "}
+          lists the Pokémon variants no source has priced.
+        </p>
         <label className="mt-3 flex items-center gap-3 text-sm">
           Maximum size (MB)
           <input {...number("imageCacheMaxMb", 50, 100000)} />
@@ -470,6 +484,45 @@ export function SettingsForm({
           Everything lives in one local database file. Download a spreadsheet of your collection, or
           a full backup you can restore later.
         </p>
+        <label className="mt-3 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={settings.backupEnabled}
+            onChange={(e) => save({ backupEnabled: e.target.checked })}
+          />
+          Back up automatically once a day
+        </label>
+        <label className="mt-3 flex flex-col gap-1 text-sm">
+          Backup folder
+          <input
+            type="text"
+            className="field py-1 text-sm"
+            defaultValue={settings.backupFolder}
+            placeholder={backup.folder}
+            onBlur={(e) => {
+              if (e.target.value.trim() !== settings.backupFolder)
+                save({ backupFolder: e.target.value });
+            }}
+          />
+        </label>
+        <p className="mt-1 text-xs text-neutral-500">
+          Point this at a OneDrive or Google Drive folder and your backups are copied off this
+          computer too. Leave it empty for the default ({backup.folder}).
+        </p>
+        <label className="mt-3 flex items-center gap-3 text-sm">
+          Backups to keep
+          <input {...number("backupKeep", 1, 100)} />
+        </label>
+        <p className="mt-2 text-xs text-neutral-500">
+          {backup.count} backup{backup.count === 1 ? "" : "s"} in the folder
+          {backup.newestAt ? `, newest ${when(backup.newestAt)}` : ""}.
+          {backup.status && !backup.status.ok ? (
+            <span className="text-red-600">
+              {" "}
+              Last attempt failed ({when(backup.status.at)}): {backup.status.detail}
+            </span>
+          ) : null}
+        </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <a className={buttonClass("secondary")} href="/api/export/collection" download>
             Collection (CSV)
@@ -477,6 +530,19 @@ export function SettingsForm({
           <a className={buttonClass("secondary")} href="/api/export/database" download>
             Full backup (.db)
           </a>
+          <a className={buttonClass("secondary")} href="/import">
+            Import from another tracker
+          </a>
+          <Button
+            variant="secondary"
+            onClick={async () => {
+              const r = await backupNowAction();
+              toast(r.ok ? "success" : "error", r.message);
+              router.refresh();
+            }}
+          >
+            Back up now
+          </Button>
         </div>
       </section>
 

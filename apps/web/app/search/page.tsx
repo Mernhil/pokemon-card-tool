@@ -1,5 +1,6 @@
+import { variantKind } from "@tcg-vault/shared/src/enums";
 import Link from "next/link";
-import { findPokemonByName, latestValuations, prisma, type Prisma } from "@tcg-vault/db";
+import { latestValuations, printingFilter, prisma } from "@tcg-vault/db";
 import {
   RARITY_TIERS,
   RARITY_TIER_LABELS,
@@ -9,10 +10,10 @@ import {
   hasRarityTiers,
   isRarityTier,
   priceLanguageLabel,
-  rarityTier,
   type CostCard,
 } from "@tcg-vault/shared";
 import { SearchResults, type SearchTile } from "../../components/search-results";
+import { SaveGoalForm } from "../../components/save-goal-form";
 import { RestoreScroll } from "../../components/restore-scroll";
 import { finishLabel } from "../../components/money";
 import { buttonClass } from "../../components/ui/button";
@@ -63,32 +64,17 @@ export default async function SearchPage({
 
   // "Jirachi" is exactly a Pokémon: list all its cards by National Dex id (Jirachi ex, V, ...),
   // never a prefix match ("Mew" must not bring Mewtwo). Anything else is the contains search.
-  const pokemon = q && !plainText ? await findPokemonByName(q) : null;
-  const tierRarityIds = tier
-    ? rarities.filter((r) => rarityTier(r.game.slug, r.name) === tier).map((r) => r.id)
-    : null;
-
-  const where: Prisma.PrintingWhereInput = {
-    ...(pokemon
-      ? { card: { dex: { some: { dexId: pokemon.dexId } }, game: { slug: "pokemon" } } }
-      : q
-        ? { card: { name: { contains: q } } }
-        : {}),
-    ...(setId ? { setId } : {}),
-    ...(rarityId ? { rarityId } : {}),
-    ...(tierRarityIds ? { AND: [{ rarityId: { in: tierRarityIds } }] } : {}),
-    ...(finish || owned_ || lang
-      ? {
-          variants: {
-            some: {
-              ...(finish ? { finish } : {}),
-              ...(lang ? { languageCode: lang } : {}),
-              ...(owned_ ? { collection: { some: {} } } : {}),
-            },
-          },
-        }
-      : {}),
-  };
+  // The same filter powers goals (packages/db/src/goals.ts).
+  const { where, pokemon } = await printingFilter({
+    q,
+    set: setId,
+    rarity: rarityId,
+    tier,
+    finish,
+    lang,
+    plainText,
+    owned: owned_,
+  });
 
   // Everything below used to load every matching card with its set, rarity and
   // variants (tens of thousands of rows for an empty search), then sort and slice.
@@ -96,7 +82,7 @@ export default async function SearchPage({
   // and for the cost summary), and the full rows only for the one page shown.
   const matches = await prisma.printing.findMany({
     where,
-    select: { id: true, variants: { select: { id: true, finish: true, languageCode: true } } },
+    select: { id: true, variants: { select: { id: true, finish: true, edition: true, languageCode: true } } },
     orderBy:
       sort === "name"
         ? [{ card: { name: "asc" } }, { sortNumber: "asc" }]
@@ -170,7 +156,7 @@ export default async function SearchPage({
       name: p.card.name,
       number: p.collectorNumber,
       subtitle: `${p.set.name} · ${p.collectorNumber}`,
-      finishes: sortByFinish(p.variants).map((v) => v.finish),
+      finishes: sortByFinish(p.variants).map((v) => variantKind(v)),
       price: best >= 0 ? best : null,
       owned: p.variants.reduce((sum, v) => sum + (ownedByVariant.get(v.id) ?? 0), 0),
     };
@@ -310,6 +296,21 @@ export default async function SearchPage({
           Search
         </button>
       </form>
+
+      {q || setId || rarityId || tier || finish ? (
+        <SaveGoalForm
+          filter={{
+            ...(q ? { q } : {}),
+            ...(setId ? { set: setId } : {}),
+            ...(rarityId ? { rarity: rarityId } : {}),
+            ...(tier ? { tier } : {}),
+            ...(finish ? { finish } : {}),
+            ...(lang ? { lang } : {}),
+            ...(plainText ? { plainText: true } : {}),
+          }}
+          suggestion={pokemon ? `All ${pokemon.name} cards` : q ? `All ${q}` : "My goal"}
+        />
+      ) : null}
 
       <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2" aria-label="Quick filters">
         <div className="flex flex-wrap items-center gap-2">

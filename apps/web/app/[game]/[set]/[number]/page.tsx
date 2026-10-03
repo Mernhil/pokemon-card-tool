@@ -1,3 +1,4 @@
+import { variantKind } from "@tcg-vault/shared/src/enums";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -104,7 +105,7 @@ export default async function CardPage({
   const imageKey = hasOwnImage ? printing.imageKey : null;
 
   const variants = sortByFinish(printing.variants);
-  const selected = variants.find((v) => v.finish === searchParams.finish) ?? variants[0];
+  const selected = variants.find((v) => variantKind(v) === searchParams.finish) ?? variants[0];
   const variantIds = variants.map((v) => v.id);
 
   // Remember the view (recently viewed cards get refreshed) and queue a
@@ -165,7 +166,7 @@ export default async function CardPage({
         ? null
         : "Digital cards have no graded market.";
   const owned = variants.map((v) => ({
-    finish: v.finish,
+    finish: variantKind(v),
     qty: v.collection.reduce((s, c) => s + c.quantity, 0),
   }));
   const ownedTotal = owned.reduce((s, o) => s + o.qty, 0);
@@ -254,7 +255,7 @@ export default async function CardPage({
               cardName={printing.card.name}
               variants={variants.map((v) => ({
                 id: v.id,
-                finish: v.finish,
+                finish: variantKind(v),
                 value: values.get(v.id)?.valueEur ?? null,
               }))}
             />
@@ -296,19 +297,19 @@ export default async function CardPage({
                         {variants.map((v) => (
                           <Link
                             key={v.id}
-                            href={`?finish=${v.finish}${langParam}`}
+                            href={`?finish=${encodeURIComponent(variantKind(v))}${langParam}`}
                             scroll={false}
                             aria-current={v.id === selected.id ? "page" : undefined}
                             className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 ${v.id === selected.id ? "bg-accent-soft font-semibold text-neutral-900" : "text-neutral-500 hover:text-neutral-900"}`}
                           >
-                            {finishLabel(v.finish)}
+                            {finishLabel(variantKind(v))}
                             <PriceChip value={values.get(v.id)?.valueEur} />
                           </Link>
                         ))}
                       </nav>
                     ) : (
                       <span className="flex items-center gap-2 text-xs text-neutral-500">
-                        <FinishBadge finish={selected.finish} /> value{" "}
+                        <FinishBadge finish={variantKind(selected)} /> value{" "}
                         <PriceChip value={values.get(selected.id)?.valueEur} />
                       </span>
                     )}
