@@ -20,6 +20,7 @@ import {
   runPriceRefresh,
   runnableProviders,
 } from "../src/price-refresh";
+import { priceCoverage } from "../src/price-report";
 import {
   normalizeObservation,
   pricePoints,
@@ -599,5 +600,23 @@ describe("editions", () => {
       (await prisma.priceObservation.findFirst({ where: { variantId: id } }))?.amount;
     expect(await amount(first.id)).toBe(90000);
     expect(await amount(variantId)).toBe(100);
+  });
+});
+
+describe("price coverage report", () => {
+  it("lists ordinary variants with no observation, per set", async () => {
+    const priced = await makeCard("Priced");
+    const unpriced = await makeCard("Unpriced");
+    await prisma.printVariant.create({
+      data: { printingId: unpriced.printingId, finish: "HOLO", edition: "FIRST_EDITION", languageCode: "en" },
+    });
+    await prisma.priceObservation.create({
+      data: { variantId: priced.variantId, source: "t", provider: "cardmarket", currency: "EUR", amount: 5, observedAt: new Date() },
+    });
+    const report = await priceCoverage("pokemon");
+    expect(report.total).toBe(2);
+    expect(report.unpriced).toBe(1);
+    expect(report.variants.map((v) => v.cardName)).toEqual(["Unpriced"]);
+    expect(report.sets).toEqual([{ setCode: "sv1", setName: "Scarlet & Violet", total: 2, unpriced: 1 }]);
   });
 });

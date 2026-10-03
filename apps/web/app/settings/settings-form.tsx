@@ -461,6 +461,12 @@ export function SettingsForm({
           </a>{" "}
           lists what the sources have no image for.
         </p>
+        <p className="mt-2 text-xs text-neutral-500">
+          <a className="underline" href="/missing-prices">
+            Cards without a price
+          </a>{" "}
+          lists the Pokémon variants no source has priced.
+        </p>
         <label className="mt-3 flex items-center gap-3 text-sm">
           Maximum size (MB)
           <input {...number("imageCacheMaxMb", 50, 100000)} />
