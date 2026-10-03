@@ -166,6 +166,7 @@ function hasAmount(quote: SourcePriceQuote): boolean {
 export function pricesFor(
   pricing: TcgdexPricing | undefined,
   finishes: string[],
+  extraEditions: string[] = [],
 ): SourcePriceQuote[] {
   if (!pricing) return [];
   const known = finishes.length > 0 ? finishes : ["NON_FOIL"];
@@ -205,20 +206,16 @@ export function pricesFor(
 
   const tp = pricing.tcgplayer;
   if (tp) {
-    const subTypes: Record<string, string> = {
-      normal: "NON_FOIL",
-      holofoil: "HOLO",
-      holo: "HOLO",
-      "reverse-holofoil": "REVERSE_HOLO",
-      reverse: "REVERSE_HOLO",
-    };
     const seen = new Set<string>();
-    for (const [key, finish] of Object.entries(subTypes)) {
-      const row = tp[key];
-      if (!row || typeof row !== "object" || seen.has(finish)) continue;
-      seen.add(finish);
+    for (const [key, row] of Object.entries(tp)) {
+      const sub = tcgplayerSubType(key);
+      if (!sub || !row || typeof row !== "object") continue;
+      const id = `${sub.edition}:${sub.finish}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
       quotes.push({
-        finish,
+        finish: sub.finish,
+        ...(sub.edition === "UNLIMITED" ? {} : { edition: sub.edition }),
         source: "TCGPLAYER",
         currency: "USD",
         low: toMinor(row.lowPrice),
@@ -230,7 +227,52 @@ export function pricesFor(
     }
   }
 
-  return quotes.filter((q) => known.includes(q.finish) && hasAmount(q));
+  return quotes.filter(
+    (q) =>
+      known.includes(q.finish) &&
+      (!q.edition || extraEditions.includes(q.edition)) &&
+      hasAmount(q),
+  );
+}
+
+/**
+ * TCGplayer sub-type key -> our finish and edition: "normal", "holofoil",
+ * "reverse-holofoil", and for older sets "1st-edition", "1st-edition-holofoil",
+ * "unlimited", "unlimited-holofoil".
+ */
+function tcgplayerSubType(key: string): { finish: string; edition: string } | null {
+  let edition = "UNLIMITED";
+  let rest = key.toLowerCase();
+  if (rest.startsWith("1st-edition")) {
+    edition = "FIRST_EDITION";
+    rest = rest.slice("1st-edition".length).replace(/^-/, "");
+  } else if (rest.startsWith("unlimited")) {
+    rest = rest.slice("unlimited".length).replace(/^-/, "");
+  }
+  const finish: Record<string, string> = {
+    "": "NON_FOIL",
+    normal: "NON_FOIL",
+    holofoil: "HOLO",
+    holo: "HOLO",
+    "reverse-holofoil": "REVERSE_HOLO",
+    reverse: "REVERSE_HOLO",
+  };
+  // A bare "unlimited"/"1st-edition" is only a sub-type, never an unrelated key like "updated".
+  if (rest === "" && edition === "UNLIMITED" && !key.toLowerCase().startsWith("unlimited"))
+    return null;
+  return rest in finish ? { finish: finish[rest]!, edition } : null;
+}
+
+/**
+ * Pure: editions besides the ordinary print a card exists in. TCGdex only
+ * flags `firstEdition` (Shadowless has no source); same merge as finishesFor.
+ */
+export function extraEditionsFor(
+  cardVariants: TcgdexVariants | undefined,
+  setVariants: TcgdexVariants | undefined,
+): string[] {
+  const merged = { ...setVariants, ...cardVariants };
+  return merged.firstEdition ? ["FIRST_EDITION"] : [];
 }
 
 /**
@@ -306,7 +348,8 @@ export function mapTcgdexCardToSourcePrinting(
       : undefined,
     attributes,
     finishes,
-    prices: pricesFor(card.pricing, finishes),
+    extraEditions: extraEditionsFor(card.variants, setVariants),
+    prices: pricesFor(card.pricing, finishes, extraEditionsFor(card.variants, setVariants)),
   };
 }
 

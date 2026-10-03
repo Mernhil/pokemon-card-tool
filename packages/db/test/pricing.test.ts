@@ -585,3 +585,19 @@ describe("price retention", () => {
     expect(await pruneOldPriceObservations(now)).toBe(0);
   });
 });
+
+describe("editions", () => {
+  it("records a 1st Edition quote on the 1st Edition variant only", async () => {
+    const { printingId, variantId } = await makeCard("Charizard");
+    await prisma.printVariant.update({ where: { id: variantId }, data: { finish: "HOLO" } });
+    const first = await prisma.printVariant.create({
+      data: { printingId, finish: "HOLO", edition: "FIRST_EDITION", languageCode: "en" },
+    });
+    const quote = { source: "TCGPLAYER", currency: "USD", market: 90000, finish: "HOLO" };
+    await recordPrices(printingId, [{ ...quote, edition: "FIRST_EDITION" }, { ...quote, market: 100 }]);
+    const amount = async (id: string) =>
+      (await prisma.priceObservation.findFirst({ where: { variantId: id } }))?.amount;
+    expect(await amount(first.id)).toBe(90000);
+    expect(await amount(variantId)).toBe(100);
+  });
+});

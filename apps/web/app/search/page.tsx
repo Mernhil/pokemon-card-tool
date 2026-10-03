@@ -1,3 +1,4 @@
+import { variantKind } from "@tcg-vault/shared/src/enums";
 import Link from "next/link";
 import { findPokemonByName, latestValuations, prisma, type Prisma } from "@tcg-vault/db";
 import {
@@ -96,7 +97,7 @@ export default async function SearchPage({
   // and for the cost summary), and the full rows only for the one page shown.
   const matches = await prisma.printing.findMany({
     where,
-    select: { id: true, variants: { select: { id: true, finish: true, languageCode: true } } },
+    select: { id: true, variants: { select: { id: true, finish: true, edition: true, languageCode: true } } },
     orderBy:
       sort === "name"
         ? [{ card: { name: "asc" } }, { sortNumber: "asc" }]
@@ -170,7 +171,7 @@ export default async function SearchPage({
       name: p.card.name,
       number: p.collectorNumber,
       subtitle: `${p.set.name} · ${p.collectorNumber}`,
-      finishes: sortByFinish(p.variants).map((v) => v.finish),
+      finishes: sortByFinish(p.variants).map((v) => variantKind(v)),
       price: best >= 0 ? best : null,
       owned: p.variants.reduce((sum, v) => sum + (ownedByVariant.get(v.id) ?? 0), 0),
     };

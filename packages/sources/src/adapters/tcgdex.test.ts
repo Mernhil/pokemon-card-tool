@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  extraEditionsFor,
   finishesFor,
   mapTcgdexCardToSourcePrinting,
   pricesFor,
@@ -259,5 +260,39 @@ describe("strictTcgdexFetch", () => {
     await expect(strictTcgdexFetch("https://api.tcgdex.net/v2/en/sets/sv01")).rejects.toThrow(
       /HTTP 403/,
     );
+  });
+});
+
+describe("editions", () => {
+  it("reads TCGdex's firstEdition flag, card over set", () => {
+    expect(extraEditionsFor(undefined, { firstEdition: true })).toEqual(["FIRST_EDITION"]);
+    expect(extraEditionsFor({ firstEdition: false }, { firstEdition: true })).toEqual([]);
+    expect(extraEditionsFor(undefined, undefined)).toEqual([]);
+  });
+
+  it("maps TCGplayer's 1st-edition sub-types to the edition, only where the card has it", () => {
+    const pricing = {
+      tcgplayer: {
+        updated: "2026-10-01T00:00:00Z",
+        unit: "USD",
+        productId: 42,
+        "unlimited-holofoil": { marketPrice: 100 },
+        "1st-edition-holofoil": { marketPrice: 900 },
+      },
+    };
+    const quotes = pricesFor(pricing, ["HOLO"], ["FIRST_EDITION"]);
+    expect(quotes.map((q) => [q.edition ?? "UNLIMITED", q.finish, q.market])).toEqual([
+      ["UNLIMITED", "HOLO", 10000],
+      ["FIRST_EDITION", "HOLO", 90000],
+    ]);
+    expect(pricesFor(pricing, ["HOLO"]).map((q) => q.edition)).toEqual([undefined]);
+  });
+
+  it("carries the extra editions onto the mapped printing", () => {
+    const mapped = mapTcgdexCardToSourcePrinting(
+      { id: "base1-4", localId: "4", name: "Charizard", variants: { holo: true } } as TcgdexCardInput,
+      { firstEdition: true },
+    );
+    expect(mapped.extraEditions).toEqual(["FIRST_EDITION"]);
   });
 });

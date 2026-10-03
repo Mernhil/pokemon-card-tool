@@ -1,3 +1,4 @@
+import { variantKind } from "@tcg-vault/shared/src/enums";
 import { Coins, Layers, TrendingUp } from "lucide-react";
 import { cookies } from "next/headers";
 import { collectionItemValue, getSettings, latestValuations, prisma } from "@tcg-vault/db";
@@ -38,7 +39,7 @@ export default async function CollectionPage() {
       number: p.collectorNumber,
       setName: p.set.name,
       imageKey: p.imageKey,
-      finish: item.variant.finish,
+      finish: variantKind(item.variant),
       rarity: p.rarity?.name ?? null,
       quantity: item.quantity,
       condition: item.condition,

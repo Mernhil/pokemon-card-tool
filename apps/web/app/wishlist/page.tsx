@@ -1,3 +1,4 @@
+import { variantKind } from "@tcg-vault/shared/src/enums";
 import { Heart } from "lucide-react";
 import { latestValuations, prisma } from "@tcg-vault/db";
 import { CardTile } from "../../components/card-tile";
@@ -38,7 +39,7 @@ export default async function WishlistPage() {
       name: p.card.name,
       number: p.collectorNumber,
       subtitle: `${p.set.name} · ${p.collectorNumber}`,
-      finishes: sortByFinish(p.variants).map((v) => v.finish),
+      finishes: sortByFinish(p.variants).map((v) => variantKind(v)),
       // Cheapest finish: what it costs to get the card at all.
       price: prices.length ? Math.min(...prices) : null,
       owned: p.variants.reduce((s, v) => s + v.collection.reduce((q, c) => q + c.quantity, 0), 0),

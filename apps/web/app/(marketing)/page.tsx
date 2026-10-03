@@ -1,3 +1,4 @@
+import { variantKind } from "@tcg-vault/shared/src/enums";
 import { ArrowRight, BookOpen, Check, Layers, Library, RefreshCw, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { collectionItemValue, latestValuations, listBinders, prisma } from "@tcg-vault/db";
@@ -138,7 +139,7 @@ export default async function HomePage() {
                     name={p.card.name}
                     number={p.collectorNumber}
                     subtitle={`${p.set.name} · ${p.collectorNumber}`}
-                    finishes={[item.variant.finish]}
+                    finishes={[variantKind(item.variant)]}
                     price={value}
                   />
                 </li>
@@ -179,7 +180,7 @@ export default async function HomePage() {
                     name={p.card.name}
                     number={p.collectorNumber}
                     subtitle={p.rarity?.name ?? p.set.name}
-                    finishes={[item.variant.finish]}
+                    finishes={[variantKind(item.variant)]}
                     price={value}
                     owned={item.quantity}
                   />

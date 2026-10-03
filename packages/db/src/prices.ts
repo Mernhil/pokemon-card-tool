@@ -64,14 +64,14 @@ export async function recordPrices(
   if (quotes.length === 0) return 0;
 
   const variants = await db.printVariant.findMany({
-    where: { printingId, edition: "UNLIMITED" },
-    select: { id: true, finish: true },
+    where: { printingId },
+    select: { id: true, finish: true, edition: true },
   });
-  const byFinish = new Map(variants.map((v) => [v.finish, v.id]));
+  const byFinish = new Map(variants.map((v) => [`${v.edition}:${v.finish}`, v.id]));
 
   let written = 0;
   for (const quote of quotes) {
-    const variantId = byFinish.get(quote.finish);
+    const variantId = byFinish.get(`${quote.edition ?? "UNLIMITED"}:${quote.finish}`);
     if (!variantId) continue;
     const provider = quote.source.toLowerCase();
     written += await recordObservations(variantId, provider, quoteToObservations(quote), db);

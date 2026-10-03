@@ -1,3 +1,4 @@
+import { EDITION_LABELS, parseVariantKind } from "@tcg-vault/shared/src/enums";
 import { convertMinor, formatMoney } from "@tcg-vault/shared/src/currency";
 
 /**
@@ -77,20 +78,25 @@ const FINISH_STYLES: Record<string, { label: string; className: string }> = {
   NON_FOIL: { label: "Normal", className: "bg-neutral-100 text-neutral-600" },
 };
 
-export function finishLabel(finish: string): string {
-  return FINISH_STYLES[finish]?.label ?? finish.replaceAll("_", " ").toLowerCase();
+/** Label for a finish or a variant kind ("HOLO", "FIRST_EDITION:HOLO"; see variantKind). */
+export function finishLabel(kind: string): string {
+  const { edition, finish } = parseVariantKind(kind);
+  const base = FINISH_STYLES[finish]?.label ?? finish.replaceAll("_", " ").toLowerCase();
+  const prefix = EDITION_LABELS[edition];
+  return prefix ? `${prefix} ${base}` : base;
 }
 
-export function FinishBadge({ finish }: { finish: string }) {
+export function FinishBadge({ finish: kind }: { finish: string }) {
+  const finish = parseVariantKind(kind).finish;
   const style = FINISH_STYLES[finish] ?? {
-    label: finishLabel(finish),
+    label: finishLabel(kind),
     className: "bg-violet-100 dark:bg-violet-900/50 text-violet-800 dark:text-violet-200",
   };
   return (
     <span
       className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${style.className}`}
     >
-      {style.label}
+      {EDITION_LABELS[parseVariantKind(kind).edition] ? finishLabel(kind) : style.label}
     </span>
   );
 }

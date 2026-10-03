@@ -62,6 +62,7 @@ export interface AlertRow {
   currentValueEur: number | null;
   variantId: string;
   finish: string;
+  edition: string;
   name: string;
   number: string;
   setCode: string;
@@ -92,6 +93,7 @@ export async function listAlerts(variantIds?: string[]): Promise<AlertRow[]> {
       currentValueEur: values.get(a.variantId)?.valueEur ?? null,
       variantId: a.variantId,
       finish: a.variant.finish,
+      edition: a.variant.edition,
       name: p.card.name,
       number: p.collectorNumber,
       setCode: p.set.code,

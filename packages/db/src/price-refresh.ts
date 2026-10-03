@@ -91,6 +91,7 @@ export async function loadPricedCard(
     collectorNumber: v.printing.collectorNumber,
     printedTotal: v.printing.set.printedTotal,
     finish: v.finish,
+    edition: v.edition,
     printingFinishes: [...new Set(v.printing.variants.map((x) => x.finish))],
     languageCode: v.languageCode,
     priceLanguage: priceLanguage ?? v.languageCode,
@@ -163,8 +164,13 @@ export async function refreshVariantPrices(
   try {
     const mapping = await mappingFor(provider, card, now);
     // Nothing to price: not an error (the card page says "No match found").
+    // Only TCGdex relays edition-specific prices; listing searches can't tell a 1st Edition apart.
+    const editionUnpriced =
+      (card.edition ?? "UNLIMITED") !== "UNLIMITED" &&
+      provider.id !== "cardmarket" &&
+      provider.id !== "tcgplayer";
     const written =
-      mapping.status === "not_found"
+      mapping.status === "not_found" || editionUnpriced
         ? 0
         : await recordObservations(
             variantId,
