@@ -1,7 +1,8 @@
 "use client";
 
-import { Search } from "lucide-react";
-import { useMemo, useRef } from "react";
+import { ListChecks, Search } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { ChecklistEntry } from "./checklist-entry";
 import { CardTile } from "./card-tile";
 import { CustomImageControl } from "./custom-image-control";
 import { useListState } from "../lib/list-state";
@@ -83,6 +84,7 @@ export function SetGrid({ cards, subsets = [] }: { cards: SetGridCard[]; subsets
     [cards],
   );
   const { counts, adjust } = useQuickAdd(variants);
+  const [checklist, setChecklist] = useState(false);
   const ownedOf = (c: SetGridCard) =>
     c.variants.length === 0
       ? c.owned
@@ -225,11 +227,22 @@ export function SetGrid({ cards, subsets = [] }: { cards: SetGridCard[]; subsets
               Dim missing
             </label>
           ) : null}
+          <button
+            type="button"
+            aria-pressed={checklist}
+            onClick={() => setChecklist((c) => !c)}
+            className="flex items-center gap-1.5 rounded-lg bg-surface-2 px-3 py-1 text-xs font-medium text-neutral-700 hover:text-neutral-900 aria-pressed:bg-accent aria-pressed:text-accent-fg"
+          >
+            <ListChecks className="h-3.5 w-3.5" /> Checklist
+          </button>
           <span className="ml-auto text-xs tabular-nums text-neutral-500">
             {shown.length} of {cards.length}
           </span>
         </div>
       </div>
+      {checklist ? (
+        <ChecklistEntry cards={cards} adjust={adjust} onClose={() => setChecklist(false)} />
+      ) : null}
       {shown.length === 0 ? (
         <p className="py-10 text-center text-sm text-neutral-500">No cards match.</p>
       ) : (
