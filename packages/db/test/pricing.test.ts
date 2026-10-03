@@ -20,7 +20,12 @@ import {
   runPriceRefresh,
   runnableProviders,
 } from "../src/price-refresh";
-import { normalizeObservation, pricePoints, recordPrices } from "../src/prices";
+import {
+  normalizeObservation,
+  pricePoints,
+  pruneOldPriceObservations,
+  recordPrices,
+} from "../src/prices";
 import {
   computeValuations,
   latestValuations,
@@ -550,5 +555,33 @@ describe("exchange rates", () => {
     expect(rates).toMatchObject({ source: "ecb", asOf: "2026-09-25" });
     expect(rates.perEur.USD).toBe(1.1712);
     expect(rates.perEur.BRL).toBeGreaterThan(0); // built-in fills what the ECB doesn't cover
+  });
+});
+
+describe("price retention", () => {
+  it("drops observations older than 18 months but keeps the newest per variant and provider", async () => {
+    const { variantId } = await makeCard("Pidgey");
+    const now = new Date("2026-10-03T00:00:00Z");
+    const row = (provider: string, observedAt: string) => ({
+      variantId,
+      source: "test",
+      provider,
+      kind: "lowest_listing",
+      amount: 100,
+      currency: "EUR",
+      observedAt: new Date(observedAt),
+    });
+    await prisma.priceObservation.createMany({
+      data: [
+        row("cardmarket", "2024-12-01T00:00:00Z"), // old, superseded: pruned
+        row("cardmarket", "2025-01-01T00:00:00Z"), // old, newest for cardmarket: kept
+        row("cardtrader", "2025-02-01T00:00:00Z"), // old, superseded by a recent row: pruned
+        row("cardtrader", "2026-09-01T00:00:00Z"), // recent: kept
+        row("ebay", "2025-03-01T00:00:00Z"), // old, only ebay row: kept
+      ],
+    });
+    expect(await pruneOldPriceObservations(now)).toBe(2);
+    expect(await prisma.priceObservation.count()).toBe(3);
+    expect(await pruneOldPriceObservations(now)).toBe(0);
   });
 });
