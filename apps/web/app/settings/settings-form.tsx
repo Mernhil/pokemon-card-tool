@@ -530,6 +530,9 @@ export function SettingsForm({
           <a className={buttonClass("secondary")} href="/api/export/database" download>
             Full backup (.db)
           </a>
+          <a className={buttonClass("secondary")} href="/import">
+            Import from another tracker
+          </a>
           <Button
             variant="secondary"
             onClick={async () => {
