@@ -21,3 +21,4 @@ export * from "./siblings";
 export * from "./backup";
 export * from "./price-report";
 export * from "./collection-import";
+export * from "./pokedex";

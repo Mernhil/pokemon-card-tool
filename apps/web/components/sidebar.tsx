@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Search,
   Settings,
+  Target,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -34,6 +35,7 @@ const NAV: Array<{ href: string; label: string; icon: LucideIcon; match?: RegExp
   },
   { href: "/search", label: "Search", icon: Search },
   { href: "/collection", label: "Collection", icon: Layers },
+  { href: "/pokedex", label: "Pokédex", icon: Target },
   { href: "/wishlist", label: "Wishlist", icon: Heart },
   { href: "/binders", label: "Binders", icon: BookOpen },
   { href: "/dashboard", label: "Dashboard", icon: ChartLine },
