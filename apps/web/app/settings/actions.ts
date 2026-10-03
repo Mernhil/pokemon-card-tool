@@ -3,6 +3,7 @@
 import {
   SECRET_NAMES,
   getSettings,
+  runBackup,
   updateSettings,
   writeSecret,
   type AppSettings,
@@ -76,4 +77,16 @@ export async function testConnectionAction(
 export async function refreshAllPricesAction(): Promise<void> {
   requestFxRefresh();
   requestPriceRefresh();
+}
+
+/** "Back up now" with the folder from Settings; reports where the file went or why it failed. */
+export async function backupNowAction(): Promise<{ ok: boolean; message: string }> {
+  try {
+    const file = await runBackup();
+    revalidatePath("/settings");
+    return { ok: true, message: `Saved ${file.path}` };
+  } catch (err) {
+    revalidatePath("/settings");
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
 }

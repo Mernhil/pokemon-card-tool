@@ -48,6 +48,12 @@ export interface AppSettings {
   showPocketSets: boolean;
   /** Collection cards worth less than this each (EUR minor units) fold into the Bulk section; 0 = off. */
   bulkThresholdCents: number;
+  /** Copy the database into `backupFolder` about once a day (see backup.ts). */
+  backupEnabled: boolean;
+  /** Where backups go, e.g. a OneDrive or Google Drive folder; empty = "backups" in the app data folder. */
+  backupFolder: string;
+  /** How many of the newest backups to keep. */
+  backupKeep: number;
   providers: Record<PriceProviderId, { enabled: boolean }>;
   ebay: {
     /** EBAY_US, EBAY_GB, EBAY_DE, EBAY_IT, EBAY_FR, EBAY_ES, ... */
@@ -72,6 +78,9 @@ export function defaultSettings(): AppSettings {
     showPocketSets: true,
     catalogLanguages: TCGDEX_LANGUAGES.map((l) => l.code),
     bulkThresholdCents: DEFAULT_BULK_THRESHOLD,
+    backupEnabled: true,
+    backupFolder: "",
+    backupKeep: 7,
     providers: {
       cardmarket: { enabled: true },
       tcgplayer: { enabled: true },
@@ -126,6 +135,11 @@ export function sanitizeSettings(
       ? TCGDEX_LANGUAGES.map((l) => l.code).filter((c) => (raw.catalogLanguages as unknown[]).includes(c))
       : base.catalogLanguages,
     bulkThresholdCents: clamp(raw.bulkThresholdCents, 0, 1_000_000, base.bulkThresholdCents),
+    backupEnabled:
+      typeof raw.backupEnabled === "boolean" ? raw.backupEnabled : base.backupEnabled,
+    backupFolder:
+      typeof raw.backupFolder === "string" ? raw.backupFolder.trim().slice(0, 500) : base.backupFolder,
+    backupKeep: clamp(raw.backupKeep, 1, 100, base.backupKeep),
     providers: Object.fromEntries(
       PRICE_PROVIDERS.map((id) => [
         id,
