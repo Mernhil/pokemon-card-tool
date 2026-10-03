@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Award,
   BookOpen,
   ChartLine,
   Flag,
@@ -41,6 +42,7 @@ const NAV: Array<{ href: string; label: string; icon: LucideIcon; match?: RegExp
   { href: "/wishlist", label: "Wishlist", icon: Heart },
   { href: "/binders", label: "Binders", icon: BookOpen },
   { href: "/dashboard", label: "Dashboard", icon: ChartLine },
+  { href: "/grading", label: "Grading", icon: Award },
   { href: "/sync", label: "Sync", icon: RefreshCw },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
