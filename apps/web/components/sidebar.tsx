@@ -3,6 +3,7 @@
 import {
   BookOpen,
   ChartLine,
+  Flag,
   Heart,
   Home,
   Layers,
@@ -36,6 +37,7 @@ const NAV: Array<{ href: string; label: string; icon: LucideIcon; match?: RegExp
   { href: "/search", label: "Search", icon: Search },
   { href: "/collection", label: "Collection", icon: Layers },
   { href: "/pokedex", label: "Pokédex", icon: Target },
+  { href: "/goals", label: "Goals", icon: Flag },
   { href: "/wishlist", label: "Wishlist", icon: Heart },
   { href: "/binders", label: "Binders", icon: BookOpen },
   { href: "/dashboard", label: "Dashboard", icon: ChartLine },

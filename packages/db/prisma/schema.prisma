@@ -243,6 +243,16 @@ model WishlistItem {
   createdAt  DateTime @default(now())
 }
 
+/// A saved search with a progress bar: "all Charizards", "every Special Illustration Rare".
+/// `filter` is the JSON of GoalFilter (packages/db/src/goals.ts); progress is how many of the
+/// matching cards the user owns, computed on demand.
+model Goal {
+  id        String   @id @default(cuid())
+  name      String
+  filter    String // JSON-encoded GoalFilter
+  createdAt DateTime @default(now())
+}
+
 model Binder {
   id        String       @id @default(cuid())
   name      String

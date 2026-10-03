@@ -75,6 +75,9 @@ export default async function SetCardGridPage({
     };
   });
   const ownedDistinct = cards.filter((c) => c.owned > 0).length;
+  // Master set: every finish and edition counts, not just one card per number.
+  const masterTotal = cards.reduce((s, c) => s + c.variants.length, 0);
+  const masterOwned = cards.reduce((s, c) => s + c.variants.filter((v) => v.owned > 0).length, 0);
   // What's still missing, priciest first, and what it would cost to fill the gaps.
   const missing = cards
     .filter((c) => c.owned === 0)
@@ -118,6 +121,12 @@ export default async function SetCardGridPage({
             <p className="text-xs text-neutral-500">
               {ownedValue > 0 ? `${formatEur(ownedValue)} in your collection` : "None owned yet"}
             </p>
+            {masterTotal > set.printings.length ? (
+              <p className="text-xs text-neutral-500">
+                Master set: {masterOwned} / {masterTotal} (every finish
+                {cards.some((c) => c.finishes.some((f) => f.includes(":"))) ? " and edition" : ""})
+              </p>
+            ) : null}
           </div>
         </div>
       </header>
