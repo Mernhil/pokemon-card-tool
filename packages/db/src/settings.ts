@@ -32,6 +32,12 @@ export interface AppSettings {
    * pollute values. Cardmarket/TCGplayer can't split by language and stay "all languages".
    */
   priceLanguage: PriceLanguage;
+  /**
+   * The language most of the collection is in (not the app language): Browse and Search open
+   * on it, so adding a card in that language needs no extra step; a card in another language
+   * is the exception (pick that language tab or the card page selector).
+   */
+  collectionLanguage: PriceLanguage;
   /** Collection (and recently viewed) cards' prices are refreshed this often. */
   priceRefreshHours: number;
   /** A card page with prices older than this queues a refresh when opened. */
@@ -71,6 +77,7 @@ export function defaultSettings(): AppSettings {
   return {
     displayCurrency: "EUR",
     priceLanguage: DEFAULT_PRICE_LANGUAGE,
+    collectionLanguage: DEFAULT_PRICE_LANGUAGE,
     priceRefreshHours: 24,
     staleAfterHours: 24,
     catalogRefreshDays: envNumber("CATALOG_REFRESH_DAYS", 30),
@@ -125,6 +132,9 @@ export function sanitizeSettings(
   return {
     displayCurrency: /^[A-Z]{3}$/.test(currency) ? currency : base.displayCurrency,
     priceLanguage: isPriceLanguage(raw.priceLanguage) ? raw.priceLanguage : base.priceLanguage,
+    collectionLanguage: isPriceLanguage(raw.collectionLanguage)
+      ? raw.collectionLanguage
+      : base.collectionLanguage,
     priceRefreshHours: clamp(raw.priceRefreshHours, 1, 24 * 30, base.priceRefreshHours),
     staleAfterHours: clamp(raw.staleAfterHours, 1, 24 * 30, base.staleAfterHours),
     catalogRefreshDays: clamp(raw.catalogRefreshDays, 1, 365, base.catalogRefreshDays),

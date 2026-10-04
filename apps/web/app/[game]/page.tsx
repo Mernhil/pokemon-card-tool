@@ -61,7 +61,11 @@ export default async function GameSetListPage({
     (c) => (BROWSE_LANGUAGES as readonly string[]).includes(c),
   );
   const lang =
-    searchParams.lang && setLanguages.includes(searchParams.lang) ? searchParams.lang : "en";
+    searchParams.lang && setLanguages.includes(searchParams.lang)
+      ? searchParams.lang
+      : setLanguages.includes(settings.collectionLanguage)
+        ? settings.collectionLanguage
+        : "en";
   const visibleSets = game.sets.filter(
     (s) =>
       (settings.showPocketSets || categoryOf(s) !== "pocket") &&
@@ -87,6 +91,9 @@ export default async function GameSetListPage({
         isSpecial(s) &&
         (settings.showPocketSets || categoryOf(s) !== "pocket"),
     );
+  const defaultLang = setLanguages.includes(settings.collectionLanguage)
+    ? settings.collectionLanguage
+    : "en";
   const tab = searchParams.tab === "special" && hasSpecial(lang) ? "special" : "main";
   const mainSets = visibleSets.filter((s) => !isSpecial(s));
   const specialSets = visibleSets.filter(isSpecial);
@@ -97,7 +104,7 @@ export default async function GameSetListPage({
   ]);
   const tabHref = (code: string, kind: "main" | "special") => {
     const q = new URLSearchParams();
-    if (code !== "en") q.set("lang", code);
+    if (code !== defaultLang) q.set("lang", code);
     if (kind === "special") q.set("tab", "special");
     const qs = q.toString();
     return qs ? `/${game.slug}?${qs}` : `/${game.slug}`;

@@ -338,6 +338,27 @@ export function SettingsForm({
           </select>
         </label>
         <label className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+          Collection language
+          <select
+            className="field py-1 text-sm"
+            value={settings.collectionLanguage}
+            onChange={(e) =>
+              save({ collectionLanguage: e.target.value as AppSettings["collectionLanguage"] })
+            }
+          >
+            {PRICE_LANGUAGES_MAIN_FIRST.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="mt-1 text-xs text-neutral-500">
+          The language most of your cards are in. Browse opens on it, so cards you add are in that
+          language; for the occasional card in another language, pick that language&apos;s tab (or
+          change it later in the Collection list).
+        </p>
+        <label className="mt-4 flex flex-wrap items-center gap-3 text-sm">
           Price language
           <select
             className="field py-1 text-sm"

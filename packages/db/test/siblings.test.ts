@@ -67,6 +67,25 @@ describe("findLanguageSiblings", () => {
     ]);
   });
 
+  it("links the same set and number across languages even when the HP differs (30th Meowth 144/128)", async () => {
+    const game = await prisma.game.create({ data: { slug: "pokemon", name: "Pokemon" } });
+    const artist = await prisma.artist.create({ data: { name: "Kagemaru Himeno" } });
+    const base = { game, dex: [52], artistId: artist.id, released: "2026-09-15", number: "144/128", name: "Meowth" };
+    const en = await seedPrinting({ ...base, hp: 50, lang: "en", setCode: "30th" });
+    await seedPrinting({ ...base, hp: 70, lang: "it", setCode: "it-30th" });
+    await seedPrinting({ ...base, hp: 60, lang: "de", setCode: "de-30th" });
+    // Same number in an unrelated set is not a sibling.
+    await seedPrinting({ ...base, hp: 99, lang: "fr", setCode: "fr-other" });
+
+    const found = await findLanguageSiblings(en.id);
+    expect(found.map((f) => f.languageCode).sort()).toEqual(["de", "it"]);
+    expect(found.find((f) => f.languageCode === "it")).toEqual({
+      languageCode: "it",
+      setCode: "it-30th",
+      collectorNumber: "144/128",
+    });
+  });
+
   it("finds nothing when no illustrator is known", async () => {
     const game = await prisma.game.create({ data: { slug: "pokemon", name: "Pokemon" } });
     const artist = await prisma.artist.create({ data: { name: "A" } });

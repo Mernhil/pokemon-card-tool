@@ -1,3 +1,4 @@
+import { TCGDEX_LANGUAGES } from "@tcg-vault/shared";
 import { prisma } from "./client";
 
 export interface LanguageSibling {
@@ -48,6 +49,34 @@ export async function findLanguageSiblings(printingId: string): Promise<Language
   });
 
   const best = new Map<string, { sibling: LanguageSibling; gap: number }>();
+
+  // Same set, same number: TCGdex uses one set id in every language ("30th", "it-30th") and
+  // numbers the cards alike. This is the reliable link — name and HP differ between languages
+  // (the same Meowth is 50 HP in English and 70 in Italian), so they are not compared here.
+  const prefixOf = (lang: string) => TCGDEX_LANGUAGES.find((l) => l.code === lang)?.prefix ?? "";
+  const bareCode = p.set.code.startsWith(prefixOf(myLang)) ? p.set.code.slice(prefixOf(myLang).length) : p.set.code;
+  if (!/^(JP|EN)-/.test(p.set.code)) {
+    const sameSet = await prisma.printing.findMany({
+      where: {
+        collectorNumber: p.collectorNumber,
+        set: {
+          gameId: p.set.gameId,
+          code: { in: ["en", ...TCGDEX_LANGUAGES.map((l) => l.code)].map((l) => (l === "en" ? bareCode : prefixOf(l) + bareCode)) },
+        },
+      },
+      include: { set: true, card: { include: { dex: true } } },
+    });
+    for (const c of sameSet) {
+      const lang = c.set.primaryLangCode ?? "en";
+      if (c.id === p.id || lang === myLang) continue;
+      const theirDex = c.card.dex.map((d) => d.dexId).sort((a, b) => a - b);
+      if (theirDex.length !== dex.length || theirDex.some((id, i) => id !== dex[i])) continue;
+      best.set(lang, {
+        gap: -1,
+        sibling: { languageCode: lang, setCode: c.set.code, collectorNumber: c.collectorNumber },
+      });
+    }
+  }
   for (const c of candidates) {
     const lang = c.set.primaryLangCode ?? "en";
     if (lang === myLang) continue;
