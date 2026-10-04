@@ -1,5 +1,7 @@
 import {
   cleanupPriceQueue,
+  runBackup,
+  runBackupIfDue,
   computeValuations,
   getSettings,
   readSecrets,
@@ -232,6 +234,14 @@ export function scheduleValuations(delayMs = 30_000): void {
   valuationTimer.unref?.();
 }
 
+/** Backs up the database if enabled and the newest copy is over a day old (or forced). */
+export function requestBackup(force = false): void {
+  requestRun("backup", async () => {
+    if (force) await runBackup();
+    else await runBackupIfDue();
+  });
+}
+
 /**
  * Refreshes prices for every game x enabled provider, each provider as its
  * own run (own lock, own throttle): one failing or rate-limited provider
@@ -273,6 +283,7 @@ export function startBackgroundJobs(delayMs = 10_000): void {
     requestCatalogSync();
     requestFxRefresh();
     requestPriceRefresh();
+    requestBackup();
     // Today's portfolio point exists even when no price changed.
     scheduleValuations(5_000);
   }, delayMs);

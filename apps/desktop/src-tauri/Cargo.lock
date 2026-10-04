@@ -3860,7 +3860,7 @@ dependencies = [
 
 [[package]]
 name = "tcg-vault-desktop"
-version = "0.5.6"
+version = "0.6.0"
 dependencies = [
  "serde",
  "serde_json",

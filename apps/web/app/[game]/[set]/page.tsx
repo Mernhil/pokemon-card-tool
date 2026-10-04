@@ -1,3 +1,4 @@
+import { variantKind } from "@tcg-vault/shared/src/enums";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { latestValuations, prisma } from "@tcg-vault/db";
@@ -53,7 +54,7 @@ export default async function SetCardGridPage({
       const plain = v.collection
         .filter((c) => c.gradingCompany === null && c.certNumber === null)
         .reduce((s, c) => s + c.quantity, 0);
-      gridVariants.push({ id: v.id, finish: v.finish, owned: qty, ownedPlain: plain });
+      gridVariants.push({ id: v.id, finish: variantKind(v), owned: qty, ownedPlain: plain });
       owned += qty;
       ownedValue += qty * (values.get(v.id)?.valueEur ?? 0);
     }
@@ -65,7 +66,7 @@ export default async function SetCardGridPage({
       sortNumber: printing.sortNumber,
       rarity: printing.rarity?.name ?? null,
       imageKey: printing.imageKey,
-      finishes: variants.map((v) => v.finish),
+      finishes: variants.map((v) => variantKind(v)),
       price: prices.length > 0 ? Math.min(...prices) : null,
       multiPrice: prices.length > 1,
       owned,
@@ -74,6 +75,9 @@ export default async function SetCardGridPage({
     };
   });
   const ownedDistinct = cards.filter((c) => c.owned > 0).length;
+  // Master set: every finish and edition counts, not just one card per number.
+  const masterTotal = cards.reduce((s, c) => s + c.variants.length, 0);
+  const masterOwned = cards.reduce((s, c) => s + c.variants.filter((v) => v.owned > 0).length, 0);
   // What's still missing, priciest first, and what it would cost to fill the gaps.
   const missing = cards
     .filter((c) => c.owned === 0)
@@ -117,6 +121,12 @@ export default async function SetCardGridPage({
             <p className="text-xs text-neutral-500">
               {ownedValue > 0 ? `${formatEur(ownedValue)} in your collection` : "None owned yet"}
             </p>
+            {masterTotal > set.printings.length ? (
+              <p className="text-xs text-neutral-500">
+                Master set: {masterOwned} / {masterTotal} (every finish
+                {cards.some((c) => c.finishes.some((f) => f.includes(":"))) ? " and edition" : ""})
+              </p>
+            ) : null}
           </div>
         </div>
       </header>

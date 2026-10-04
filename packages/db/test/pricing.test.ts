@@ -20,7 +20,13 @@ import {
   runPriceRefresh,
   runnableProviders,
 } from "../src/price-refresh";
-import { normalizeObservation, pricePoints, recordPrices } from "../src/prices";
+import { priceCoverage } from "../src/price-report";
+import {
+  normalizeObservation,
+  pricePoints,
+  pruneOldPriceObservations,
+  recordPrices,
+} from "../src/prices";
 import {
   computeValuations,
   latestValuations,
@@ -550,5 +556,67 @@ describe("exchange rates", () => {
     expect(rates).toMatchObject({ source: "ecb", asOf: "2026-09-25" });
     expect(rates.perEur.USD).toBe(1.1712);
     expect(rates.perEur.BRL).toBeGreaterThan(0); // built-in fills what the ECB doesn't cover
+  });
+});
+
+describe("price retention", () => {
+  it("drops observations older than 18 months but keeps the newest per variant and provider", async () => {
+    const { variantId } = await makeCard("Pidgey");
+    const now = new Date("2026-10-03T00:00:00Z");
+    const row = (provider: string, observedAt: string) => ({
+      variantId,
+      source: "test",
+      provider,
+      kind: "lowest_listing",
+      amount: 100,
+      currency: "EUR",
+      observedAt: new Date(observedAt),
+    });
+    await prisma.priceObservation.createMany({
+      data: [
+        row("cardmarket", "2024-12-01T00:00:00Z"), // old, superseded: pruned
+        row("cardmarket", "2025-01-01T00:00:00Z"), // old, newest for cardmarket: kept
+        row("cardtrader", "2025-02-01T00:00:00Z"), // old, superseded by a recent row: pruned
+        row("cardtrader", "2026-09-01T00:00:00Z"), // recent: kept
+        row("ebay", "2025-03-01T00:00:00Z"), // old, only ebay row: kept
+      ],
+    });
+    expect(await pruneOldPriceObservations(now)).toBe(2);
+    expect(await prisma.priceObservation.count()).toBe(3);
+    expect(await pruneOldPriceObservations(now)).toBe(0);
+  });
+});
+
+describe("editions", () => {
+  it("records a 1st Edition quote on the 1st Edition variant only", async () => {
+    const { printingId, variantId } = await makeCard("Charizard");
+    await prisma.printVariant.update({ where: { id: variantId }, data: { finish: "HOLO" } });
+    const first = await prisma.printVariant.create({
+      data: { printingId, finish: "HOLO", edition: "FIRST_EDITION", languageCode: "en" },
+    });
+    const quote = { source: "TCGPLAYER", currency: "USD", market: 90000, finish: "HOLO" };
+    await recordPrices(printingId, [{ ...quote, edition: "FIRST_EDITION" }, { ...quote, market: 100 }]);
+    const amount = async (id: string) =>
+      (await prisma.priceObservation.findFirst({ where: { variantId: id } }))?.amount;
+    expect(await amount(first.id)).toBe(90000);
+    expect(await amount(variantId)).toBe(100);
+  });
+});
+
+describe("price coverage report", () => {
+  it("lists ordinary variants with no observation, per set", async () => {
+    const priced = await makeCard("Priced");
+    const unpriced = await makeCard("Unpriced");
+    await prisma.printVariant.create({
+      data: { printingId: unpriced.printingId, finish: "HOLO", edition: "FIRST_EDITION", languageCode: "en" },
+    });
+    await prisma.priceObservation.create({
+      data: { variantId: priced.variantId, source: "t", provider: "cardmarket", currency: "EUR", amount: 5, observedAt: new Date() },
+    });
+    const report = await priceCoverage("pokemon");
+    expect(report.total).toBe(2);
+    expect(report.unpriced).toBe(1);
+    expect(report.variants.map((v) => v.cardName)).toEqual(["Unpriced"]);
+    expect(report.sets).toEqual([{ setCode: "sv1", setName: "Scarlet & Violet", total: 2, unpriced: 1 }]);
   });
 });

@@ -160,8 +160,16 @@ export class TcgdexMarketProvider implements PriceProvider {
     const id = tcgdexCardId(card);
     if (!id) return { quotes: [] as SourcePriceQuote[], hash: "", noTcgdex: true };
     const { pricing, hash } = await this.client.card(id, tcgdexLanguageOf(card));
-    const quotes = pricesFor(pricing, card.printingFinishes).filter(
-      (q) => q.source === SOURCE_FOR[this.id] && q.finish === card.finish,
+    const edition = card.edition ?? "UNLIMITED";
+    const quotes = pricesFor(
+      pricing,
+      card.printingFinishes,
+      edition === "UNLIMITED" ? [] : [edition],
+    ).filter(
+      (q) =>
+        q.source === SOURCE_FOR[this.id] &&
+        q.finish === card.finish &&
+        (q.edition ?? "UNLIMITED") === edition,
     );
     return { quotes, hash, noTcgdex: false };
   }

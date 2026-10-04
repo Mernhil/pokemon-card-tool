@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "../src/client";
-import { adjustCopies, deleteCollectionItem } from "../src/collection";
+import { addCopies, adjustCopies, deleteCollectionItem, removeCopies } from "../src/collection";
 import { resetDb } from "./helpers";
 
 afterAll(() => prisma.$disconnect());
@@ -131,5 +131,20 @@ describe("binder pockets", () => {
     await deleteCollectionItem(item.id);
     expect(await prisma.binderSlot.count({ where: { collectionItemId: item.id } })).toBe(0);
     expect(await items()).toHaveLength(0);
+  });
+});
+
+describe("addCopies / removeCopies", () => {
+  it("merges into a plain row of the same condition, and undoes exactly that", async () => {
+    const first = await addCopies(variantId, 2, "LIGHTLY_PLAYED");
+    expect(await addCopies(variantId, 1, "LIGHTLY_PLAYED")).toBe(first);
+    const other = await addCopies(variantId, 1, "NEAR_MINT");
+    expect(other).not.toBe(first);
+    expect((await prisma.collectionItem.findUniqueOrThrow({ where: { id: first } })).quantity).toBe(3);
+
+    await removeCopies(first, 1);
+    expect((await prisma.collectionItem.findUniqueOrThrow({ where: { id: first } })).quantity).toBe(2);
+    await removeCopies(other, 1);
+    expect(await prisma.collectionItem.findUnique({ where: { id: other } })).toBeNull();
   });
 });

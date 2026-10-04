@@ -328,12 +328,12 @@ export async function createBinderFromSet(input: {
     }),
     slotsUsedByItem(),
   ]);
-  const spare = new Map<string, { id: string; finish: string; left: number }[]>();
+  const spare = new Map<string, { id: string; finish: string; edition: string; left: number }[]>();
   for (const item of items) {
     const left = item.quantity - (used.get(item.id) ?? 0);
     if (left <= 0) continue;
     const list = spare.get(item.variant.printingId) ?? [];
-    list.push({ id: item.id, finish: item.variant.finish, left });
+    list.push({ id: item.id, finish: item.variant.finish, edition: item.variant.edition, left });
     spare.set(item.variant.printingId, list);
   }
 
@@ -343,10 +343,14 @@ export async function createBinderFromSet(input: {
   await prisma.$transaction(
     set.printings.map((printing, i) => {
       // The pocket is "for" the printing's main finish.
-      const wantVariant = [...printing.variants].sort((a, b) => rank(a.finish) - rank(b.finish))[0];
+      const wantVariant = [...printing.variants].sort(
+        (a, b) =>
+          Number(a.edition !== "UNLIMITED") - Number(b.edition !== "UNLIMITED") ||
+          rank(a.finish) - rank(b.finish),
+      )[0];
       const candidates = spare.get(printing.id) ?? [];
       const match =
-        candidates.find((c) => c.left > 0 && c.finish === wantVariant?.finish) ??
+        candidates.find((c) => c.left > 0 && c.finish === wantVariant?.finish && c.edition === wantVariant?.edition) ??
         candidates.find((c) => c.left > 0);
       if (match) match.left--;
       return prisma.binderSlot.create({

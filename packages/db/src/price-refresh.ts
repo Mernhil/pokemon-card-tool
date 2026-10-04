@@ -32,7 +32,12 @@ import { recordObservations } from "./prices";
  * never priced: digital-only cards have no market.
  */
 
-export const PRICE_PRIORITY = { onDemand: 400, collection: 300, recentlyViewed: 200 } as const;
+export const PRICE_PRIORITY = {
+  onDemand: 400,
+  collection: 300,
+  wishlistTarget: 250,
+  recentlyViewed: 200,
+} as const;
 const RECENTLY_VIEWED_DAYS = 14;
 /** Automatic matches are re-checked this often (manual ones never). */
 const REMATCH_AFTER_MS = 30 * 86_400_000;
@@ -91,6 +96,7 @@ export async function loadPricedCard(
     collectorNumber: v.printing.collectorNumber,
     printedTotal: v.printing.set.printedTotal,
     finish: v.finish,
+    edition: v.edition,
     printingFinishes: [...new Set(v.printing.variants.map((x) => x.finish))],
     languageCode: v.languageCode,
     priceLanguage: priceLanguage ?? v.languageCode,
@@ -163,8 +169,13 @@ export async function refreshVariantPrices(
   try {
     const mapping = await mappingFor(provider, card, now);
     // Nothing to price: not an error (the card page says "No match found").
+    // Only TCGdex relays edition-specific prices; listing searches can't tell a 1st Edition apart.
+    const editionUnpriced =
+      (card.edition ?? "UNLIMITED") !== "UNLIMITED" &&
+      provider.id !== "cardmarket" &&
+      provider.id !== "tcgplayer";
     const written =
-      mapping.status === "not_found"
+      mapping.status === "not_found" || editionUnpriced
         ? 0
         : await recordObservations(
             variantId,
@@ -209,11 +220,27 @@ export async function priceRefreshItems(game: string, now = new Date()): Promise
         },
       })
     : [];
+  // Wishlist cards with a target price are watched like the collection (the deal finder).
+  const watched = await prisma.printVariant.findMany({
+    where: {
+      edition: "UNLIMITED",
+      printing: {
+        wishlist: { is: { targetEur: { not: null } } },
+        set: { game: { slug: game }, category: { not: "pocket" } },
+      },
+    },
+    select: {
+      id: true,
+      printing: { select: { card: { select: { name: true } }, collectorNumber: true } },
+    },
+  });
   const items = new Map<string, JobItem>();
   const label = (v: (typeof owned)[number]) =>
     `${v.printing.card.name} ${v.printing.collectorNumber}`;
   for (const v of viewedVariants)
     items.set(v.id, { key: v.id, label: label(v), priority: PRICE_PRIORITY.recentlyViewed });
+  for (const v of watched)
+    items.set(v.id, { key: v.id, label: label(v), priority: PRICE_PRIORITY.wishlistTarget });
   for (const v of owned)
     items.set(v.id, { key: v.id, label: label(v), priority: PRICE_PRIORITY.collection });
   return [...items.values()];

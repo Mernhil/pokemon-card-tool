@@ -14,6 +14,7 @@
     "validate": "prisma validate",
     "studio": "dotenv -e ../../.env -- prisma studio",
     "sync-prices": "dotenv -e ../../.env -- tsx src/sync-prices.ts",
+    "price-report": "dotenv -e ../../.env -- tsx src/price-report.ts",
     "image-report": "dotenv -e ../../.env -- tsx src/image-report.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p .",

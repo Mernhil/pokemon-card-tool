@@ -48,6 +48,31 @@ export const EDITIONS = [
 ] as const;
 export type Edition = (typeof EDITIONS)[number];
 
+/**
+ * A variant as one string for UI plumbing that only knows "finish": the bare
+ * finish for ordinary (UNLIMITED) prints, "EDITION:FINISH" otherwise
+ * ("FIRST_EDITION:HOLO"). parseVariantKind is the inverse.
+ */
+export function variantKind(v: { finish: string; edition?: string | null }): string {
+  return v.edition && v.edition !== "UNLIMITED" ? `${v.edition}:${v.finish}` : v.finish;
+}
+
+export function parseVariantKind(kind: string): { edition: string; finish: string } {
+  const i = kind.indexOf(":");
+  return i < 0
+    ? { edition: "UNLIMITED", finish: kind }
+    : { edition: kind.slice(0, i), finish: kind.slice(i + 1) };
+}
+
+export const EDITION_LABELS: Record<string, string> = {
+  FIRST_EDITION: "1st Ed.",
+  SHADOWLESS: "Shadowless",
+  LIMITED: "Limited",
+  PROMO: "Promo",
+  STAFF: "Staff",
+  PRERELEASE: "Prerelease",
+};
+
 export const GRADING_COMPANIES = ["PSA", "BGS", "CGC", "SGC", "TAG", "ACE", "OTHER"] as const;
 export type GradingCompany = (typeof GRADING_COMPANIES)[number];
 

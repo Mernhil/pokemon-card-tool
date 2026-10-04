@@ -1,6 +1,6 @@
 "use server";
 
-import { prisma } from "@tcg-vault/db";
+import { prisma, setWishlistTarget } from "@tcg-vault/db";
 import { revalidatePath } from "next/cache";
 
 /** Adds or removes a printing from the wishlist; returns whether it is wishlisted afterwards. */
@@ -21,4 +21,19 @@ export async function toggleWishlistAction(
   revalidatePath("/wishlist");
   revalidatePath("/", "layout");
   return { wishlisted: !existing };
+}
+
+/** Sets (or with null, clears) the deal-finder target for a wishlist card, in euros. */
+export async function setWishlistTargetAction(
+  printingId: string,
+  eur: number | null,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (eur !== null && !Number.isFinite(eur)) return { ok: false, error: "Enter a number" };
+  try {
+    await setWishlistTarget(printingId, eur);
+    revalidatePath("/wishlist");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }

@@ -1,3 +1,4 @@
+import { variantKind } from "@tcg-vault/shared/src/enums";
 import { Layers, TrendingUp } from "lucide-react";
 import { cookies } from "next/headers";
 import { collectionItemValue, getSettings, latestValuations, prisma } from "@tcg-vault/db";
@@ -38,7 +39,7 @@ export default async function CollectionPage() {
       number: p.collectorNumber,
       setName: p.set.name,
       imageKey: p.imageKey,
-      finish: item.variant.finish,
+      finish: variantKind(item.variant),
       rarity: p.rarity?.name ?? null,
       quantity: item.quantity,
       condition: item.condition,
@@ -61,10 +62,17 @@ export default async function CollectionPage() {
         <EmptyState
           icon={Layers}
           title="Nothing here yet"
-          action={<ButtonLink href="/browse">Browse the catalog</ButtonLink>}
+          action={
+            <div className="flex gap-2">
+              <ButtonLink href="/browse">Browse the catalog</ButtonLink>
+              <ButtonLink href="/import" variant="secondary">
+                Import a CSV
+              </ButtonLink>
+            </div>
+          }
         >
           Open any card and press “Add to collection” — with its finish, condition and what you
-          paid.
+          paid. Or open a set and use Checklist to type in card numbers.
         </EmptyState>
       ) : (
         <>

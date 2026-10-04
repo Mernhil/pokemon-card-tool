@@ -1,5 +1,6 @@
 import cron from "node-cron";
-import { requestCatalogSync, requestFxRefresh, requestPriceRefresh } from "./background";
+import { pruneOldPriceObservations } from "@tcg-vault/db";
+import { requestBackup, requestCatalogSync, requestFxRefresh, requestPriceRefresh } from "./background";
 import { computeValuations } from "./jobs/compute-valuations";
 import { snapshotPortfolios } from "./jobs/snapshot-portfolios";
 
@@ -26,6 +27,17 @@ export function startScheduler(): void {
     runSafely("valuations", async () => {
       await computeValuations();
       await snapshotPortfolios();
+    }),
+  );
+
+  // Hourly check; a backup is only written when the newest one is a day old.
+  cron.schedule("41 * * * *", () => requestBackup());
+
+  // Weekly: drop raw price rows older than 18 months (newest per variant stays).
+  cron.schedule("23 3 * * 0", () =>
+    runSafely("price retention", async () => {
+      const removed = await pruneOldPriceObservations();
+      if (removed) console.log(`[scheduler] pruned ${removed} old price observations`);
     }),
   );
 }

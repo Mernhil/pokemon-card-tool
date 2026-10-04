@@ -64,14 +64,14 @@ export async function recordPrices(
   if (quotes.length === 0) return 0;
 
   const variants = await db.printVariant.findMany({
-    where: { printingId, edition: "UNLIMITED" },
-    select: { id: true, finish: true },
+    where: { printingId },
+    select: { id: true, finish: true, edition: true },
   });
-  const byFinish = new Map(variants.map((v) => [v.finish, v.id]));
+  const byFinish = new Map(variants.map((v) => [`${v.edition}:${v.finish}`, v.id]));
 
   let written = 0;
   for (const quote of quotes) {
-    const variantId = byFinish.get(quote.finish);
+    const variantId = byFinish.get(`${quote.edition ?? "UNLIMITED"}:${quote.finish}`);
     if (!variantId) continue;
     const provider = quote.source.toLowerCase();
     written += await recordObservations(variantId, provider, quoteToObservations(quote), db);
@@ -150,4 +150,35 @@ export async function pricePoints(
   const out = new Map<string, PricePoint[]>(variantIds.map((id) => [id, []]));
   for (const row of rows) out.get(row.variantId)!.push(...normalizeObservation(row));
   return out;
+}
+
+/** Raw observations are kept this long; daily valuations are kept forever. */
+export const PRICE_RETENTION_MONTHS = 18;
+
+/**
+ * Deletes raw price observations older than the retention window, except the
+ * newest row per variant and provider, so a card nobody refreshed lately
+ * still shows its last known price. Returns how many rows it removed.
+ */
+export async function pruneOldPriceObservations(
+  now = new Date(),
+  months = PRICE_RETENTION_MONTHS,
+  db: Db = prisma,
+): Promise<number> {
+  const cutoff = new Date(now);
+  cutoff.setUTCMonth(cutoff.getUTCMonth() - months);
+  return db.$executeRaw`
+    DELETE FROM "PriceObservation"
+    WHERE "observedAt" < ${cutoff.getTime()}
+      AND "id" NOT IN (
+        SELECT "id" FROM (
+          SELECT "id", ROW_NUMBER() OVER (
+            PARTITION BY "variantId", COALESCE("provider", ''), COALESCE("kind", ''),
+              COALESCE("condition", ''), COALESCE("gradingCompany", ''), COALESCE("grade", -1),
+              COALESCE("languageCode", '')
+            ORDER BY "observedAt" DESC, "id" DESC
+          ) AS rn
+          FROM "PriceObservation"
+        ) WHERE rn = 1
+      )`;
 }

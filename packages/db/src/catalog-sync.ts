@@ -205,14 +205,16 @@ async function syncVariants(
   const reported = printing.finishes ?? [];
   const finishes = reported.length > 0 ? reported : ["NON_FOIL"];
 
-  for (const finish of finishes) {
-    const key = { printingId, finish, edition: "UNLIMITED", languageCode };
-    const existing = await tx.printVariant.findUnique({
-      where: { printingId_finish_edition_languageCode: key },
-    });
-    if (!existing) {
-      await tx.printVariant.create({ data: key });
-      counters.variantsCreated++;
+  for (const edition of ["UNLIMITED", ...(printing.extraEditions ?? [])]) {
+    for (const finish of finishes) {
+      const key = { printingId, finish, edition, languageCode };
+      const existing = await tx.printVariant.findUnique({
+        where: { printingId_finish_edition_languageCode: key },
+      });
+      if (!existing) {
+        await tx.printVariant.create({ data: key });
+        counters.variantsCreated++;
+      }
     }
   }
 

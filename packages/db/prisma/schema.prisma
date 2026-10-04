@@ -240,7 +240,19 @@ model WishlistItem {
   id         String   @id @default(cuid())
   printingId String   @unique
   printing   Printing @relation(fields: [printingId], references: [id], onDelete: Cascade)
+  /// Deal finder: flag the card when its lowest CardTrader / eBay listing is at or under this (EUR minor units).
+  targetEur  Int?
   createdAt  DateTime @default(now())
+}
+
+/// A saved search with a progress bar: "all Charizards", "every Special Illustration Rare".
+/// `filter` is the JSON of GoalFilter (packages/db/src/goals.ts); progress is how many of the
+/// matching cards the user owns, computed on demand.
+model Goal {
+  id        String   @id @default(cuid())
+  name      String
+  filter    String // JSON-encoded GoalFilter
+  createdAt DateTime @default(now())
 }
 
 model Binder {

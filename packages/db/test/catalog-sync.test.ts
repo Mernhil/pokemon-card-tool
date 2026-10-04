@@ -173,6 +173,20 @@ describe("runCatalogSync", () => {
     expect(await prisma.collectionItem.count()).toBe(1);
   });
 
+  it("creates a 1st Edition variant per finish when the source reports the edition", async () => {
+    const adapter = new FakeAdapter(["s1"], 1);
+    adapter.sets[0]!.cards[0] = printing("s1", 1, {
+      finishes: ["HOLO"],
+      extraEditions: ["FIRST_EDITION"],
+    });
+    await runCatalogSync(adapter, fast());
+    const variants = await prisma.printVariant.findMany({ orderBy: { edition: "asc" } });
+    expect(variants.map((v) => [v.edition, v.finish])).toEqual([
+      ["FIRST_EDITION", "HOLO"],
+      ["UNLIMITED", "HOLO"],
+    ]);
+  });
+
   it("keeps a legacy downloaded image key when the file is still on disk", async () => {
     const { putFile } = await import("@tcg-vault/shared");
     const clock = fakeClock();
