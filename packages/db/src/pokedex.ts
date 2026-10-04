@@ -59,15 +59,27 @@ export function generationOf(dexId: number): number {
   return GENERATIONS.find((g) => dexId >= g.from && dexId <= g.to)?.gen ?? GENERATIONS.length;
 }
 
-export async function livingPokedex(): Promise<Pokedex> {
-  const [names, owned] = await Promise.all([
-    prisma.$queryRaw<Array<{ dexId: number; name: string }>>`
+/** Card names per Pokédex number: it changes only with a catalog sync, but takes ~1 s to build. */
+let namesCache: { at: number; rows: Array<{ dexId: number; name: string }> } | null = null;
+const NAMES_CACHE_MS = 10 * 60_000;
+
+async function dexNames(): Promise<Array<{ dexId: number; name: string }>> {
+  if (namesCache && Date.now() - namesCache.at < NAMES_CACHE_MS) return namesCache.rows;
+  const rows = await prisma.$queryRaw<Array<{ dexId: number; name: string }>>`
       SELECT d."dexId" AS dexId, c."name" AS name
       FROM "CardDex" d
       JOIN "Card" c ON c."id" = d."cardId"
       JOIN "Game" g ON g."id" = c."gameId"
       WHERE g."slug" = 'pokemon'
-        AND (SELECT COUNT(*) FROM "CardDex" d2 WHERE d2."cardId" = c."id") = 1`,
+        AND d."cardId" IN (SELECT "cardId" FROM "CardDex" GROUP BY "cardId" HAVING COUNT(*) = 1)
+      GROUP BY d."dexId", c."name"`;
+  namesCache = { at: Date.now(), rows };
+  return rows;
+}
+
+export async function livingPokedex(): Promise<Pokedex> {
+  const [names, owned] = await Promise.all([
+    dexNames(),
     prisma.$queryRaw<
       Array<{
         dexId: number;

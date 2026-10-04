@@ -13,6 +13,9 @@ import { loadFxRates } from "./fx";
 import { normalizeObservation } from "./prices";
 import { getSettings } from "./settings";
 
+/** Variants valued per database round (bounded so a slice's rows stay small). */
+const FULL_RUN_SLICE = 500;
+
 /** Only prices this recent feed a valuation. */
 const LOOKBACK_DAYS = 30;
 
@@ -124,17 +127,37 @@ export async function computeValuations(
   { variantIds }: { variantIds?: string[] } = {},
 ): Promise<number> {
   if (variantIds && variantIds.length === 0) return 0;
-  if (variantIds && variantIds.length > 500) {
+  if (!variantIds) {
+    // The whole catalog: a million observations must never be loaded at once (it froze the
+    // app's single server process), so value it a slice at a time and let requests in between.
+    const since = new Date(now.getTime() - LOOKBACK_DAYS * 86_400_000);
+    const withPrices = await prisma.priceObservation.groupBy({
+      by: ["variantId"],
+      where: { observedAt: { gte: since } },
+    });
+    const all = withPrices.map((r) => r.variantId);
     let written = 0;
-    for (let i = 0; i < variantIds.length; i += 500)
-      written += await computeValuations(now, language, { variantIds: variantIds.slice(i, i + 500) });
+    for (let i = 0; i < all.length; i += FULL_RUN_SLICE) {
+      written += await computeValuations(now, language, { variantIds: all.slice(i, i + FULL_RUN_SLICE) });
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    // Fresh values may have crossed someone's price alert.
+    await evaluateAlerts(now).catch(() => 0);
+    return written;
+  }
+  if (variantIds.length > FULL_RUN_SLICE) {
+    let written = 0;
+    for (let i = 0; i < variantIds.length; i += FULL_RUN_SLICE)
+      written += await computeValuations(now, language, {
+        variantIds: variantIds.slice(i, i + FULL_RUN_SLICE),
+      });
     return written;
   }
   const priceLanguage = language ?? (await getSettings()).priceLanguage;
   const day = utcDay(now);
   const since = new Date(now.getTime() - LOOKBACK_DAYS * 86_400_000);
   const rates = await loadFxRates();
-  const scope = variantIds ? { variantId: { in: variantIds } } : {};
+  const scope = { variantId: { in: variantIds } };
 
   const [rows, lowConfidence] = await Promise.all([
     prisma.priceObservation.findMany({ where: { observedAt: { gte: since }, ...scope } }),
@@ -211,8 +234,6 @@ export async function computeValuations(
       where: { day, bucket: "NM", variantId: { in: stale.slice(i, i + 500) } },
     });
   }
-  // Fresh values may have crossed someone's price alert (the full run checks them).
-  if (!variantIds) await evaluateAlerts(now).catch(() => 0);
   return written;
 }
 
