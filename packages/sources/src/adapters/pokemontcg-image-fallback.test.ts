@@ -74,3 +74,13 @@ describe("PokemonTcgIoImageFallback", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("pokemonImageCandidates for galleries numbered outside the set total", () => {
+  it("does not construct addresses for 001/30 in a 128-card set (they would be card 001)", async () => {
+    const { pokemonImageCandidates } = await import("./pokemon-image-candidates");
+    const input = { setCode: "30th", series: "Miscellaneous", collectorNumber: "001/30", printedTotal: 128 };
+    expect(pokemonImageCandidates(input)).toEqual([]);
+    expect(pokemonImageCandidates(input, ["https://x/known.webp"])).toEqual(["https://x/known.webp"]);
+    expect(pokemonImageCandidates({ ...input, collectorNumber: "001/128" }).length).toBeGreaterThan(0);
+  });
+});

@@ -112,7 +112,7 @@ const CUSTOM_CONTENT_TYPES: Record<string, string> = {
 export interface CandidatePrinting {
   imageUrls: string | null;
   collectorNumber: string;
-  set: { code: string; series: string | null; game: { slug: string } };
+  set: { code: string; series: string | null; printedTotal?: number | null; game: { slug: string } };
 }
 
 /**
@@ -131,6 +131,7 @@ export function imageCandidatesFor(printing: CandidatePrinting): string[] {
       setCode: printing.set.code,
       series: printing.set.series,
       collectorNumber: printing.collectorNumber,
+      printedTotal: printing.set.printedTotal,
     },
     known,
   );
@@ -204,7 +205,7 @@ async function loadCardImage(printingId: string, options: ImageCacheOptions): Pr
       imageUrls: true,
       customImageKey: true,
       collectorNumber: true,
-      set: { select: { code: true, series: true, game: { select: { slug: true } } } },
+      set: { select: { code: true, series: true, printedTotal: true, game: { select: { slug: true } } } },
     },
   });
 

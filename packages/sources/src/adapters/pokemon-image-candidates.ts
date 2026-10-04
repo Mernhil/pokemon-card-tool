@@ -92,6 +92,8 @@ export interface PokemonImageInput {
   series?: string | null;
   /** "4/102" or just "4". */
   collectorNumber: string;
+  /** The set's printed card count, to spot galleries numbered outside it ("001/30" in a 128-card set). */
+  printedTotal?: number | null;
 }
 
 function localIdOf(collectorNumber: string): string {
@@ -121,5 +123,9 @@ export function pokemontcgIoImageUrls(input: PokemonImageInput): string[] {
  * first; the constructed candidates follow, duplicates removed.
  */
 export function pokemonImageCandidates(input: PokemonImageInput, known: string[] = []): string[] {
+  // A "001/30" card in a 128-card set is a gallery TCGdex files as its own set: the constructed
+  // addresses would show the main set's card 001 instead.
+  const total = Number(input.collectorNumber.split("/")[1]);
+  if (total && input.printedTotal && total !== input.printedTotal) return [...new Set(known)];
   return [...new Set([...known, ...tcgdexAssetUrls(input), ...pokemontcgIoImageUrls(input)])];
 }

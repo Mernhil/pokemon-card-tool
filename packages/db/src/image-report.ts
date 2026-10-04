@@ -98,6 +98,7 @@ async function main() {
       code: true,
       name: true,
       series: true,
+      printedTotal: true,
       game: { select: { slug: true } },
     },
   });
@@ -144,7 +145,7 @@ async function main() {
             : imageCandidatesFor({
                 imageUrls: p.imageUrls,
                 collectorNumber: p.collectorNumber,
-                set: { code: set.code, series: set.series, game: set.game },
+                set: { code: set.code, series: set.series, printedTotal: set.printedTotal, game: set.game },
               });
           const { image, attempts } = await fetchFirstImage(urls, {
             method: "HEAD",

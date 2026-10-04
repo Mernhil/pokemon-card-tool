@@ -31,7 +31,7 @@ export default async function GameSetListPage({
       where: { slug: params.game },
       include: {
         sets: {
-          orderBy: { releaseDate: "asc" },
+          orderBy: { releaseDate: "desc" },
           include: { _count: { select: { printings: true } } },
         },
       },
