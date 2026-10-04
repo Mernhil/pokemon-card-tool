@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { appDataDir, getFile, isForeignCatalogSet } from "@tcg-vault/shared";
 import { pokemonImageCandidates } from "@tcg-vault/sources";
 import { prisma } from "./client";
+import { findLanguageSiblings } from "./siblings";
 import {
   explainAttempts,
   fetchFirstImage,
@@ -49,11 +50,13 @@ export interface ImageCacheOptions {
 export interface CardImage {
   body: Buffer;
   contentType: string;
-  from: "cache" | "remote" | "custom";
+  from: "cache" | "remote" | "custom" | "sibling";
 }
 
 export type ImageStatus =
   | "custom"
+  /** No scan of its own: the same card's scan in another language (same set and number). */
+  | "sibling"
   | "cache"
   | "remote"
   /** No candidate URL at all for this card. */
@@ -181,9 +184,50 @@ export async function getCardImageResult(
   const key = `${imageCacheDir(options)}\u0000${printingId}`;
   const pending = inFlight.get(key);
   if (pending) return pending;
-  const promise = loadCardImage(printingId, options).finally(() => inFlight.delete(key));
+  const promise = loadWithLanguageFallback(printingId, options).finally(() =>
+    inFlight.delete(key),
+  );
   inFlight.set(key, promise);
   return promise;
+}
+
+/**
+ * A printing with no scan anywhere (TCGdex has none for most Italian and some
+ * Japanese trainer-gallery cards) shows the scan of the very same card in another
+ * language, matched only by set and collector number — never a lookalike. English
+ * first. Nothing is stored under this printing's own key, so its own scan is picked
+ * up as soon as a source has one.
+ */
+async function loadWithLanguageFallback(
+  printingId: string,
+  options: ImageCacheOptions,
+): Promise<ImageResult> {
+  const own = await loadCardImage(printingId, options);
+  if (own.image || (own.status !== "no-source" && own.status !== "not-found")) return own;
+
+  const siblings = (await findLanguageSiblings(printingId, { exactOnly: true })).sort(
+    (a, b) => Number(b.languageCode === "en") - Number(a.languageCode === "en"),
+  );
+  for (const sibling of siblings) {
+    const target = await prisma.printing.findFirst({
+      where: {
+        collectorNumber: sibling.collectorNumber,
+        set: { code: sibling.setCode, game: { slug: "pokemon" } },
+      },
+      select: { id: true },
+    });
+    if (!target) continue;
+    const result = await loadCardImage(target.id, options);
+    if (result.image) {
+      return {
+        image: { ...result.image, from: "sibling" },
+        status: "sibling",
+        attempts: own.attempts,
+        reason: "",
+      };
+    }
+  }
+  return own;
 }
 
 const none = (status: ImageStatus, attempts: Attempt[], reason: string): ImageResult => ({

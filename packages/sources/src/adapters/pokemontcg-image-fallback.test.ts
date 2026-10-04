@@ -84,3 +84,12 @@ describe("pokemonImageCandidates for galleries numbered outside the set total", 
     expect(pokemonImageCandidates({ ...input, collectorNumber: "001/128" }).length).toBeGreaterThan(0);
   });
 });
+
+describe("Trainer Gallery cards keep their constructed addresses", () => {
+  it("TG13/30 in a 172-card set is not treated as a colliding gallery", async () => {
+    const { pokemonImageCandidates } = await import("./pokemon-image-candidates");
+    const urls = pokemonImageCandidates({ setCode: "swsh9", series: "Sword & Shield", collectorNumber: "TG13/30", printedTotal: 172 });
+    expect(urls.length).toBeGreaterThan(0);
+    expect(urls.some((u) => u.includes("TG13"))).toBe(true);
+  });
+});

@@ -125,7 +125,10 @@ export function pokemontcgIoImageUrls(input: PokemonImageInput): string[] {
 export function pokemonImageCandidates(input: PokemonImageInput, known: string[] = []): string[] {
   // A "001/30" card in a 128-card set is a gallery TCGdex files as its own set: the constructed
   // addresses would show the main set's card 001 instead.
-  const total = Number(input.collectorNumber.split("/")[1]);
-  if (total && input.printedTotal && total !== input.printedTotal) return [...new Set(known)];
+  // Only plain numbers can collide: "TG13/30" or "GG05/GG70" are galleries whose ids are their own.
+  const [local = "", totalText] = input.collectorNumber.split("/");
+  const total = Number(totalText);
+  if (/^[0-9]+$/.test(local.trim()) && total && input.printedTotal && total !== input.printedTotal)
+    return [...new Set(known)];
   return [...new Set([...known, ...tcgdexAssetUrls(input), ...pokemontcgIoImageUrls(input)])];
 }

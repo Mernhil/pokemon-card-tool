@@ -27,7 +27,10 @@ function hpOf(attributes: string): number | null {
  * the one released closest wins. Returns at most one printing per language;
  * none when nothing matches well enough.
  */
-export async function findLanguageSiblings(printingId: string): Promise<LanguageSibling[]> {
+export async function findLanguageSiblings(
+  printingId: string,
+  { exactOnly = false }: { exactOnly?: boolean } = {},
+): Promise<LanguageSibling[]> {
   const p = await prisma.printing.findUnique({
     where: { id: printingId },
     include: { set: { include: { game: true } }, card: { include: { dex: true } } },
@@ -38,7 +41,8 @@ export async function findLanguageSiblings(printingId: string): Promise<Language
   const myLang = p.set.primaryLangCode ?? "en";
   const hp = hpOf(p.card.attributes);
 
-  const candidates = await prisma.printing.findMany({
+  // Sharing a picture needs certainty: only the same set and number, never a lookalike.
+  const candidates = exactOnly ? [] : await prisma.printing.findMany({
     where: {
       id: { not: p.id },
       artistId: p.artistId,

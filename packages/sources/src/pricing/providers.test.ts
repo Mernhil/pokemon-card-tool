@@ -538,3 +538,10 @@ describe("tcgdexCardId", () => {
     expect(tcgdexCardId({ ...classic, collectorNumber: "001/128" } as never)).toBe("30th-001");
   });
 });
+
+describe("tcgdexCardId for Trainer Gallery cards", () => {
+  it("still guesses the gallery's own id (TG13/30 -> swsh9-TG13)", () => {
+    const card = { setCode: "swsh9", collectorNumber: "TG13/30", printedTotal: 172, languageCode: "en", externalIds: {} };
+    expect(tcgdexCardId(card as never)).toBe("swsh9-TG13");
+  });
+});

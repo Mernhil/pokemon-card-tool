@@ -78,8 +78,11 @@ export function tcgdexCardId(card: PricedCard): string | null {
   if (lang !== "en" || NOT_TCGDEX_SET.test(card.setCode)) return null;
   // "001/30" inside a 128-card set is a gallery TCGdex files as its own set ("30th-c"):
   // guessing "30th-001" would price a different card.
-  const total = Number(card.collectorNumber.split("/")[1]);
-  if (total && card.printedTotal && total !== card.printedTotal) return null;
+  // Only plain numbers collide: a "TG13/30" gallery card has its own id ("swsh9-TG13").
+  const [local = "", totalText] = card.collectorNumber.split("/");
+  const total = Number(totalText);
+  if (/^[0-9]+$/.test(local.trim()) && total && card.printedTotal && total !== card.printedTotal)
+    return null;
   return `${card.setCode}-${card.collectorNumber.split("/")[0]}`;
 }
 

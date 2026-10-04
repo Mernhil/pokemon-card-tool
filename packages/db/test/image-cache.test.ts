@@ -412,3 +412,63 @@ describe("reprints with no scan of their own", () => {
     expect(await prisma.imageCacheEntry.count()).toBe(0);
   });
 });
+
+describe("same card in another language (no scan of its own)", () => {
+  async function pair({ itNumber = "TG13/30" }: { itNumber?: string } = {}) {
+    const game = await prisma.game.upsert({
+      where: { slug: "pokemon" },
+      update: {},
+      create: { slug: "pokemon", name: "Pokémon" },
+    });
+    for (const code of ["en", "it"])
+      await prisma.language.upsert({ where: { code }, update: {}, create: { code, name: code } });
+    const artist = await prisma.artist.create({ data: { name: "Akira Komayama" } });
+    const make = async (lang: string, setCode: string, number: string, urls: string[] | null) => {
+      const set = await prisma.set.upsert({
+        where: { gameId_code: { gameId: game.id, code: setCode } },
+        update: {},
+        create: { gameId: game.id, code: setCode, name: setCode, primaryLangCode: lang },
+      });
+      const card = await prisma.card.create({
+        data: {
+          gameId: game.id,
+          name: "Starmie V",
+          cardType: "Pokemon",
+          canonicalKey: `${setCode}-${number}`,
+          dex: { create: [{ dexId: 121 }] },
+        },
+      });
+      const printing = await prisma.printing.create({
+        data: {
+          cardId: card.id,
+          setId: set.id,
+          collectorNumber: number,
+          sortNumber: 13,
+          artistId: artist.id,
+          imageUrls: urls ? JSON.stringify(urls) : null,
+        },
+      });
+      await prisma.printVariant.create({ data: { printingId: printing.id, languageCode: lang } });
+      return printing.id;
+    };
+    const en = await make("en", "swsh10tg", "TG13/30", ["https://img/en.webp"]);
+    const it = await make("it", "it-swsh10tg", itNumber, null);
+    return { en, it };
+  }
+
+  it("shows the English scan of the same set and number", async () => {
+    const { it } = await pair();
+    const fetchImpl = fakeFetch({ "https://img/en.webp": () => imageResponse(55) });
+    const got = await getCardImage(it, { dir, sleep: noSleep, fetch: fetchImpl });
+    expect(got).toMatchObject({ from: "sibling" });
+    expect(got!.body.length).toBe(55);
+    // Nothing is stored under the Italian card's own key.
+    expect(existsSync(join(dir, cacheFileName(it)))).toBe(false);
+  });
+
+  it("never borrows from a card with a different number", async () => {
+    const { it } = await pair({ itNumber: "TG14/30" });
+    const fetchImpl = fakeFetch({ "https://img/en.webp": () => imageResponse(55) });
+    expect(await getCardImage(it, { dir, sleep: noSleep, fetch: fetchImpl })).toBeNull();
+  });
+});
