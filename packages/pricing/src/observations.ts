@@ -26,10 +26,18 @@ export const HEADLINE_KINDS: Record<string, PriceKind[]> = {
   cardmarket: ["trend", "market_average"],
   tcgplayer: ["market_average", "lowest_listing", "asking"],
   cardtrader: ["lowest_listing"],
-  ebay: ["sold", "asking", "lowest_listing"],
+  // The cheapest listing leads (with its range and average alongside); the median asking
+  // price stays in the details.
+  ebay: ["sold", "lowest_listing", "asking"],
 };
 
 const DEFAULT_KINDS: PriceKind[] = ["sold", "market_average", "trend", "asking", "lowest_listing"];
+
+/**
+ * Markets that only sell English cards: TCGplayer is a US marketplace, so its prices belong to
+ * the English card and say nothing about the same card in another language.
+ */
+export const ENGLISH_ONLY_PROVIDERS = new Set(["tcgplayer"]);
 
 /** Providers whose listings carry a language, so they can be filtered to one. */
 export const LANGUAGE_AWARE_PROVIDERS = new Set(["cardtrader", "ebay"]);
@@ -59,6 +67,11 @@ export function pointsForLanguage(
 ): { points: PricePoint[]; mode: LanguageMode } {
   const own = points.filter((p) => p.provider === provider);
   if (own.length === 0) return { points: [], mode: "none" };
+  if (ENGLISH_ONLY_PROVIDERS.has(provider)) {
+    return language === "en"
+      ? { points: own, mode: "all-languages" }
+      : { points: [], mode: "other-languages" };
+  }
   if (!LANGUAGE_AWARE_PROVIDERS.has(provider)) return { points: own, mode: "all-languages" };
   const exact = own.filter((p) => p.languageCode === language);
   if (exact.length > 0) return { points: exact, mode: "language" };

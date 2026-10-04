@@ -100,17 +100,14 @@ describe("value anchor with mixed-language data", () => {
   });
 });
 
-async function makeVariant() {
+async function makeVariant(languageCode = "en") {
   const game = await prisma.game.upsert({
     where: { slug: "pokemon" },
     update: {},
     create: { slug: "pokemon", name: "Pokémon" },
   });
-  await prisma.language.upsert({
-    where: { code: "en" },
-    update: {},
-    create: { code: "en", name: "English" },
-  });
+  for (const code of new Set(["en", languageCode]))
+    await prisma.language.upsert({ where: { code }, update: {}, create: { code, name: code } });
   const set = await prisma.set.create({ data: { gameId: game.id, code: "s1", name: "Set" } });
   const card = await prisma.card.create({
     data: { gameId: game.id, name: "Jirachi", cardType: "Pokemon", canonicalKey: "jirachi" },
@@ -118,7 +115,7 @@ async function makeVariant() {
   const printing = await prisma.printing.create({
     data: { cardId: card.id, setId: set.id, collectorNumber: "001/100", sortNumber: 1 },
   });
-  return prisma.printVariant.create({ data: { printingId: printing.id, languageCode: "en" } });
+  return prisma.printVariant.create({ data: { printingId: printing.id, languageCode } });
 }
 
 const obs = (
@@ -290,5 +287,20 @@ describe("value from the average of the cheapest near-mint listings", () => {
       pt("cardmarket", "trend", 10534, { condition: null }),
     ];
     expect(valueFromPoints(points, rates, new Set(), "it")!.valueEur).toBe(6899);
+  });
+});
+
+describe("a card is valued in its own language", () => {
+  it("an Italian card is valued from Italian listings even when the price language is English", async () => {
+    const v = await makeVariant("it");
+    await recordObservations(v.id, "cardtrader", [
+      obs(6899, "it"),
+      obs(6930, "it", { kind: "lowest_avg", listingCount: 4 }),
+      obs(7554, "en"),
+      obs(8227, "en", { kind: "lowest_avg", listingCount: 3 }),
+    ]);
+    await recordObservations(v.id, "cardmarket", [obs(10534, null, { kind: "trend", condition: null })]);
+    await computeValuations(new Date());
+    expect((await latestValuations([v.id])).get(v.id)!.valueEur).toBe(6930);
   });
 });

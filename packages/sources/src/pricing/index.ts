@@ -1,3 +1,4 @@
+import { TcgcsvPriceClient } from "./tcgcsv-prices";
 import type { PriceProviderId } from "@tcg-vault/shared";
 import { CardTraderProvider } from "./cardtrader";
 import { EbayProvider } from "./ebay";
@@ -29,7 +30,7 @@ export function createPriceProviders(
   const tcgdex = new TcgdexPriceClient({ fetch: options.fetch });
   return {
     cardmarket: new TcgdexMarketProvider("cardmarket", tcgdex),
-    tcgplayer: new TcgdexMarketProvider("tcgplayer", tcgdex),
+    tcgplayer: new TcgdexMarketProvider("tcgplayer", tcgdex, new TcgcsvPriceClient({ fetch: options.fetch })),
     cardtrader: new CardTraderProvider({
       token: credentials.cardtraderToken,
       fetch: options.fetch,

@@ -136,9 +136,25 @@ export async function computeValuations(now = new Date(), language?: string): Pr
       })
     ).map((r) => r.variantId),
   );
+  // A card is valued in its own language (an Italian card from Italian listings); an English
+  // one follows the price language setting. An explicit `language` argument overrides both.
+  const ownLanguage = new Map<string, string>();
+  const ids = [...byVariant.keys()];
+  for (let i = 0; i < ids.length; i += 500) {
+    const chunk = await prisma.printVariant.findMany({
+      where: { id: { in: ids.slice(i, i + 500) } },
+      select: { id: true, languageCode: true },
+    });
+    for (const v of chunk) if (v.languageCode !== "en") ownLanguage.set(v.id, v.languageCode);
+  }
   let written = 0;
   for (const [variantId, points] of byVariant) {
-    const value = valueFromPoints(points, rates, untrusted.get(variantId), priceLanguage);
+    const value = valueFromPoints(
+      points,
+      rates,
+      untrusted.get(variantId),
+      language ?? ownLanguage.get(variantId) ?? priceLanguage,
+    );
     if (!value) continue;
     const data = {
       valueEur: value.valueEur,

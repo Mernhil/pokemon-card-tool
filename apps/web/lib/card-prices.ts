@@ -192,7 +192,10 @@ export async function loadCardPrices(
     const noLanguage = scoped.mode === "other-languages";
     if (noLanguage) {
       state = "no_language";
-      message = `No ${priceLanguageLabel(language)} listings found`;
+      message =
+        id === "tcgplayer"
+          ? "TCGplayer only sells English cards — choose English to see its prices"
+          : `No ${priceLanguageLabel(language)} listings found`;
     }
     if (noLanguage && provider.isConfigured() && settings.providers[id].enabled) {
       // Keep the language message.

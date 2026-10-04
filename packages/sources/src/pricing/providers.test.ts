@@ -13,6 +13,7 @@ import { EbayProvider, ebayObservations, parseEbaySearch } from "./ebay";
 import { ebayQueryFor, filterListings } from "./ebay-filter";
 import { AuthError, RateLimitedError, parseRetryAfter, requestJson } from "./http";
 import { normalizeName, normalizeNumber, scoreCardMatch, scoreSetMatch } from "./matching";
+import { TcgcsvPriceClient } from "./tcgcsv-prices";
 import { TcgdexMarketProvider, TcgdexPriceClient, quoteToObservations, tcgdexCardId } from "./tcgdex-prices";
 import type { PricedCard } from "./types";
 
@@ -411,6 +412,7 @@ describe("eBay listing filter rules", () => {
     expect(obs.map((o) => [o.kind, o.amount, o.listingCount])).toEqual([
       ["asking", 99, 3],
       ["lowest_listing", 50, 3],
+      ["lowest_5th", 125, 3],
     ]);
     expect(obs.some((o) => o.kind === "sold")).toBe(false);
   });
@@ -431,7 +433,7 @@ describe("EbayProvider", () => {
     const mapping = await provider.resolveMapping(joltik);
     expect(mapping!.query).toBe("Joltik 001/064");
     const obs = await provider.fetchPrices(joltik, mapping!);
-    expect(obs.map((o) => o.kind)).toEqual(["asking", "lowest_listing"]);
+    expect(obs.map((o) => o.kind)).toEqual(["asking", "lowest_listing", "lowest_5th"]);
 
     const [tokenUrl, tokenInit] = fetchImpl.mock.calls[0]! as unknown as [string, RequestInit];
     expect(tokenUrl).toBe("https://api.ebay.com/identity/v1/oauth2/token");
@@ -676,5 +678,81 @@ describe("lowestAverage tells a real market level from a random post", () => {
   });
   it("gives up when no price level has any support", () => {
     expect(lowestAverage([6000, 9000, 12000])).toBeNull();
+  });
+});
+
+describe("eBay reports the same cheapest-listing figures", () => {
+  it("adds the 5th cheapest and the average of the cheapest supported listings", () => {
+    const listings = [6899, 6900, 6958, 6964, 7064, 7554, 7594].map((price, i) => ({
+      itemId: String(i),
+      title: "Starmie V",
+      price,
+      currency: "EUR",
+    }));
+    const obs = ebayObservations(listings as never, { languageCode: "it" });
+    expect(obs.find((o) => o.kind === "lowest_listing")?.amount).toBe(6899);
+    expect(obs.find((o) => o.kind === "lowest_5th")?.amount).toBe(7064);
+    expect(obs.find((o) => o.kind === "lowest_avg")).toMatchObject({ amount: 6919, listingCount: 3 });
+  });
+});
+
+describe("TCGplayer prices through tcgcsv when TCGdex has none", () => {
+  const starmieEn = {
+    variantId: "v-starmie-en",
+    game: "pokemon",
+    cardName: "Starmie V",
+    setCode: "swsh10tg",
+    setName: "Astral Radiance Trainer Gallery",
+    collectorNumber: "TG13/30",
+    printedTotal: 30,
+    finish: "HOLO",
+    printingFinishes: ["HOLO"],
+    languageCode: "en",
+    priceLanguage: "en",
+    externalIds: { "tcgdex-pokemon": "swsh10tg-TG13" },
+  } as unknown as PricedCard;
+
+  const cardJson = {
+    pricing: { cardmarket: null, tcgplayer: null },
+    variants_detailed: [{ type: "holo", thirdParty: { cardmarket: 658890, tcgplayer: 272484 } }],
+  };
+  const tcgcsvRoutes = () =>
+    routes([
+      ["/v2/en/cards/swsh10tg-TG13", json(cardJson)],
+      ["/v2/it/cards/swsh10tg-TG13", json(cardJson)],
+      [
+        "/tcgplayer/3/groups",
+        json({ results: [{ groupId: 3068, name: "SWSH10: Astral Radiance Trainer Gallery", abbreviation: "SWSH10:TG" }] }),
+      ],
+      [
+        "/tcgplayer/3/3068/prices",
+        json({ results: [{ productId: 272484, lowPrice: 107, midPrice: 123.24, marketPrice: 117.6, subTypeName: "Holofoil" }] }),
+      ],
+    ]);
+
+  it("finds the TCGplayer product TCGdex links and prices it from tcgcsv, in USD", async () => {
+    const fetchImpl = tcgcsvRoutes();
+    const provider = new TcgdexMarketProvider(
+      "tcgplayer",
+      new TcgdexPriceClient({ fetch: fetchImpl as never }),
+      new TcgcsvPriceClient({ fetch: fetchImpl as never }),
+    );
+    const mapping = await provider.resolveMapping(starmieEn);
+    expect(mapping).toMatchObject({ externalId: "272484", status: "matched" });
+    const obs = await provider.fetchPrices(starmieEn);
+    expect(obs.find((o) => o.kind === "market_average")).toMatchObject({ amount: 11760, currency: "USD" });
+    expect(obs.find((o) => o.kind === "lowest_listing")?.amount).toBe(10700);
+  });
+
+  it("does not look for non-English cards: TCGplayer only sells English", async () => {
+    const fetchImpl = tcgcsvRoutes();
+    const provider = new TcgdexMarketProvider(
+      "tcgplayer",
+      new TcgdexPriceClient({ fetch: fetchImpl as never }),
+      new TcgcsvPriceClient({ fetch: fetchImpl as never }),
+    );
+    const it = { ...starmieEn, languageCode: "it", externalIds: { "tcgdex-pokemon-it": "swsh10tg-TG13" } } as PricedCard;
+    expect(await provider.fetchPrices(it)).toEqual([]);
+    expect(fetchImpl.mock.calls.some(([u]) => String(u).includes("tcgcsv.com"))).toBe(false);
   });
 });

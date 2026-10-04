@@ -1,3 +1,4 @@
+import { lowestAverage } from "./listing-stats";
 import { currencyDecimals } from "@tcg-vault/shared";
 import {
   AuthError,
@@ -103,8 +104,15 @@ export function ebayObservations(
       observedAt: now,
       payloadHash,
     };
+    const sorted = [...prices].sort((a, b) => a - b);
     out.push({ kind: "asking", amount: median(prices), ...base });
-    out.push({ kind: "lowest_listing", amount: Math.min(...prices), ...base });
+    out.push({ kind: "lowest_listing", amount: sorted[0]!, ...base });
+    // The same "what a copy really costs" figures as CardTrader: the top of the cheapest few
+    // and the average of the cheapest supported listings.
+    const top = sorted[Math.min(4, sorted.length - 1)]!;
+    if (sorted.length >= 2 && top > sorted[0]!) out.push({ kind: "lowest_5th", amount: top, ...base });
+    const avg = lowestAverage(sorted);
+    if (avg) out.push({ kind: "lowest_avg", amount: avg.amount, ...base, listingCount: avg.count });
   }
   return out;
 }

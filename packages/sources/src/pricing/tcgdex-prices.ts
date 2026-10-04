@@ -2,6 +2,7 @@ import { TCGDEX_LANGUAGES, type PriceKind, type PriceProviderId } from "@tcg-vau
 import { pricesFor, type TcgdexPricing } from "../adapters/tcgdex";
 import type { SourcePriceQuote } from "../types";
 import { createThrottle, requestJson } from "./http";
+import { TcgcsvPriceClient } from "./tcgcsv-prices";
 import type {
   PriceProvider,
   PricedCard,
@@ -86,6 +87,20 @@ export function tcgdexCardId(card: PricedCard): string | null {
   return `${card.setCode}-${card.collectorNumber.split("/")[0]}`;
 }
 
+/** What TCGdex says about a card's prices: the feed, and the TCGplayer product of each variant. */
+export interface TcgdexCardPricing {
+  pricing?: TcgdexPricing;
+  hash: string;
+  tcgplayerProducts: Array<{ type: string; productId: number }>;
+}
+
+/** TCGdex's variant type for one of our finishes. */
+const TCGDEX_VARIANT_FOR: Record<string, string> = {
+  NON_FOIL: "normal",
+  HOLO: "holo",
+  REVERSE_HOLO: "reverse",
+};
+
 /**
  * Fetches a card's `pricing` once for both TCGdex-backed providers (they'd
  * otherwise each request the same card), with a short in-memory cache.
@@ -93,7 +108,7 @@ export function tcgdexCardId(card: PricedCard): string | null {
 export class TcgdexPriceClient {
   private readonly cache = new Map<
     string,
-    { at: number; value: Promise<{ pricing?: TcgdexPricing; hash: string }> }
+    { at: number; value: Promise<TcgdexCardPricing> }
   >();
   private readonly throttle = createThrottle(250);
 
@@ -106,17 +121,28 @@ export class TcgdexPriceClient {
     } = {},
   ) {}
 
-  card(id: string, lang = this.options.lang ?? "en"): Promise<{ pricing?: TcgdexPricing; hash: string }> {
+  card(id: string, lang = this.options.lang ?? "en"): Promise<TcgdexCardPricing> {
     const now = Date.now();
     const key = `${lang}/${id}`;
     const hit = this.cache.get(key);
     if (hit && now - hit.at < (this.options.cacheMs ?? 10 * 60_000)) return hit.value;
     const base = this.options.baseUrl ?? "https://api.tcgdex.net/v2";
-    const value = requestJson<{ pricing?: TcgdexPricing }>(
+    const value = requestJson<{
+      pricing?: TcgdexPricing;
+      variants_detailed?: Array<{ type?: string; thirdParty?: { tcgplayer?: number | string | null } }>;
+    }>(
       `${base}/${lang}/cards/${encodeURIComponent(id)}`,
       { headers: { Accept: "application/json" } },
       { provider: "tcgdex", fetch: this.options.fetch, throttle: this.throttle },
-    ).then(({ data, hash }) => ({ pricing: data.pricing, hash }));
+    ).then(({ data, hash }) => ({
+      pricing: data.pricing,
+      hash,
+      tcgplayerProducts: (data.variants_detailed ?? []).flatMap((v) =>
+        v.type && v.thirdParty?.tcgplayer != null
+          ? [{ type: v.type.toLowerCase(), productId: Number(v.thirdParty.tcgplayer) }]
+          : [],
+      ),
+    }));
     value.catch(() => this.cache.delete(key));
     this.cache.set(key, { at: now, value });
     if (this.cache.size > 500) this.cache.delete(this.cache.keys().next().value!);
@@ -136,6 +162,7 @@ export class TcgdexMarketProvider implements PriceProvider {
   constructor(
     readonly id: Extract<PriceProviderId, "cardmarket" | "tcgplayer">,
     private readonly client: TcgdexPriceClient,
+    private readonly tcgcsv: TcgcsvPriceClient | null = null,
   ) {
     this.label = id === "cardmarket" ? "Cardmarket (via TCGdex)" : "TCGplayer (via TCGdex)";
     this.capabilities = {
@@ -162,7 +189,7 @@ export class TcgdexMarketProvider implements PriceProvider {
   private async quotes(card: PricedCard) {
     const id = tcgdexCardId(card);
     if (!id) return { quotes: [] as SourcePriceQuote[], hash: "", noTcgdex: true };
-    const { pricing, hash } = await this.client.card(id, tcgdexLanguageOf(card));
+    const { pricing, hash, tcgplayerProducts } = await this.client.card(id, tcgdexLanguageOf(card));
     const edition = card.edition ?? "UNLIMITED";
     const quotes = pricesFor(
       pricing,
@@ -174,6 +201,26 @@ export class TcgdexMarketProvider implements PriceProvider {
         q.finish === card.finish &&
         (q.edition ?? "UNLIMITED") === edition,
     );
+    // TCGdex relays TCGplayer's feed for only part of the catalog. For an English card whose
+    // TCGplayer product it does know, tcgcsv's mirror of TCGplayer's own price list has it.
+    if (
+      quotes.length === 0 &&
+      this.id === "tcgplayer" &&
+      this.tcgcsv &&
+      card.languageCode === "en" &&
+      edition === "UNLIMITED"
+    ) {
+      const wanted = TCGDEX_VARIANT_FOR[card.finish];
+      const product =
+        tcgplayerProducts.find((p) => p.type === wanted) ??
+        (tcgplayerProducts.length === 1 ? tcgplayerProducts[0] : undefined);
+      if (product && Number.isFinite(product.productId)) {
+        const quote = await this.tcgcsv
+          .quote({ name: card.setName, code: card.setCode }, product.productId, card.finish)
+          .catch(() => null);
+        if (quote) quotes.push(quote);
+      }
+    }
     return { quotes, hash, noTcgdex: false };
   }
 

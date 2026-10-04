@@ -1,3 +1,5 @@
+import { lowestAverage } from "./listing-stats";
+export { lowestAverage } from "./listing-stats";
 import { MIN_TRUSTED_MATCH, normalizeListingLanguage, type MappingStatus } from "@tcg-vault/shared";
 import { NotConfiguredError, createThrottle, requestJson } from "./http";
 import { nameSimilarity, normalizeName, scoreCardMatch, scoreSetMatch } from "./matching";
@@ -96,55 +98,6 @@ export function blueprintNumber(bp: CardTraderBlueprint): string | null {
 function propertyMatching(props: Record<string, unknown>, pattern: RegExp): unknown {
   for (const [key, value] of Object.entries(props)) if (pattern.test(key)) return value;
   return undefined;
-}
-
-/**
- * Pure: the "what a copy really costs" number from a sorted list of listing prices — the
- * average of the cheapest few. How many it averages depends on how deep the market is: up to
- * five with plenty of listings, two with only a handful, nothing with fewer than three (the
- * cheapest listing then stands alone).
- *
- * A price gap alone doesn't decide what is real; support does. Listings are grouped into
- * price levels (a new level starts where the price jumps more than 15%), and a level counts
- * as the market only when several listings sit in it (3, or 2 while there are fewer than 8).
- * The average starts at the first such level. So a lone listing far below the rest — or a
- * couple of them — is a random post and is skipped, while a deep, gradually rising market
- * (a card whose better copies run to the 80s) is followed upward as far as the average
- * needs, but never across a jump of more than 25% to a level of its own.
- * null when fewer than two listings qualify.
- */
-export function lowestAverage(sorted: number[]): { amount: number; count: number } | null {
-  const n = sorted.length;
-  if (n < 3) return null;
-
-  const levels: number[][] = [[sorted[0]!]];
-  for (let i = 1; i < n; i++) {
-    if (sorted[i]! > sorted[i - 1]! * 1.15) levels.push([sorted[i]!]);
-    else levels[levels.length - 1]!.push(sorted[i]!);
-  }
-  const support = n >= 8 ? 3 : 2;
-  const real = levels.filter((l) => l.length >= support);
-  if (real.length === 0) return null;
-
-  // A small level far below the next real one is a random cheap post, not the floor.
-  let start = real[0]!;
-  const startIdx = levels.indexOf(start);
-  const next = levels.slice(startIdx + 1).find((l) => l.length >= support);
-  if (start.length < 3 && next && start[0]! < 0.7 * next[0]!) start = next;
-
-  const want = n >= 20 ? 5 : n >= 12 ? 4 : n >= 6 ? 3 : 2;
-  const picked = [...start];
-  for (const level of levels.slice(levels.indexOf(start) + 1)) {
-    if (picked.length >= want) break;
-    if (level.length < support || level[0]! > picked[picked.length - 1]! * 1.25) break;
-    picked.push(...level);
-  }
-  const used = picked.slice(0, want);
-  if (used.length < 2) return null;
-  return {
-    amount: Math.round(used.reduce((x, y) => x + y, 0) / used.length),
-    count: used.length,
-  };
 }
 
 /**
