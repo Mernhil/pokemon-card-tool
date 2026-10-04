@@ -4,6 +4,7 @@ import {
   pricePoints,
   pricesUpdating,
   prisma,
+  valueFromPoints,
   type AppSettings,
 } from "@tcg-vault/db";
 import {
@@ -81,6 +82,8 @@ export interface ProviderPanelData {
   /** Low-confidence match: shown with a warning, left out of "Best value" and valuations. */
   untrusted: boolean;
   supportsSold: boolean;
+  /** This provider's numbers set the card's value (see valueFromPoints). */
+  inValue: boolean;
 }
 
 export const PROVIDER_COLORS: Record<PriceProviderId, string> = {
@@ -140,6 +143,8 @@ export interface CardPrices {
   languageMissing: boolean;
   /** Some enabled, configured provider can actually split prices by language. */
   languageFilterable: boolean;
+  /** Providers the card's value comes from (live listings when there are any). */
+  valueProviders: string[];
 }
 
 export async function loadCardPrices(
@@ -147,6 +152,8 @@ export async function loadCardPrices(
   allVariantIds: string[],
   card: { name: string; number: string; game: string },
   requestedLanguage?: string,
+  /** The language the card is valued in (its own, or the price language setting). */
+  valueLanguage?: string,
 ): Promise<CardPrices> {
   const now = Date.now();
   const [settings, rates, pointsByVariant, mappings, health, updating, { providers }] =
@@ -172,6 +179,14 @@ export async function loadCardPrices(
       providers[id as PriceProviderId].isConfigured() &&
       settings.providers[id as PriceProviderId].enabled,
   );
+
+  const valueProviders =
+    valueFromPoints(
+      allPoints,
+      rates,
+      new Set(mappings.filter((m) => m.status !== "matched").map((m) => m.provider)),
+      valueLanguage ?? language,
+    )?.providers ?? [];
 
   const panels = PRICE_PROVIDERS.map((id): ProviderPanelData => {
     const provider = providers[id];
@@ -250,6 +265,7 @@ export async function loadCardPrices(
       untrusted,
       languageMode: scoped.mode,
       supportsSold: provider.capabilities.supportsSold,
+      inValue: valueProviders.includes(id),
     };
   });
 
@@ -275,6 +291,7 @@ export async function loadCardPrices(
     language,
     languageMissing,
     languageFilterable,
+    valueProviders,
   };
 }
 

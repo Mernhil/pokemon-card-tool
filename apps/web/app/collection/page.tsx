@@ -1,7 +1,7 @@
 import { variantKind } from "@tcg-vault/shared/src/enums";
 import { Layers, TrendingUp } from "lucide-react";
 import { cookies } from "next/headers";
-import { collectionItemValue, getSettings, latestValuations, prisma } from "@tcg-vault/db";
+import { collectionItemValue, computeValuations, getSettings, latestValuations, prisma } from "@tcg-vault/db";
 import { CollectionView, type CollectionRow } from "../../components/collection-view";
 import { COLLECTION_VIEW_COOKIE } from "../../lib/ui-cookies";
 import { formatEur } from "../../components/money";
@@ -29,6 +29,10 @@ export default async function CollectionPage() {
       },
     },
   });
+  // Values from the prices stored right now: a refresh minutes ago must show up here.
+  await computeValuations(new Date(), undefined, {
+    variantIds: [...new Set(items.map((i) => i.variantId))],
+  }).catch(() => 0);
   const values = await latestValuations(items.map((i) => i.variantId));
   const rows: CollectionRow[] = items.map((item) => {
     const p = item.variant.printing;

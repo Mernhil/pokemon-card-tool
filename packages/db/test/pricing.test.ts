@@ -489,6 +489,7 @@ describe("valuations and snapshots", () => {
       valueEur: 1000,
       sources: 2,
       mixedOnly: true, // Cardmarket and TCGplayer can not split by language
+      providers: ["cardmarket", "tcgplayer"],
     });
   });
 

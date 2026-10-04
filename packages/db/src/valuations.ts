@@ -53,8 +53,10 @@ export function valueFromPoints(
   rates: FxRates,
   untrusted: Set<string> = new Set(),
   language: string = DEFAULT_PRICE_LANGUAGE,
-): { valueEur: number; sources: number; mixedOnly: boolean } | null {
+): { valueEur: number; sources: number; mixedOnly: boolean; providers: string[] } | null {
   const raw: RawObservation[] = [];
+  const rawProviders: string[] = [];
+  const listingProviders: string[] = [];
   // Listings in the card's own language (CardTrader, eBay) say what a copy costs now: they
   // decide the value when there are any. Cardmarket's trend mixes every language and is
   // pulled up by a few dear sales, so it only stands in when no such listing exists.
@@ -80,6 +82,7 @@ export function valueFromPoints(
       observedAt: headline.observedAt.toISOString(),
     };
     raw.push(obs);
+    rawProviders.push(provider);
     // Unlabelled listings (CardTrader often doesn't name the language) are still live listings:
     // they beat Cardmarket's all-language trend, which would otherwise outweigh them.
     if (
@@ -93,30 +96,50 @@ export function valueFromPoints(
         .find((p) => p.condition === headline.condition && p.currency === headline.currency);
       const avgEur = avg ? convertMinor(avg.amount, avg.currency, "EUR", rates) : null;
       listingRaw.push(avgEur === null ? obs : { ...obs, value: avgEur });
+      listingProviders.push(provider);
     }
   }
   const used = listingRaw.length > 0 ? listingRaw : raw;
   const anchor = resolveAnchor(used);
   return anchor === null
     ? null
-    : { valueEur: Math.round(anchor), sources: raw.length, mixedOnly: languageSpecific === 0 };
+    : {
+        valueEur: Math.round(anchor),
+        sources: raw.length,
+        mixedOnly: languageSpecific === 0,
+        // Which providers the value came from: the listing ones when there are any.
+        providers: listingRaw.length > 0 ? listingProviders : rawProviders,
+      };
 }
 
 /**
  * Near-mint value per variant from its recent observations, stored as
  * today's VariantValuation "NM" bucket (EUR and USD at today's rates).
- * Returns rows written.
+ * With `variantIds`, only those variants are revalued (a page about to show
+ * them, so a value never lags behind the prices next to it). Returns rows written.
  */
-export async function computeValuations(now = new Date(), language?: string): Promise<number> {
+export async function computeValuations(
+  now = new Date(),
+  language?: string,
+  { variantIds }: { variantIds?: string[] } = {},
+): Promise<number> {
+  if (variantIds && variantIds.length === 0) return 0;
+  if (variantIds && variantIds.length > 500) {
+    let written = 0;
+    for (let i = 0; i < variantIds.length; i += 500)
+      written += await computeValuations(now, language, { variantIds: variantIds.slice(i, i + 500) });
+    return written;
+  }
   const priceLanguage = language ?? (await getSettings()).priceLanguage;
   const day = utcDay(now);
   const since = new Date(now.getTime() - LOOKBACK_DAYS * 86_400_000);
   const rates = await loadFxRates();
+  const scope = variantIds ? { variantId: { in: variantIds } } : {};
 
   const [rows, lowConfidence] = await Promise.all([
-    prisma.priceObservation.findMany({ where: { observedAt: { gte: since } } }),
+    prisma.priceObservation.findMany({ where: { observedAt: { gte: since }, ...scope } }),
     prisma.providerMapping.findMany({
-      where: { status: { not: "matched" } },
+      where: { status: { not: "matched" }, ...scope },
       select: { variantId: true, provider: true },
     }),
   ]);
@@ -133,14 +156,12 @@ export async function computeValuations(now = new Date(), language?: string): Pr
 
   // Today's rows from an earlier run (maybe in another price language): any variant that no
   // longer has a usable value in this language must not keep the old number.
-  const existingToday = new Set(
-    (
-      await prisma.variantValuation.findMany({
-        where: { day, bucket: "NM" },
-        select: { variantId: true },
-      })
-    ).map((r) => r.variantId),
-  );
+  const todayRows = await prisma.variantValuation.findMany({
+    where: { day, bucket: "NM", ...scope },
+    select: { variantId: true, valueEur: true, valueUsd: true, confidence: true },
+  });
+  const existingToday = new Set(todayRows.map((r) => r.variantId));
+  const sameAsStored = new Map(todayRows.map((r) => [r.variantId, r]));
   // A card is valued in its own language (an Italian card from Italian listings); an English
   // one follows the price language setting. An explicit `language` argument overrides both.
   const ownLanguage = new Map<string, string>();
@@ -168,12 +189,20 @@ export async function computeValuations(now = new Date(), language?: string): Pr
       // that mix languages (nothing language-specific) are trusted less still.
       confidence: Math.min(1, value.sources / 2) * (value.mixedOnly ? 0.6 : 1),
     };
+    existingToday.delete(variantId);
+    const stored = sameAsStored.get(variantId);
+    if (
+      stored &&
+      stored.valueEur === data.valueEur &&
+      stored.valueUsd === data.valueUsd &&
+      stored.confidence === data.confidence
+    )
+      continue;
     await prisma.variantValuation.upsert({
       where: { variantId_day_bucket: { variantId, day, bucket: "NM" } },
       update: data,
       create: { variantId, day, bucket: "NM", ...data },
     });
-    existingToday.delete(variantId);
     written++;
   }
   const stale = [...existingToday];
@@ -182,8 +211,8 @@ export async function computeValuations(now = new Date(), language?: string): Pr
       where: { day, bucket: "NM", variantId: { in: stale.slice(i, i + 500) } },
     });
   }
-  // Fresh values may have crossed someone's price alert.
-  await evaluateAlerts(now).catch(() => 0);
+  // Fresh values may have crossed someone's price alert (the full run checks them).
+  if (!variantIds) await evaluateAlerts(now).catch(() => 0);
   return written;
 }
 

@@ -1,7 +1,7 @@
 import { variantKind } from "@tcg-vault/shared/src/enums";
 import { ArrowRight, BookOpen, Check, Layers, Library, RefreshCw, Sparkles } from "lucide-react";
 import Link from "next/link";
-import { collectionItemValue, latestValuations, listBinders, prisma } from "@tcg-vault/db";
+import { collectionItemValue, computeValuations, latestValuations, listBinders, prisma } from "@tcg-vault/db";
 import { BinderCover } from "../../components/binders/binder-cover";
 import { CardTile } from "../../components/card-tile";
 import { cardHref } from "../../lib/cards";
@@ -27,6 +27,10 @@ export default async function HomePage() {
     prisma.printing.count(),
     listBinders(),
   ]);
+  // Values from the prices stored right now: a refresh minutes ago must show up here.
+  await computeValuations(new Date(), undefined, {
+    variantIds: [...new Set(items.map((i) => i.variantId))],
+  }).catch(() => 0);
   const values = await latestValuations(items.map((i) => i.variantId));
   const withValue = items.map((item) => ({
     item,

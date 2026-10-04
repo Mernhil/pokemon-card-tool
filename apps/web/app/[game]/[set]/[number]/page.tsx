@@ -6,6 +6,7 @@ import {
   enqueueStalePrices,
   findLanguageSiblings,
   getCardImageResult,
+  computeValuations,
   latestValuations,
   listAlerts,
   loadGradedPrices,
@@ -136,6 +137,9 @@ export default async function CardPage({
   const langParam = language !== defaultLanguage ? `&lang=${language}` : "";
 
   const siblings = await findLanguageSiblings(printing.id).catch(() => []);
+  // The value next to the prices is worked out from those same stored prices now, not read
+  // from the last background run (which can predate the latest refresh).
+  await computeValuations(new Date(), undefined, { variantIds }).catch(() => 0);
   const [values, neighbours, prices, alertRows] = await Promise.all([
     latestValuations(variantIds),
     prisma.printing.findMany({
@@ -153,6 +157,7 @@ export default async function CardPage({
             game: game.slug,
           },
           language,
+          defaultLanguage,
         )
       : null,
     listAlerts(variantIds),

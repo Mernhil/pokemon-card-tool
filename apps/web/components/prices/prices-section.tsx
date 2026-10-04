@@ -155,30 +155,28 @@ function KeyNumbers({ panel, prices }: { panel: ProviderPanelData; prices: CardP
         empty: "—",
       },
     );
-  } else {
+  } else if (splitsByCondition) {
+    // Listings, but none near mint: say so, and show the cheapest of what there is.
     const plain = everything.filter((x) => x.p.kind !== "lowest_5th" && x.p.kind !== "lowest_avg");
     const lowest = plain.length ? plain.reduce((a, b) => (b.v < a.v ? b : a)) : null;
-    const highest = plain.length > 1 ? plain.reduce((a, b) => (b.v > a.v ? b : a)) : null;
-    const where = (p: SerializedPoint | null) =>
-      p?.condition ? (CONDITION_SHORT[p.condition] ?? p.condition) : "any condition";
-    if (splitsByCondition) rows.push({ label: "Near mint", detail: "", p: null, empty: "none listed" });
-    rows.push(
-      {
-        label: "Lowest",
-        detail: [where(lowest?.p ?? null), lowest ? countText(lowest.p) : null].filter(Boolean).join(" · "),
-        p: lowest?.p ?? null,
-        empty: "—",
-      },
-      {
-        label: "Highest",
-        detail: [
-          highest && PRICE_KIND_LABELS[highest.p.kind],
-          highest ? where(highest.p) : null,
-        ].filter(Boolean).join(" · "),
-        p: highest?.p ?? null,
-        empty: "—",
-      },
-    );
+    rows.push({ label: "Near mint", detail: "", p: null, empty: "none listed" });
+    rows.push({
+      label: "Lowest",
+      detail: [
+        lowest?.p.condition ? (CONDITION_SHORT[lowest.p.condition] ?? lowest.p.condition) : null,
+        lowest ? countText(lowest.p) : null,
+      ].filter(Boolean).join(" · "),
+      p: lowest?.p ?? null,
+      empty: "—",
+    });
+  } else {
+    // A price guide (Cardmarket, TCGplayer via TCGdex): sales averages and one cheapest
+    // listing over every condition and language. Not a near-mint range, so each figure is
+    // named for what it is rather than ranked as "lowest" / "highest".
+    for (const x of everything) {
+      if (x.p === panel.headline) continue;
+      rows.push({ label: GUIDE_LABELS[x.p.kind] ?? PRICE_KIND_LABELS[x.p.kind], detail: guideScope(panel), p: x.p, empty: "—" });
+    }
   }
   return (
     <dl className="mt-3 flex flex-col gap-1 border-t pt-2 text-xs">
@@ -199,6 +197,21 @@ function KeyNumbers({ panel, prices }: { panel: ProviderPanelData; prices: CardP
       ))}
     </dl>
   );
+}
+
+/** What a price guide's figures are, in words. */
+const GUIDE_LABELS: Partial<Record<SerializedPoint["kind"], string>> = {
+  trend: "Trend",
+  market_average: "Average sale price",
+  lowest_listing: "Cheapest listing",
+  asking: "Median asking price",
+};
+
+/** A guide's figures cover every condition (and, unless English-only, every language). */
+function guideScope(panel: ProviderPanelData): string {
+  return panel.languageMode === "all-languages" && panel.id !== "tcgplayer"
+    ? "any condition & language"
+    : "any condition";
 }
 
 function ProviderPanel({
@@ -256,8 +269,25 @@ function ProviderPanel({
           ) : null}
           <div className="mt-1.5">
             <KindLine p={h} />
+            {h.condition === null ? (
+              <p className="mt-1 text-[11px] text-neutral-500">
+                Price guide · {guideScope(panel)} — not a near-mint price
+              </p>
+            ) : null}
           </div>
           <KeyNumbers panel={panel} prices={prices} />
+          <p className="mt-2 text-[11px] text-neutral-500">
+            {panel.inValue
+              ? "Sets this card’s value."
+              : panel.untrusted
+                ? null
+                : prices.valueProviders.length > 0
+                  ? `Not used for the value — it comes from ${prices.panels
+                      .filter((p) => prices.valueProviders.includes(p.id))
+                      .map((p) => p.label)
+                      .join(" and ")}.`
+                  : null}
+          </p>
           <details className="group mt-3 border-t pt-2 text-xs">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-neutral-500 hover:text-neutral-900 [&::-webkit-details-marker]:hidden">
               <span>All prices &amp; details</span>
@@ -338,9 +368,19 @@ function ProviderPanel({
   );
 }
 
+/**
+ * The panels to compare and estimate from: the ones that set the card's value (live
+ * listings, when there are any). A price guide's all-language, any-condition trend is
+ * no price to buy at and no base for a condition estimate next to them.
+ */
+function valuePanels(prices: CardPrices): ProviderPanelData[] {
+  const own = prices.panels.filter((p) => p.inValue);
+  return own.length > 0 ? own : prices.panels;
+}
+
 function BestValueSummary({ prices }: { prices: CardPrices }) {
   const { displayCurrency } = prices.settings;
-  const best = bestValue(prices.panels, displayCurrency, prices.rates);
+  const best = bestValue(valuePanels(prices), displayCurrency, prices.rates);
   if (!best.lowest) return null;
   const fmt = (amount: number, approx = false) =>
     `${approx ? "≈" : ""}${formatMoney({ amount, currency: displayCurrency })}`;
@@ -398,7 +438,7 @@ export function PricesSection({
   /** Finish tabs + refresh control, rendered in the section header. */
   header: ReactNode;
 }) {
-  const headlines = prices.panels
+  const headlines = valuePanels(prices)
     .filter((p) => p.headline && !p.untrusted)
     .map((p) => ({
       label: p.label,

@@ -217,6 +217,42 @@ describe("storing and reading language", () => {
   });
 });
 
+describe("a value never lags behind the prices next to it", () => {
+  it("revaluing one card replaces a trend-only value with its listings, and says where it came from", async () => {
+    const v = await makeVariant();
+    const other = await prisma.printVariant.create({
+      data: { printingId: v.printingId, languageCode: "en", finish: "HOLO" },
+    });
+    const now = new Date();
+    await recordObservations(v.id, "cardmarket", [obs(10534, null, { kind: "trend", condition: null })]);
+    await recordObservations(other.id, "cardmarket", [obs(500, null, { kind: "trend", condition: null })]);
+    await computeValuations(now, "en");
+    expect((await latestValuations([v.id])).get(v.id)!.valueEur).toBe(10534);
+
+    // CardTrader listings arrive after that run.
+    await recordObservations(v.id, "cardtrader", [
+      obs(6890, "en", { observedAt: now }),
+      obs(6950, "en", { kind: "lowest_avg", listingCount: 5, observedAt: now }),
+    ]);
+    await prisma.priceObservation.deleteMany({ where: { variantId: other.id } });
+    expect(await computeValuations(now, "en", { variantIds: [v.id] })).toBe(1);
+    expect((await latestValuations([v.id])).get(v.id)!.valueEur).toBe(6950);
+    // Only the asked-for card was touched: the other keeps today's row.
+    expect((await latestValuations([other.id])).get(other.id)!.valueEur).toBe(500);
+    // Nothing changed: nothing is written again.
+    expect(await computeValuations(now, "en", { variantIds: [v.id] })).toBe(0);
+  });
+
+  it("valueFromPoints names the providers the value came from", () => {
+    const points = [
+      pt("cardmarket", "trend", 10534, { condition: null }),
+      pt("cardtrader", "lowest_listing", 6890, { languageCode: "it" }),
+    ];
+    expect(valueFromPoints(points, rates, new Set(), "it")!.providers).toEqual(["cardtrader"]);
+    expect(valueFromPoints(points.slice(0, 1), rates, new Set(), "it")!.providers).toEqual(["cardmarket"]);
+  });
+});
+
 describe("price language setting", () => {
   it("defaults to English, round-trips, and ignores garbage", async () => {
     expect((await getSettings()).priceLanguage).toBe("en");

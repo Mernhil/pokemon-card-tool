@@ -1,7 +1,7 @@
 import { variantKind } from "@tcg-vault/shared/src/enums";
 import { ChartLine, Coins, Layers, Library, TrendingUp } from "lucide-react";
 import Link from "next/link";
-import { collectionItemValue, latestValuations, listAlerts, prisma } from "@tcg-vault/db";
+import { collectionItemValue, computeValuations, latestValuations, listAlerts, prisma } from "@tcg-vault/db";
 import { topMovers } from "@tcg-vault/pricing";
 import { SET_CATEGORY_BADGES, isSetCategory } from "@tcg-vault/shared";
 import { CardTile } from "../../components/card-tile";
@@ -95,6 +95,10 @@ export default async function DashboardPage() {
     prisma.portfolioSnapshot.findMany({ orderBy: { day: "asc" } }),
   ]);
 
+  // Values from the prices stored right now: a refresh minutes ago must show up here.
+  await computeValuations(new Date(), undefined, {
+    variantIds: [...new Set(items.map((i) => i.variantId))],
+  }).catch(() => 0);
   const values = await latestValuations(items.map((i) => i.variantId));
   const recentValuations = await prisma.variantValuation.findMany({
     where: {
