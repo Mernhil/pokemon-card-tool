@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   CardTraderProvider,
   cardTraderObservations,
+  lowestAverage,
   matchBlueprint,
   type CardTraderBlueprint,
   type CardTraderProduct,
@@ -226,7 +227,7 @@ describe("CardTrader", () => {
   it("reports the cheapest raw listing per condition, dropping graded, other languages, other finish and sold-out", () => {
     const all = cardTraderObservations(products, joltik);
     // One fetch, one observation set per listing language: the Japanese copy is its own number.
-    const obs = all.filter((o) => o.languageCode === "en");
+    const obs = all.filter((o) => o.languageCode === "en" && o.kind === "lowest_listing");
     const byCondition = Object.fromEntries(obs.map((o) => [o.condition, o]));
     expect(byCondition.NEAR_MINT).toMatchObject({
       kind: "lowest_listing",
@@ -240,6 +241,24 @@ describe("CardTrader", () => {
     expect(all.filter((o) => o.languageCode === "ja")).toEqual([
       expect.objectContaining({ amount: 3, condition: "NEAR_MINT" }),
     ]);
+  });
+
+  it("also reports the top of the cheapest-few range (5th cheapest, or the dearest of fewer) per group", () => {
+    const listing = (cents: number, id: number): CardTraderProduct => ({
+      id,
+      blueprint_id: 1,
+      quantity: 1,
+      price: { cents, currency: "EUR" },
+      graded: false,
+      properties_hash: { condition: "Near Mint", pokemon_language: "it", pokemon_reverse: false },
+    });
+    const six = [6000, 6300, 6400, 6400, 6500, 9900].map((c, i) => listing(c, i + 1));
+    const obs = cardTraderObservations(six, joltik).filter((o) => o.languageCode === "it");
+    expect(obs.find((o) => o.kind === "lowest_listing")?.amount).toBe(6000);
+    expect(obs.find((o) => o.kind === "lowest_5th")?.amount).toBe(6500);
+    // A single listing, or all at one price: no range.
+    expect(cardTraderObservations([listing(6000, 1)], joltik).map((o) => o.kind)).toEqual(["lowest_listing"]);
+    expect(cardTraderObservations([listing(6000, 1), listing(6000, 2)], joltik).map((o) => o.kind)).toEqual(["lowest_listing"]);
   });
 
   it("a cheap German listing gets its own observation and never lowers the English one", () => {
@@ -543,5 +562,119 @@ describe("tcgdexCardId for Trainer Gallery cards", () => {
   it("still guesses the gallery's own id (TG13/30 -> swsh9-TG13)", () => {
     const card = { setCode: "swsh9", collectorNumber: "TG13/30", printedTotal: 172, languageCode: "en", externalIds: {} };
     expect(tcgdexCardId(card as never)).toBe("swsh9-TG13");
+  });
+});
+
+describe("CardTrader finds a card whose set our app names differently", () => {
+  const starmie = {
+    variantId: "v-starmie",
+    game: "pokemon",
+    cardName: "Starmie V",
+    setCode: "it-swsh10tg",
+    setName: "Lucentezza Siderale Galleria Allenatori",
+    setNameAlt: "Astral Radiance Trainer Gallery",
+    collectorNumber: "TG13/30",
+    printedTotal: 30,
+    finish: "HOLO",
+    printingFinishes: ["HOLO"],
+    languageCode: "it",
+    priceLanguage: "it",
+    externalIds: { cardmarket: "658890" },
+  } as unknown as PricedCard;
+
+  it("tries the English set name and finds the gallery card inside the parent expansion", async () => {
+    const fetchImpl = routes([
+      ["/games", json(fixture("cardtrader-games.json"))],
+      [
+        "/expansions",
+        json([
+          { id: 7001, game_id: 5, code: "swsh10", name: "Astral Radiance" },
+          { id: 7002, game_id: 5, code: "swsh9", name: "Brilliant Stars" },
+        ]),
+      ],
+      [
+        "/blueprints/export?expansion_id=7001",
+        json([
+          { id: 212779, name: "Starmie V (Special Illustration Rare)", version: "TG13/TG30", card_market_ids: [658890], fixed_properties: { collector_number: "TG13/TG30" } },
+        ]),
+      ],
+    ]);
+    const provider = new CardTraderProvider({ token: "t", fetch: fetchImpl as never });
+    expect(await provider.resolveMapping(starmie)).toMatchObject({
+      externalId: "212779",
+      status: "matched",
+    });
+  });
+
+  it("without the English name the Italian one finds nothing (the old bug)", async () => {
+    const fetchImpl = routes([
+      ["/games", json(fixture("cardtrader-games.json"))],
+      ["/expansions", json([{ id: 7001, game_id: 5, code: "swsh10", name: "Astral Radiance" }])],
+    ]);
+    const provider = new CardTraderProvider({ token: "t", fetch: fetchImpl as never });
+    expect(await provider.resolveMapping({ ...starmie, setNameAlt: null })).toMatchObject({
+      status: "not_found",
+    });
+  });
+
+  it("matches a short name of ours to a longer provider name", () => {
+    expect(
+      scoreSetMatch({ code: "swsh9", name: "Brilliant Stars" }, { name: "Brilliant Stars Trainer Gallery" }).score,
+    ).toBe(0.6);
+  });
+});
+
+describe("lowestAverage (the value of a copy from its cheapest listings)", () => {
+  it("averages more listings when the market is deep and climbs gradually", () => {
+    // Starmie V: 25 near-mint listings rising from 6899 to a few euro higher each.
+    const gradual = Array.from({ length: 25 }, (_, i) => 6899 + i * 120);
+    expect(lowestAverage(gradual)).toEqual({ amount: Math.round((6899 + 7019 + 7139 + 7259 + 7379) / 5), count: 5 });
+  });
+  it("averages only two with a handful of listings, and nothing with fewer than three", () => {
+    expect(lowestAverage([6000, 6200, 6500, 7000])).toEqual({ amount: 6100, count: 2 });
+    expect(lowestAverage([6000, 6200])).toBeNull();
+    expect(lowestAverage([6000])).toBeNull();
+  });
+  it("stops where prices jump to another tier", () => {
+    // Plenty of listings at ~60, then a jump to ~100: the 100s are not averaged in.
+    const tiers = [6000, 6100, 6200, 10000, 10100, 10200, 10300, 10400];
+    expect(lowestAverage(tiers)).toEqual({ amount: 6100, count: 3 });
+  });
+  it("leaves out one listing far below all the others", () => {
+    expect(lowestAverage([2990, 6000, 6100, 6200, 6300])).toEqual({ amount: 6050, count: 2 });
+  });
+  it("is reported next to the cheapest listing, with how many it averaged", () => {
+    const listing = (cents: number, id: number): CardTraderProduct => ({
+      id,
+      blueprint_id: 1,
+      quantity: 1,
+      price: { cents, currency: "EUR" },
+      graded: false,
+      properties_hash: { condition: "Near Mint", pokemon_language: "it", pokemon_reverse: false },
+    });
+    const obs = cardTraderObservations(
+      [6899, 6900, 6958, 6964, 7064, 7554, 7594].map((c, i) => listing(c, i + 1)),
+      joltik,
+    ).filter((o) => o.languageCode === "it");
+    expect(obs.find((o) => o.kind === "lowest_listing")?.amount).toBe(6899);
+    expect(obs.find((o) => o.kind === "lowest_avg")).toMatchObject({ amount: 6919, listingCount: 3 });
+  });
+});
+
+describe("lowestAverage tells a real market level from a random post", () => {
+  it("skips a couple of cheap posts far below a supported level", () => {
+    expect(lowestAverage([2990, 3000, 6000, 6100, 6200, 6300, 6400])).toEqual({ amount: 6100, count: 3 });
+  });
+  it("keeps to the floor level when a better-copies level (the 80s) sits above it", () => {
+    const withTier = [6900, 6900, 6950, 8000, 8000, 8100, 8200, 8300];
+    expect(lowestAverage(withTier)).toEqual({ amount: 6917, count: 3 });
+  });
+  it("does not count two listings as the floor when the market has a dozen", () => {
+    // 2 listings at ~60, then a supported level of 10 at ~72: the average starts at the 72s.
+    const thin = [6000, 6050, 7100, 7150, 7200, 7250, 7300, 7350, 7400, 7450, 7500, 7600];
+    expect(lowestAverage(thin)).toEqual({ amount: 7175, count: 4 });
+  });
+  it("gives up when no price level has any support", () => {
+    expect(lowestAverage([6000, 9000, 12000])).toBeNull();
   });
 });

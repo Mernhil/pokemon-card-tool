@@ -1,6 +1,7 @@
 import {
   DEFAULT_PRICE_LANGUAGE,
   PRICE_PROVIDERS,
+  TCGDEX_LANGUAGES,
   type MappingStatus,
   type PriceProviderId,
 } from "@tcg-vault/shared";
@@ -84,6 +85,15 @@ export async function loadPricedCard(
     },
   });
   if (!v) return null;
+  // A card from another language's catalog ("it-swsh10tg"): its English set's name, which
+  // marketplaces like CardTrader know the set by.
+  const prefix = TCGDEX_LANGUAGES.find((l) => v.printing.set.code.startsWith(l.prefix))?.prefix;
+  const english = prefix
+    ? await prisma.set.findFirst({
+        where: { gameId: v.printing.set.gameId, code: v.printing.set.code.slice(prefix.length) },
+        select: { name: true },
+      })
+    : null;
   const externalIds: Record<string, string> = {};
   for (const ref of v.printing.externalRefs) externalIds[ref.source] = ref.externalId;
   for (const m of v.providerMaps) if (m.externalId) externalIds[m.provider] = m.externalId;
@@ -93,6 +103,7 @@ export async function loadPricedCard(
     cardName: v.printing.card.name,
     setCode: v.printing.set.code,
     setName: v.printing.set.name,
+    setNameAlt: english?.name ?? null,
     collectorNumber: v.printing.collectorNumber,
     printedTotal: v.printing.set.printedTotal,
     finish: v.finish,

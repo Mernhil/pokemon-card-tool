@@ -85,5 +85,12 @@ export function scoreSetMatch(
   if (theirWords.length >= 2 && theirWords.every((w) => ourWords.has(w))) {
     return { score: 0.6, reason: `parent expansion ("${theirs.name}")` };
   }
+  // The other way round: our name is the short one ("Brilliant Stars") and the provider's the
+  // long one ("Brilliant Stars Trainer Gallery").
+  const ourWordList = normalizeName(ours.name).split(" ").filter(Boolean);
+  const theirWordSet = new Set(theirWords);
+  if (ourWordList.length >= 2 && ourWordList.every((w) => theirWordSet.has(w))) {
+    return { score: 0.6, reason: `child expansion ("${theirs.name}")` };
+  }
   return { score: 0, reason: "set differs" };
 }

@@ -255,3 +255,40 @@ describe("on-demand language lookups", () => {
     expect(await enqueueLanguagePrices([v.id], "pokemon", "de", ["cardtrader"])).toBe(false);
   });
 });
+
+describe("listing-first value", () => {
+  it("an Italian near-mint listing at 60 beats a Cardmarket trend of 105 that mixes every language", () => {
+    const points = [
+      pt("cardtrader", "lowest_listing", 6000, { languageCode: "it" }),
+      pt("cardtrader", "lowest_5th", 6500, { languageCode: "it" }),
+      pt("cardmarket", "trend", 10534, { condition: null }),
+    ];
+    const v = valueFromPoints(points, rates, new Set(), "it")!;
+    expect(v.valueEur).toBe(6000);
+    expect(v.mixedOnly).toBe(false);
+  });
+
+  it("falls back to the Cardmarket trend when no listing exists in that language", () => {
+    const points = [pt("cardmarket", "trend", 10534, { condition: null })];
+    expect(valueFromPoints(points, rates, new Set(), "it")!.valueEur).toBe(10534);
+  });
+});
+
+describe("value from the average of the cheapest near-mint listings", () => {
+  it("uses lowest_avg instead of the single cheapest or the Cardmarket trend", () => {
+    const points = [
+      pt("cardtrader", "lowest_listing", 6899, { languageCode: "it" }),
+      pt("cardtrader", "lowest_avg", 7010, { languageCode: "it", listingCount: 5 }),
+      pt("cardtrader", "lowest_5th", 7379, { languageCode: "it" }),
+      pt("cardmarket", "trend", 10534, { condition: null }),
+    ];
+    expect(valueFromPoints(points, rates, new Set(), "it")!.valueEur).toBe(7010);
+  });
+  it("uses the cheapest listing when there were too few to average", () => {
+    const points = [
+      pt("cardtrader", "lowest_listing", 6899, { languageCode: "it" }),
+      pt("cardmarket", "trend", 10534, { condition: null }),
+    ];
+    expect(valueFromPoints(points, rates, new Set(), "it")!.valueEur).toBe(6899);
+  });
+});

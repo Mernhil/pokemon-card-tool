@@ -112,55 +112,81 @@ const STATE_TITLE: Record<string, string> = {
 };
 
 /**
- * The numbers worth seeing without opening the panel: near mint (for providers that split by
- * condition), lowest and highest price (compared in the display currency, across
- * conditions/kinds). Graded slabs have their own table.
+ * The numbers worth seeing without opening the panel. Near mint raw is what you buy, so for a
+ * provider that has near-mint listings: the cheapest one and the top of the cheapest few (the
+ * 5th cheapest — a single absurd listing must not move it). Providers that don't split by
+ * condition get their lowest and highest figure, marked as covering any condition. Everything
+ * else, every condition and kind, is in the "All prices & details" list. Graded slabs have their
+ * own table.
  */
 function KeyNumbers({ panel, prices }: { panel: ProviderPanelData; prices: CardPrices }) {
   const { displayCurrency } = prices.settings;
-  const all = [panel.headline!, ...panel.others];
   const inDisplay = (p: SerializedPoint) =>
     convertMinor(p.amount, p.currency, displayCurrency, prices.rates);
-  const ungraded = all
+  const everything = [panel.headline!, ...panel.others]
     .map((p) => ({ p, v: inDisplay(p) }))
     .filter((x): x is { p: SerializedPoint; v: number } => x.v !== null);
-  const lowest = ungraded.length ? ungraded.reduce((a, b) => (b.v < a.v ? b : a)) : null;
-  const highest = ungraded.length > 1 ? ungraded.reduce((a, b) => (b.v > a.v ? b : a)) : null;
-  // Only a provider that splits by condition can say "no near mint": an unsplit number is
-  // already the near-mint-ish headline, so a missing row there would be misleading.
-  const splitsByCondition = ungraded.some((x) => x.p.condition !== null);
-  const nearMint = ungraded.find((x) => x.p.condition === "NEAR_MINT")?.p ?? null;
-  const rows: Array<{ label: string; p: SerializedPoint | null; empty: string }> = [
-    ...(splitsByCondition
-      ? [{ label: "Near mint", p: nearMint, empty: "none listed" }]
-      : []),
-    { label: "Lowest", p: lowest?.p ?? null, empty: "—" },
-    { label: "Highest", p: highest?.p ?? null, empty: "—" },
-  ];
+  const countText = (p: SerializedPoint) =>
+    p.listingCount !== null
+      ? `${p.listingCount} ${p.kind === "sold" ? "sale" : "listing"}${p.listingCount === 1 ? "" : "s"}`
+      : null;
+  type Row = { label: string; detail: string; p: SerializedPoint | null; empty: string };
+  const rows: Row[] = [];
+
+  const nearMint = everything.filter((x) => x.p.condition === "NEAR_MINT");
+  const splitsByCondition = everything.some((x) => x.p.condition !== null);
+  if (nearMint.length > 0) {
+    const cheap = nearMint.filter((x) => x.p.kind !== "lowest_5th" && x.p.kind !== "lowest_avg");
+    const lowest = cheap.length ? cheap.reduce((a, b) => (b.v < a.v ? b : a)) : null;
+    const top =
+      nearMint.find((x) => x.p.kind === "lowest_5th") ??
+      (cheap.length > 1 ? cheap.reduce((a, b) => (b.v > a.v ? b : a)) : null);
+    rows.push(
+      {
+        label: "Lowest",
+        detail: ["NM", lowest ? countText(lowest.p) : null].filter(Boolean).join(" · "),
+        p: lowest?.p ?? null,
+        empty: "—",
+      },
+      {
+        label: "Highest of the 5 cheapest",
+        detail: "NM",
+        p: top && top.p !== lowest?.p ? top.p : null,
+        empty: "—",
+      },
+    );
+  } else {
+    const plain = everything.filter((x) => x.p.kind !== "lowest_5th" && x.p.kind !== "lowest_avg");
+    const lowest = plain.length ? plain.reduce((a, b) => (b.v < a.v ? b : a)) : null;
+    const highest = plain.length > 1 ? plain.reduce((a, b) => (b.v > a.v ? b : a)) : null;
+    const where = (p: SerializedPoint | null) =>
+      p?.condition ? (CONDITION_SHORT[p.condition] ?? p.condition) : "any condition";
+    if (splitsByCondition) rows.push({ label: "Near mint", detail: "", p: null, empty: "none listed" });
+    rows.push(
+      {
+        label: "Lowest",
+        detail: [where(lowest?.p ?? null), lowest ? countText(lowest.p) : null].filter(Boolean).join(" · "),
+        p: lowest?.p ?? null,
+        empty: "—",
+      },
+      {
+        label: "Highest",
+        detail: [
+          highest && PRICE_KIND_LABELS[highest.p.kind],
+          highest ? where(highest.p) : null,
+        ].filter(Boolean).join(" · "),
+        p: highest?.p ?? null,
+        empty: "—",
+      },
+    );
+  }
   return (
     <dl className="mt-3 flex flex-col gap-1 border-t pt-2 text-xs">
       {rows.map((r) => (
         <div key={r.label} className="flex items-baseline justify-between gap-2">
           <dt className="text-neutral-500">
             {r.label}
-            {r.p ? (
-              <span className="text-neutral-400">
-                {" · "}
-                {[
-                  PRICE_KIND_LABELS[r.p.kind].toLowerCase().includes(r.label.toLowerCase())
-                    ? null
-                    : PRICE_KIND_LABELS[r.p.kind],
-                  r.p.condition && r.label !== "Near mint"
-                    ? (CONDITION_SHORT[r.p.condition] ?? r.p.condition)
-                    : null,
-                  r.p.listingCount !== null
-                    ? `${r.p.listingCount} ${r.p.kind === "sold" ? "sale" : "listing"}${r.p.listingCount === 1 ? "" : "s"}`
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
-            ) : null}
+            {r.p && r.detail ? <span className="text-neutral-400">{" · "}{r.detail}</span> : null}
           </dt>
           <dd className="font-medium">
             {r.p ? (
@@ -188,6 +214,12 @@ function ProviderPanel({
 }) {
   const { displayCurrency } = prices.settings;
   const h = panel.headline;
+  const top =
+    h && h.kind === "lowest_listing"
+      ? panel.others.find(
+          (o) => o.kind === "lowest_5th" && o.condition === h.condition && o.currency === h.currency,
+        )
+      : undefined;
   return (
     <article
       className={`rounded-xl border p-4 ${panel.untrusted ? "border-amber-300 dark:border-amber-800" : ""}`}
@@ -217,6 +249,11 @@ function ProviderPanel({
       {h ? (
         <div className="mt-3">
           <Amount p={h} displayCurrency={displayCurrency} rates={prices.rates} big />
+          {top ? (
+            <span className="ml-1 text-2xl font-semibold tracking-tight text-neutral-950">
+              – {formatMoney({ amount: top.amount, currency: top.currency })}
+            </span>
+          ) : null}
           <div className="mt-1.5">
             <KindLine p={h} />
           </div>

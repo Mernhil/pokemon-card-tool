@@ -8,6 +8,8 @@ export interface PricedCard {
   cardName: string;
   setCode: string;
   setName: string;
+  /** The set's name in the English catalog, for a card from another language's catalog. */
+  setNameAlt?: string | null;
   /** As printed: "001/064", "TG01/TG30", "SVP 123". */
   collectorNumber: string;
   printedTotal?: number | null;

@@ -55,6 +55,10 @@ export function valueFromPoints(
   language: string = DEFAULT_PRICE_LANGUAGE,
 ): { valueEur: number; sources: number; mixedOnly: boolean } | null {
   const raw: RawObservation[] = [];
+  // Listings in the card's own language (CardTrader, eBay) say what a copy costs now: they
+  // decide the value when there are any. Cardmarket's trend mixes every language and is
+  // pulled up by a few dear sales, so it only stands in when no such listing exists.
+  const listingRaw: RawObservation[] = [];
   let languageSpecific = 0;
   for (const provider of new Set(points.map((p) => p.provider))) {
     if (untrusted.has(provider)) continue;
@@ -70,13 +74,24 @@ export function valueFromPoints(
     if (scoped.mode === "language") languageSpecific++;
     const eur = convertMinor(headline.amount, headline.currency, "EUR", rates);
     if (eur === null) continue;
-    raw.push({
+    const obs = {
       source: anchorSource(headline),
       value: eur,
       observedAt: headline.observedAt.toISOString(),
-    });
+    };
+    raw.push(obs);
+    if (scoped.mode === "language" && headline.kind === "lowest_listing") {
+      // The value is the average of the cheapest near-mint listings (one wrongly cheap listing
+      // can't drag it down); with too few listings to average, the cheapest one stands alone.
+      const avg = usable
+        .filter((p) => p.kind === "lowest_avg" && p.observedAt.getTime() === headline.observedAt.getTime())
+        .find((p) => p.condition === headline.condition && p.currency === headline.currency);
+      const avgEur = avg ? convertMinor(avg.amount, avg.currency, "EUR", rates) : null;
+      listingRaw.push(avgEur === null ? obs : { ...obs, value: avgEur });
+    }
   }
-  const anchor = resolveAnchor(raw);
+  const used = listingRaw.length > 0 ? listingRaw : raw;
+  const anchor = resolveAnchor(used);
   return anchor === null
     ? null
     : { valueEur: Math.round(anchor), sources: raw.length, mixedOnly: languageSpecific === 0 };

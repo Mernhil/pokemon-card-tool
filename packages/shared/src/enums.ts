@@ -124,8 +124,10 @@ export type PriceProviderId = (typeof PRICE_PROVIDERS)[number];
  * - market_average: a marketplace's average of recent *sales*
  * - trend: a marketplace's smoothed trend price
  * - lowest_listing: the cheapest current listing
+ * - lowest_avg: the average of the cheapest few current listings (how many depends on how deep the market is)
+ * - lowest_5th: the 5th cheapest current listing (the top of the "cheapest few" range)
  */
-export const PRICE_KINDS = ["sold", "asking", "market_average", "trend", "lowest_listing"] as const;
+export const PRICE_KINDS = ["sold", "asking", "market_average", "trend", "lowest_listing", "lowest_5th", "lowest_avg"] as const;
 export type PriceKind = (typeof PRICE_KINDS)[number];
 
 export const PRICE_KIND_LABELS: Record<PriceKind, string> = {
@@ -134,6 +136,8 @@ export const PRICE_KIND_LABELS: Record<PriceKind, string> = {
   market_average: "Market avg",
   trend: "Trend",
   lowest_listing: "Lowest listing",
+  lowest_5th: "5th cheapest listing",
+  lowest_avg: "Avg of cheapest",
 };
 
 /** ProviderMapping.status */
