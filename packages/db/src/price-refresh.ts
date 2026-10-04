@@ -86,25 +86,22 @@ export async function loadPricedCard(
     },
   });
   if (!v) return null;
-  // A card from another language's catalog ("it-swsh10tg"): its English set's name, which
-  // marketplaces like CardTrader know the set by.
-  const prefix = TCGDEX_LANGUAGES.find((l) => v.printing.set.code.startsWith(l.prefix))?.prefix;
-  const english = prefix
-    ? await prisma.set.findFirst({
-        where: { gameId: v.printing.set.gameId, code: v.printing.set.code.slice(prefix.length) },
-        select: { name: true },
-      })
-    : null;
   const externalIds: Record<string, string> = {};
   for (const ref of v.printing.externalRefs) externalIds[ref.source] = ref.externalId;
-  for (const m of v.providerMaps) if (m.externalId) externalIds[m.provider] = m.externalId;
+  // Our own earlier match isn't evidence for the next one: a wrong CardTrader blueprint would
+  // otherwise keep confirming itself. Links the catalog made (TCGdex) and manual ones are.
+  for (const m of v.providerMaps)
+    if (m.externalId && (m.provider !== "cardtrader" || m.manualOverride))
+      externalIds[m.provider] = m.externalId;
+  const english = await englishCounterpart(v.printing.set, v.printing.collectorNumber, externalIds);
   return {
     variantId: v.id,
     game: v.printing.set.game.slug,
     cardName: v.printing.card.name,
+    cardNameAlt: english?.cardName ?? null,
     setCode: v.printing.set.code,
     setName: v.printing.set.name,
-    setNameAlt: english?.name ?? null,
+    setNameAlt: english?.setName ?? null,
     collectorNumber: v.printing.collectorNumber,
     printedTotal: v.printing.set.printedTotal,
     finish: v.finish,
@@ -114,6 +111,57 @@ export async function loadPricedCard(
     priceLanguage: priceLanguage ?? v.languageCode,
     externalIds,
   };
+}
+
+/**
+ * A card from another language's catalog ("it-30th-c"): the same card in the English
+ * catalog, whose card and set names marketplaces like CardTrader know it by. Found by the
+ * TCGdex id the languages share ("30th-c-001"), which still works when the English set was
+ * merged into another one (the Classic Collection lives inside "30th"); else by set code
+ * and collector number. Its Cardmarket link fills in when ours has none.
+ */
+async function englishCounterpart(
+  set: { code: string; gameId: number },
+  collectorNumber: string,
+  externalIds: Record<string, string>,
+): Promise<{ cardName: string; setName: string } | null> {
+  const language = TCGDEX_LANGUAGES.find((l) => set.code.startsWith(l.prefix));
+  if (!language) return null;
+  const tcgdexId = externalIds[`tcgdex-pokemon-${language.tcgdex}`];
+  const select = {
+    card: { select: { name: true } },
+    set: { select: { name: true } },
+    variants: {
+      select: {
+        providerMaps: {
+          where: { provider: "cardmarket", status: "matched" },
+          select: { externalId: true },
+        },
+      },
+    },
+  } as const;
+  const printing =
+    (tcgdexId
+      ? (
+          await prisma.externalRef.findUnique({
+            where: { source_externalId: { source: "tcgdex-pokemon", externalId: tcgdexId } },
+            select: { printing: { select } },
+          })
+        )?.printing
+      : null) ??
+    (await prisma.printing.findFirst({
+      where: {
+        collectorNumber,
+        set: { gameId: set.gameId, code: set.code.slice(language.prefix.length) },
+      },
+      select,
+    }));
+  if (!printing) return null;
+  if (!externalIds.cardmarket) {
+    const cm = printing.variants.flatMap((x) => x.providerMaps).find((m) => m.externalId);
+    if (cm?.externalId) externalIds.cardmarket = cm.externalId;
+  }
+  return { cardName: printing.card.name, setName: printing.set.name };
 }
 
 async function markProvider(provider: string, err: unknown | null): Promise<void> {

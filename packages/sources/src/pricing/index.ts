@@ -34,6 +34,7 @@ export function createPriceProviders(
     cardtrader: new CardTraderProvider({
       token: credentials.cardtraderToken,
       fetch: options.fetch,
+      tcgdex,
     }),
     ebay: new EbayProvider({
       clientId: credentials.ebayClientId,

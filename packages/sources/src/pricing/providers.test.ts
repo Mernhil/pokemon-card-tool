@@ -3,7 +3,9 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   CardTraderProvider,
+  bareSetCode,
   cardTraderObservations,
+  scoreExpansion,
   lowestAverage,
   matchBlueprint,
   type CardTraderBlueprint,
@@ -14,7 +16,13 @@ import { ebayQueryFor, filterListings } from "./ebay-filter";
 import { AuthError, RateLimitedError, parseRetryAfter, requestJson } from "./http";
 import { normalizeName, normalizeNumber, scoreCardMatch, scoreSetMatch } from "./matching";
 import { TcgcsvPriceClient } from "./tcgcsv-prices";
-import { TcgdexMarketProvider, TcgdexPriceClient, quoteToObservations, tcgdexCardId } from "./tcgdex-prices";
+import {
+  TcgdexMarketProvider,
+  TcgdexPriceClient,
+  quoteToObservations,
+  tcgdexCardId,
+  tcgdexMarketIdsFor,
+} from "./tcgdex-prices";
 import type { PricedCard } from "./types";
 
 const fixture = (name: string) =>
@@ -608,15 +616,32 @@ describe("CardTrader finds a card whose set our app names differently", () => {
     });
   });
 
-  it("without the English name the Italian one finds nothing (the old bug)", async () => {
+  it("without the English name it still finds the card by its Cardmarket id, in any expansion", async () => {
+    const fetchImpl = routes([
+      ["/games", json(fixture("cardtrader-games.json"))],
+      ["/expansions", json([{ id: 7001, game_id: 5, code: "swsh10", name: "Astral Radiance" }])],
+      [
+        "/blueprints/export?expansion_id=7001",
+        json([{ id: 212779, name: "Starmie V", card_market_ids: [658890], fixed_properties: { collector_number: "TG13/TG30" } }]),
+      ],
+    ]);
+    const provider = new CardTraderProvider({ token: "t", fetch: fetchImpl as never });
+    expect(await provider.resolveMapping({ ...starmie, setNameAlt: null })).toMatchObject({
+      externalId: "212779",
+      status: "matched",
+      notes: 'Same Cardmarket product id, in "Astral Radiance"',
+    });
+  });
+
+  it("with neither the English name nor a marketplace id it finds nothing", async () => {
     const fetchImpl = routes([
       ["/games", json(fixture("cardtrader-games.json"))],
       ["/expansions", json([{ id: 7001, game_id: 5, code: "swsh10", name: "Astral Radiance" }])],
     ]);
     const provider = new CardTraderProvider({ token: "t", fetch: fetchImpl as never });
-    expect(await provider.resolveMapping({ ...starmie, setNameAlt: null })).toMatchObject({
-      status: "not_found",
-    });
+    expect(
+      await provider.resolveMapping({ ...starmie, setNameAlt: null, externalIds: {} }),
+    ).toMatchObject({ status: "not_found" });
   });
 
   it("matches a short name of ours to a longer provider name", () => {
@@ -754,5 +779,223 @@ describe("TCGplayer prices through tcgcsv when TCGdex has none", () => {
     const it = { ...starmieEn, languageCode: "it", externalIds: { "tcgdex-pokemon-it": "swsh10tg-TG13" } } as PricedCard;
     expect(await provider.fetchPrices(it)).toEqual([]);
     expect(fetchImpl.mock.calls.some(([u]) => String(u).includes("tcgcsv.com"))).toBe(false);
+  });
+});
+
+describe("CardTrader: the right expansion and blueprint for every kind of card", () => {
+  const games = ["/games", json(fixture("cardtrader-games.json"))] as [string, () => Response];
+  const blackBolt = [
+    { id: 4188, game_id: 5, code: "sv11b", name: "Black Bolt | sv11B" },
+    { id: 4195, game_id: 5, code: "blk", name: "Black Bolt" },
+    { id: 4223, game_id: 5, code: "m-sv11b", name: "Black Bolt | sv11B - Master Ball Reverse Holo" },
+    { id: 4263, game_id: 5, code: "m-blk", name: "Black Bolt - Master Ball Reverse Holo" },
+    { id: 4266, game_id: 5, code: "p-blk", name: "Black Bolt - Poké Ball Reverse Holo" },
+    { id: 2069, game_id: 5, code: "sm9", name: "Tag Bolt" },
+  ];
+  const zekrom = (id: number, extra: Record<string, unknown> = {}) => ({
+    id,
+    name: "Zekrom ex",
+    fixed_properties: { collector_number: "034/086" },
+    ...extra,
+  });
+  const card = (over: Partial<PricedCard> = {}): PricedCard => ({
+    ...joltik,
+    variantId: "v-zekrom",
+    cardName: "Zekrom ex",
+    setCode: "sv10.5b",
+    setName: "Black Bolt",
+    collectorNumber: "034/086",
+    printedTotal: 86,
+    externalIds: {},
+    ...over,
+  });
+
+  it("uses the CardTrader blueprint TCGdex links, without searching CardTrader", async () => {
+    const fetchImpl = routes([
+      [
+        "api.tcgdex.net/v2/en/cards/sv03.5-005",
+        json({
+          variants_detailed: [
+            { type: "normal", thirdParty: { cardmarket: 733600, tcgplayer: 502557, cardtrader: 261162 } },
+            { type: "reverse", foil: "pokeball", thirdParty: { cardmarket: 733999, cardtrader: 299999 } },
+          ],
+        }),
+      ],
+    ]);
+    const provider = new CardTraderProvider({
+      token: "t",
+      fetch: fetchImpl as never,
+      tcgdex: new TcgdexPriceClient({ fetch: fetchImpl as never }),
+    });
+    const charmeleon = card({
+      cardName: "Charmeleon",
+      setCode: "sv03.5",
+      setName: "151",
+      collectorNumber: "005/165",
+      externalIds: { "tcgdex-pokemon": "sv03.5-005" },
+    });
+    expect(await provider.resolveMapping(charmeleon)).toMatchObject({
+      externalId: "261162",
+      status: "matched",
+      confidence: 1,
+      url: "https://www.cardtrader.com/cards/261162",
+    });
+    // The ordinary reverse holo is the same blueprint on CardTrader, not the Poké Ball one.
+    expect(await provider.resolveMapping({ ...charmeleon, finish: "REVERSE_HOLO" })).toMatchObject({
+      externalId: "261162",
+    });
+    expect(fetchImpl.mock.calls.some(([url]) => String(url).includes("cardtrader.com"))).toBe(false);
+  });
+
+  it("an English card never lands on the Japanese or a patterned reverse holo expansion", async () => {
+    const fetchImpl = routes([
+      games,
+      ["/expansions", json(blackBolt)],
+      ["/blueprints/export?expansion_id=4195", json([zekrom(501)])],
+      ["/blueprints/export?expansion_id=4188", json([zekrom(601)])],
+      ["/blueprints/export?expansion_id=4266", json([zekrom(701)])],
+    ]);
+    const provider = new CardTraderProvider({ token: "t", fetch: fetchImpl as never });
+    expect(await provider.resolveMapping(card())).toMatchObject({ externalId: "501", status: "matched" });
+    const requested = fetchImpl.mock.calls.map(([url]) => String(url));
+    expect(requested.some((u) => u.includes("expansion_id=4188"))).toBe(false);
+    expect(requested.some((u) => u.includes("expansion_id=4266"))).toBe(false);
+  });
+
+  it("an English card whose English expansion CardTrader lacks is not priced from the Japanese one", async () => {
+    const fetchImpl = routes([
+      games,
+      ["/expansions", json(blackBolt.filter((e) => e.id !== 4195))],
+      ["/blueprints/export?expansion_id=4188", json([zekrom(601)])],
+    ]);
+    const provider = new CardTraderProvider({ token: "t", fetch: fetchImpl as never });
+    expect(await provider.resolveMapping(card())).toMatchObject({ status: "not_found" });
+  });
+
+  it("a Japanese card is matched to the Japanese expansion by its set code", async () => {
+    const fetchImpl = routes([
+      games,
+      ["/expansions", json(blackBolt)],
+      ["/blueprints/export?expansion_id=4188", json([zekrom(601)])],
+      ["/blueprints/export?expansion_id=4195", json([zekrom(501)])],
+    ]);
+    const provider = new CardTraderProvider({ token: "t", fetch: fetchImpl as never });
+    const japanese = card({
+      cardName: "ゼクロムex",
+      setCode: "ja-SV11B",
+      setName: "ブラックボルト",
+      languageCode: "ja",
+    });
+    expect(await provider.resolveMapping(japanese)).toMatchObject({ externalId: "601" });
+  });
+
+  it("finds a card by Cardmarket id when CardTrader names the set nothing like we do (30th Classic Collection)", async () => {
+    const fetchImpl = routes([
+      games,
+      [
+        "/expansions",
+        json([
+          { id: 10, game_id: 5, code: "wotcp", name: "Wizards of the Coast Era Promos" },
+          { id: 11, game_id: 5, code: "30c", name: "Pokémon 30th Anniversary Classic Collection" },
+          { id: 12, game_id: 5, code: "misc", name: "Miscellaneous Promos" },
+        ]),
+      ],
+      ["/blueprints/export?expansion_id=10", json([{ id: 1, name: "Charizard", fixed_properties: { collector_number: "4" } }])],
+      ["/blueprints/export?expansion_id=12", json([])],
+      [
+        "/blueprints/export?expansion_id=11",
+        json([{ id: 330001, name: "Charizard", card_market_ids: [907940], fixed_properties: { collector_number: "001/030" } }]),
+      ],
+      [
+        "api.tcgdex.net/v2/it/cards/30th-c-001",
+        json({ variants_detailed: [{ type: "holo", stamp: ["30th-anniversary"], thirdParty: { cardmarket: 907940, tcgplayer: 714372 } }] }),
+      ],
+    ]);
+    const provider = new CardTraderProvider({
+      token: "t",
+      fetch: fetchImpl as never,
+      tcgdex: new TcgdexPriceClient({ fetch: fetchImpl as never }),
+    });
+    const charizard = card({
+      cardName: "Charizard",
+      setCode: "it-30th-c",
+      setName: "Collzione Classica del 30°",
+      setNameAlt: "30th Celebration",
+      collectorNumber: "001/30",
+      printedTotal: 30,
+      finish: "HOLO",
+      printingFinishes: ["HOLO"],
+      languageCode: "it",
+      externalIds: { "tcgdex-pokemon-it": "30th-c-001" },
+    });
+    expect(await provider.resolveMapping(charizard)).toMatchObject({
+      externalId: "330001",
+      status: "matched",
+      confidence: 1,
+      notes: 'Same Cardmarket product id, in "Pokémon 30th Anniversary Classic Collection"',
+    });
+    // The second card of the set is a lookup: nothing is fetched from CardTrader again.
+    const before = fetchImpl.mock.calls.filter(([u]) => String(u).includes("blueprints")).length;
+    await provider.resolveMapping(charizard);
+    expect(fetchImpl.mock.calls.filter(([u]) => String(u).includes("blueprints")).length).toBe(before);
+  });
+
+  it("matches a card from another language by its English name", async () => {
+    const fetchImpl = routes([
+      games,
+      ["/expansions", json(blackBolt)],
+      ["/blueprints/export?expansion_id=4195", json([zekrom(501)])],
+    ]);
+    const provider = new CardTraderProvider({ token: "t", fetch: fetchImpl as never });
+    const french = card({
+      cardName: "Zekrom-ex",
+      cardNameAlt: "Zekrom ex",
+      setCode: "fr-sv10.5b",
+      setName: "Foudre Noire",
+      setNameAlt: "Black Bolt",
+      languageCode: "fr",
+    });
+    expect(await provider.resolveMapping(french)).toMatchObject({ externalId: "501", confidence: 1 });
+  });
+});
+
+describe("scoreExpansion / bareSetCode", () => {
+  const ours = { setCode: "sv10.5b", setName: "Black Bolt", setNameAlt: null, languageCode: "en" };
+  it("strips language-catalog prefixes", () => {
+    expect(bareSetCode("ja-SV11B")).toBe("SV11B");
+    expect(bareSetCode("zh-tw-SV1")).toBe("SV1");
+    expect(bareSetCode("JP-sm-p")).toBe("sm-p");
+    expect(bareSetCode("sv06.5")).toBe("sv06.5");
+  });
+  it("scores the English release, never the Japanese or patterned ones, for an English card", () => {
+    expect(scoreExpansion(ours, { id: 1, game_id: 5, name: "Black Bolt", code: "blk" }).score).toBe(1);
+    expect(scoreExpansion(ours, { id: 2, game_id: 5, name: "Black Bolt | sv11B", code: "sv11b" }).score).toBe(0);
+    expect(
+      scoreExpansion(ours, { id: 3, game_id: 5, name: "Black Bolt - Poké Ball Reverse Holo", code: "p-blk" }).score,
+    ).toBe(0);
+  });
+  it("a Japanese card prefers the Japanese release", () => {
+    const ja = { ...ours, setCode: "ja-SV11B", setName: "ブラックボルト", languageCode: "ja" };
+    expect(scoreExpansion(ja, { id: 2, game_id: 5, name: "Black Bolt | sv11B", code: "sv11b" }).score).toBe(0.95);
+    expect(scoreExpansion(ja, { id: 1, game_id: 5, name: "Black Bolt", code: "blk" }).score).toBe(0);
+  });
+});
+
+describe("tcgdexMarketIdsFor", () => {
+  const card = {
+    thirdParty: { cardmarket: 1 },
+    variants: [
+      { type: "normal", stamps: [], cardmarket: 10, cardtrader: 100 },
+      { type: "reverse", foil: "masterball", stamps: [], cardmarket: 11, cardtrader: 101 },
+      { type: "holo", stamps: ["pre-release"], cardmarket: 12 },
+    ],
+  };
+  it("picks the plain variant of the finish, and the base card for an ordinary reverse holo", () => {
+    expect(tcgdexMarketIdsFor(card, "NON_FOIL")).toEqual({ cardmarket: 10, cardtrader: 100 });
+    expect(tcgdexMarketIdsFor(card, "REVERSE_HOLO")).toEqual({ cardmarket: 10, cardtrader: 100 });
+    expect(tcgdexMarketIdsFor(card, "HOLO")).toEqual({ cardmarket: 12 });
+  });
+  it("falls back to the card-level ids", () => {
+    expect(tcgdexMarketIdsFor({ thirdParty: { cardmarket: 5 }, variants: [] }, "HOLO")).toEqual({ cardmarket: 5 });
   });
 });

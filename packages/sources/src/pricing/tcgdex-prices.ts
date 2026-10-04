@@ -87,11 +87,42 @@ export function tcgdexCardId(card: PricedCard): string | null {
   return `${card.setCode}-${card.collectorNumber.split("/")[0]}`;
 }
 
+/** The marketplace ids TCGdex links to one variant of a card (or to the card as a whole). */
+export interface TcgdexMarketIds {
+  cardmarket?: number;
+  tcgplayer?: number;
+  cardtrader?: number;
+}
+
+/** One of TCGdex's `variants_detailed`: a finish, its foil pattern / stamps, and its marketplace ids. */
+export interface TcgdexVariantIds extends TcgdexMarketIds {
+  /** "normal" | "holo" | "reverse" | ... */
+  type: string;
+  /** Foil pattern ("masterball", "pokeball", ...), absent for the ordinary foil. */
+  foil?: string;
+  stamps: string[];
+}
+
 /** What TCGdex says about a card's prices: the feed, and the TCGplayer product of each variant. */
 export interface TcgdexCardPricing {
   pricing?: TcgdexPricing;
   hash: string;
   tcgplayerProducts: Array<{ type: string; productId: number }>;
+  /** Marketplace ids per variant (`variants_detailed[].thirdParty`). */
+  variants?: TcgdexVariantIds[];
+  /** Marketplace ids on the card itself (older cards carry them here, not per variant). */
+  thirdParty?: TcgdexMarketIds;
+}
+
+type RawThirdParty = Partial<Record<keyof TcgdexMarketIds, number | string | null>> | null | undefined;
+
+function marketIds(raw: RawThirdParty): TcgdexMarketIds {
+  const ids: TcgdexMarketIds = {};
+  for (const key of ["cardmarket", "tcgplayer", "cardtrader"] as const) {
+    const n = Number(raw?.[key]);
+    if (raw?.[key] != null && Number.isFinite(n) && n > 0) ids[key] = n;
+  }
+  return ids;
 }
 
 /** TCGdex's variant type for one of our finishes. */
@@ -129,7 +160,13 @@ export class TcgdexPriceClient {
     const base = this.options.baseUrl ?? "https://api.tcgdex.net/v2";
     const value = requestJson<{
       pricing?: TcgdexPricing;
-      variants_detailed?: Array<{ type?: string; thirdParty?: { tcgplayer?: number | string | null } }>;
+      thirdParty?: RawThirdParty;
+      variants_detailed?: Array<{
+        type?: string;
+        foil?: string | null;
+        stamp?: string[] | null;
+        thirdParty?: RawThirdParty;
+      }>;
     }>(
       `${base}/${lang}/cards/${encodeURIComponent(id)}`,
       { headers: { Accept: "application/json" } },
@@ -142,12 +179,59 @@ export class TcgdexPriceClient {
           ? [{ type: v.type.toLowerCase(), productId: Number(v.thirdParty.tcgplayer) }]
           : [],
       ),
+      variants: (data.variants_detailed ?? []).flatMap((v) =>
+        v.type
+          ? [
+              {
+                type: v.type.toLowerCase(),
+                ...(v.foil ? { foil: v.foil.toLowerCase() } : {}),
+                stamps: v.stamp ?? [],
+                ...marketIds(v.thirdParty),
+              },
+            ]
+          : [],
+      ),
+      thirdParty: marketIds(data.thirdParty),
     }));
     value.catch(() => this.cache.delete(key));
     this.cache.set(key, { at: now, value });
     if (this.cache.size > 500) this.cache.delete(this.cache.keys().next().value!);
     return value;
   }
+}
+
+/**
+ * The marketplace ids TCGdex links to one of our finishes. The plain variant of that finish
+ * wins over a patterned one (a Master Ball / Poké Ball reverse is its own product); a
+ * reverse holo with no variant of its own shares the base card's ids, as it does on
+ * CardTrader and Cardmarket (one product, reverse is a listing property). Card-level ids
+ * fill in what the variants don't say.
+ */
+export function tcgdexMarketIdsFor(
+  card: Pick<TcgdexCardPricing, "variants" | "thirdParty">,
+  finish: string,
+): TcgdexMarketIds {
+  const variants = card.variants ?? [];
+  const plain = (v: TcgdexVariantIds) => !v.foil && v.stamps.length === 0;
+  const ofType = (type: string | undefined) => variants.filter((v) => v.type === type);
+  const pick = (list: TcgdexVariantIds[]) => list.find(plain) ?? list.find((v) => !v.foil);
+  const wanted = TCGDEX_VARIANT_FOR[finish];
+  const variant =
+    pick(ofType(wanted)) ??
+    (finish === "REVERSE_HOLO" ? (pick(ofType("normal")) ?? pick(ofType("holo"))) : undefined) ??
+    // One plain variant only (a holo-only card we list under its single finish).
+    (variants.filter(plain).length === 1 ? variants.find(plain) : undefined);
+  return { ...card.thirdParty, ...stripUndefined(variant) };
+}
+
+function stripUndefined(variant: TcgdexVariantIds | undefined): TcgdexMarketIds {
+  if (!variant) return {};
+  const { cardmarket, tcgplayer, cardtrader } = variant;
+  return {
+    ...(cardmarket ? { cardmarket } : {}),
+    ...(tcgplayer ? { tcgplayer } : {}),
+    ...(cardtrader ? { cardtrader } : {}),
+  };
 }
 
 const SOURCE_FOR: Record<"cardmarket" | "tcgplayer", string> = {

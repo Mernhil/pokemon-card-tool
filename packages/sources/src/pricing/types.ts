@@ -6,6 +6,8 @@ export interface PricedCard {
   /** Game.slug */
   game: string;
   cardName: string;
+  /** The card's name in the English catalog, for a card from another language's catalog. */
+  cardNameAlt?: string | null;
   setCode: string;
   setName: string;
   /** The set's name in the English catalog, for a card from another language's catalog. */
