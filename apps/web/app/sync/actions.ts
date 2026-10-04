@@ -7,9 +7,15 @@ import {
   getJobProgress,
   isLocked,
   lockName,
+  priceQueueProgress,
   retryFailedItems,
 } from "@tcg-vault/db";
-import { catalogAdapters, requestCatalogSync } from "../../lib/background";
+import {
+  catalogAdapters,
+  requestCatalogPriceSync,
+  requestCatalogSync,
+  runnablePriceProviders,
+} from "../../lib/background";
 
 /** A set that isn't synced, for the sidebar tooltip and the Sync page. */
 export interface SetIssue {
@@ -91,4 +97,29 @@ export async function retryFailedSetsAction(includeUnavailable = false): Promise
 /** Checks for new/stale sets now instead of waiting for the next scheduled run. */
 export async function syncNowAction(): Promise<void> {
   requestCatalogSync();
+}
+
+export interface CardTraderPassStatus {
+  /** CardTrader is on and has a token. */
+  available: boolean;
+  pending: number;
+  done: number;
+  failed: number;
+  /** Cards CardTrader has no listing page for. */
+  unavailable: number;
+}
+
+/** Progress of the whole-catalog CardTrader pass (the price queue of the Pokémon game). */
+export async function cardTraderPassStatusAction(): Promise<CardTraderPassStatus> {
+  const [available, progress] = await Promise.all([
+    runnablePriceProviders("pokemon").then((p) => p.includes("cardtrader")),
+    priceQueueProgress("cardtrader", "pokemon"),
+  ]);
+  return { available, ...progress };
+}
+
+/** "Check every Pokémon card on CardTrader": queues the whole catalog and starts the pass. */
+export async function startCardTraderPassAction(): Promise<number> {
+  if (!(await runnablePriceProviders("pokemon")).includes("cardtrader")) return 0;
+  return requestCatalogPriceSync("cardtrader", "pokemon");
 }

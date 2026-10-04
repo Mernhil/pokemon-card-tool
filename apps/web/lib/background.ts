@@ -1,5 +1,6 @@
 import {
   cleanupPriceQueue,
+  enqueueCatalogPrices,
   runBackup,
   runBackupIfDue,
   computeValuations,
@@ -288,4 +289,27 @@ export function startBackgroundJobs(delayMs = 10_000): void {
     scheduleValuations(5_000);
   }, delayMs);
   timer.unref?.();
+}
+
+/**
+ * Prices every catalog card of a game with one provider, not just the collection: queues the
+ * lot at low priority, then works through it in one run with no per-run item cap. The job's
+ * lock keeps it from overlapping the regular refresh.
+ */
+export async function requestCatalogPriceSync(id: PriceProviderId, game: string): Promise<number> {
+  const queued = await enqueueCatalogPrices(id, game);
+  requestRun(`price-full:${id}:${game}`, async () => {
+    const { settings, providers } = await priceProviders();
+    if (!settings.providers[id].enabled) return;
+    const name = `price-full:${id}:${game}`;
+    const result = await runPriceRefresh(providers[id], game, {
+      refreshAfterMs: settings.priceRefreshHours * 3_600_000,
+      priceLanguage: settings.priceLanguage,
+      maxItems: Number.MAX_SAFE_INTEGER,
+      skipDiscovery: true,
+      log: (line) => console.log(`[${name}] ${line}`),
+    });
+    if (result.succeeded.length > 0) scheduleValuations();
+  });
+  return queued;
 }

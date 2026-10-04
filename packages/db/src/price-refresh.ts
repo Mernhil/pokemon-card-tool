@@ -12,6 +12,7 @@ import { NonRetryableError, errorMessage, retryAfterMs } from "./jobs/backoff";
 import {
   enqueueItems,
   runJob,
+  upsertItems,
   type JobItem,
   type JobRunOptions,
   type JobRunSummary,
@@ -521,4 +522,65 @@ export async function recordCardView(printingId: string, now = new Date()): Prom
     update: { lastViewedAt: now, viewCount: { increment: 1 } },
     create: { printingId, lastViewedAt: now },
   });
+}
+
+/** Below every automatic priority: a whole-catalog pass never jumps ahead of the collection. */
+const CATALOG_PRICE_PRIORITY = 100;
+
+/**
+ * "Price the whole catalog": queues every priced variant of a game (Pokémon TCG Pocket
+ * excluded) for one provider, and re-queues rows that were already done or failed so the
+ * pass is a full check. Items already queued for the collection keep their priority.
+ * Returns how many variants are queued.
+ */
+export async function enqueueCatalogPrices(provider: PriceProviderId, game: string): Promise<number> {
+  const job = priceJob(provider);
+  const variants = await prisma.printVariant.findMany({
+    where: { printing: { set: { game: { slug: game }, category: { not: "pocket" } } } },
+    select: {
+      id: true,
+      printing: { select: { card: { select: { name: true } }, collectorNumber: true } },
+    },
+  });
+  const existing = await prisma.syncState.findMany({
+    where: { job, game },
+    select: { itemKey: true, priority: true },
+  });
+  const keep = new Set(existing.filter((r) => r.priority > CATALOG_PRICE_PRIORITY).map((r) => r.itemKey));
+  await upsertItems(
+    job,
+    game,
+    variants
+      .filter((v) => !keep.has(v.id))
+      .map((v) => ({
+        key: v.id,
+        label: `${v.printing.card.name} ${v.printing.collectorNumber}`,
+        priority: CATALOG_PRICE_PRIORITY,
+      })),
+  );
+  await prisma.syncState.updateMany({
+    where: { job, game, status: { in: ["done", "failed", "unavailable"] } },
+    data: { status: "pending" },
+  });
+  return variants.length;
+}
+
+/** Progress of a provider's price queue for a game. */
+export async function priceQueueProgress(
+  provider: PriceProviderId,
+  game: string,
+): Promise<{ pending: number; done: number; failed: number; unavailable: number }> {
+  const rows = await prisma.syncState.groupBy({
+    by: ["status"],
+    where: { job: priceJob(provider), game },
+    _count: true,
+  });
+  const n = (...statuses: string[]) =>
+    rows.filter((r) => statuses.includes(r.status)).reduce((s, r) => s + r._count, 0);
+  return {
+    pending: n("pending", "syncing"),
+    done: n("done"),
+    failed: n("failed"),
+    unavailable: n("unavailable"),
+  };
 }

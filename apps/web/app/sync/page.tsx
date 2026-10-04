@@ -3,6 +3,7 @@ import { prisma } from "@tcg-vault/db";
 import { catalogAdapters } from "../../lib/background";
 import { PageHeader } from "../../components/ui/page-header";
 import { CatalogStatusPanel } from "./catalog-status";
+import { CardTraderPass } from "./cardtrader-pass";
 import { SyncPanel } from "./sync-forms";
 
 export const dynamic = "force-dynamic";
@@ -103,6 +104,7 @@ export default async function SyncPage({ searchParams }: { searchParams: { game?
       <div className="mb-6">
         <CatalogStatusPanel />
       </div>
+      {game === "pokemon" ? <CardTraderPass /> : null}
       <SyncPanel
         game={game}
         synced={synced.map((s) => ({
