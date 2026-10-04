@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "./client";
+import { findLanguageSiblings } from "./siblings";
 
 /** Either the client or an interactive-transaction client. */
 type Db = Prisma.TransactionClient;
@@ -153,4 +154,53 @@ export async function removeCopies(itemId: string, quantity: number): Promise<vo
     await releaseBinderCopies(tx, itemId, left);
     await tx.collectionItem.update({ where: { id: itemId }, data: { quantity: left } });
   });
+}
+
+/** Languages a collection entry can be switched to: the same card printed in another language catalog. */
+export async function collectionLanguageOptions(itemId: string): Promise<string[]> {
+  const item = await prisma.collectionItem.findUnique({
+    where: { id: itemId },
+    select: { variant: { select: { printingId: true } } },
+  });
+  if (!item) return [];
+  const siblings = await findLanguageSiblings(item.variant.printingId);
+  return siblings.map((s) => s.languageCode);
+}
+
+/**
+ * Moves a collection entry to the same card in another language (the English
+ * Charizard you saved becomes the Japanese one), keeping its finish and edition.
+ * The entry itself — quantity, condition, price paid, binder pockets — stays; only
+ * the printing it points at changes, so the collection shows it in that language
+ * from then on. Throws a readable message when that language has no matching version.
+ */
+export async function changeCollectionItemLanguage(
+  itemId: string,
+  languageCode: string,
+): Promise<void> {
+  const item = await prisma.collectionItem.findUnique({
+    where: { id: itemId },
+    include: { variant: { include: { printing: { include: { set: true } } } } },
+  });
+  if (!item) throw new Error("This card is no longer in your collection.");
+  if ((item.variant.printing.set.primaryLangCode ?? "en") === languageCode)
+    return;
+  const target = (await findLanguageSiblings(item.variant.printingId)).find(
+    (s) => s.languageCode === languageCode,
+  );
+  if (!target) throw new Error("No matching card in that language was found in the catalog.");
+  const variants = await prisma.printVariant.findMany({
+    where: {
+      printing: {
+        collectorNumber: target.collectorNumber,
+        set: { code: target.setCode, gameId: item.variant.printing.set.gameId },
+      },
+    },
+  });
+  const match =
+    variants.find((v) => v.finish === item.variant.finish && v.edition === item.variant.edition) ??
+    (variants.length === 1 ? variants[0] : undefined);
+  if (!match)
+    throw new Error("That language has no version of this card in the same finish.");
+  await prisma.collectionItem.update({ where: { id: itemId }, data: { variantId: match.id } });
 }

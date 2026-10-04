@@ -160,6 +160,11 @@ export const PRICE_LANGUAGES = [
 export type PriceLanguage = (typeof PRICE_LANGUAGES)[number]["code"];
 /** The languages the app is built around: listed first wherever languages are chosen. */
 export const MAIN_LANGUAGES = ["en", "ja", "it"] as const;
+/**
+ * Languages whose Browse tabs exist: English, the main languages, and the ones with cards of
+ * their own (Asian prints). The European languages reprint the English cards, so they get no tab.
+ */
+export const BROWSE_LANGUAGES = ["en", "ja", "it", "ko", "zh-Hans", "zh-Hant", "id", "th"] as const;
 /** PRICE_LANGUAGES with the main languages first. */
 export const PRICE_LANGUAGES_MAIN_FIRST = (() => {
   const order = sortLanguages(PRICE_LANGUAGES.map((l) => l.code));

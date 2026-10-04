@@ -40,6 +40,7 @@ export default async function CollectionPage() {
       setName: p.set.name,
       imageKey: p.imageKey,
       finish: variantKind(item.variant),
+      languageCode: item.variant.languageCode,
       rarity: p.rarity?.name ?? null,
       quantity: item.quantity,
       condition: item.condition,

@@ -82,3 +82,12 @@ describe("specialSections", () => {
     ]);
   });
 });
+
+describe("tcgcsv promo catalogs", () => {
+  it("files the EN-/JP- promo sets and their series under promo, not main", () => {
+    const base = { game: "pokemon", name: "Blister Exclusives" };
+    expect(classifySet({ ...base, code: "EN-blister-exclusives", series: "Promos & events" })).toBe("promo");
+    expect(classifySet({ ...base, code: "JP-legend-era-unnumbered-energies", series: "Japanese promos" })).toBe("promo");
+    expect(classifySet({ ...base, code: "EN-bw-trainer-kit", name: "BW Trainer Kit", series: "Promos & events" })).toBe("trainer-kit");
+  });
+});

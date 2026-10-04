@@ -7,6 +7,7 @@ import {
   priceLanguageLabel,
   isSetCategory,
   sortLanguages,
+  BROWSE_LANGUAGES,
   specialSections,
   type SetCategory,
 } from "@tcg-vault/shared";
@@ -56,7 +57,9 @@ export default async function GameSetListPage({
     isSetCategory(set.category) ? set.category : "main";
   // One language at a time (English unless asked): every language is a full set of sets.
   const languageOf = (s: { primaryLangCode: string | null }) => s.primaryLangCode ?? "en";
-  const setLanguages = sortLanguages([...new Set(game.sets.map(languageOf))]);
+  const setLanguages = sortLanguages([...new Set(game.sets.map(languageOf))]).filter(
+    (c) => (BROWSE_LANGUAGES as readonly string[]).includes(c),
+  );
   const lang =
     searchParams.lang && setLanguages.includes(searchParams.lang) ? searchParams.lang : "en";
   const visibleSets = game.sets.filter(

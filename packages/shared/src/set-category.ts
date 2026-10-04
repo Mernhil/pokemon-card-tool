@@ -80,6 +80,9 @@ const pokemonRules: Rules = ({ code, name, series }) => {
   if (series === "McDonald's Collection" || /^mcdonald/i.test(name)) return "mcdonalds";
   if (series === "Trainer kits" || TRAINER_KIT_NAME.test(name)) return "trainer-kit";
   if (series === "POP" || PROMO_NAME.test(name)) return "promo";
+  // The tcgcsv-fed promo catalogs ("EN-…", "JP-…"): blister / deck / league / prize-pack cards and the like.
+  if (series === "Promos & events" || series === "Japanese promos" || /^(EN|JP)-/.test(code))
+    return "promo";
   if (ENERGY_NAME.test(name)) return "other";
   return "main";
 };

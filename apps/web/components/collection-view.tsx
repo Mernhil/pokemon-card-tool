@@ -12,6 +12,7 @@ import { StatTile } from "./ui/stat-tile";
 import { deleteCollectionItemAction, updateCollectionItemAction } from "../app/actions";
 import { CardImage } from "./card-image";
 import { CardTile } from "./card-tile";
+import { CollectionLanguageSelect } from "./collection-language-select";
 import { FinishBadge, finishLabel, formatEur } from "./money";
 import { useToast } from "./ui/toast";
 import { COLLECTION_VIEW_COOKIE } from "../lib/ui-cookies";
@@ -25,6 +26,8 @@ export interface CollectionRow {
   setName: string;
   imageKey: string | null;
   finish: string;
+  /** Language of the card this copy is (its catalog): "en", "ja", "it" … */
+  languageCode: string;
   rarity: string | null;
   quantity: number;
   condition: string | null;
@@ -188,7 +191,7 @@ export function CollectionView({
               imageKey={r.imageKey}
               name={r.name}
               number={r.number}
-              subtitle={`${r.setName} · ${r.graded ?? CONDITION_SHORT[r.condition ?? ""] ?? "—"}`}
+              subtitle={`${r.setName} · ${r.graded ?? CONDITION_SHORT[r.condition ?? ""] ?? "—"}${r.languageCode !== "en" ? ` · ${r.languageCode.toUpperCase()}` : ""}`}
               finishes={[r.finish]}
               price={r.value}
               owned={r.quantity}
@@ -213,6 +216,12 @@ export function CollectionView({
                 {r.paidPerCard !== null ? <span>paid {formatEur(r.paidPerCard)}/card</span> : null}
               </p>
             </div>
+            <CollectionLanguageSelect
+              itemId={r.id}
+              name={r.name}
+              language={r.languageCode}
+              onChanged={() => router.refresh()}
+            />
             {r.graded ? (
               <span className="rounded-md bg-surface-2 px-2 py-1 text-xs font-medium">
                 {r.graded}

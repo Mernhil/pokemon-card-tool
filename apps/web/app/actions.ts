@@ -6,6 +6,8 @@ import {
   adjustCopies,
   createAlert,
   deleteAlert,
+  changeCollectionItemLanguage,
+  collectionLanguageOptions,
   deleteCollectionItem,
   evaluateAlerts,
   prisma,
@@ -192,5 +194,23 @@ export async function addCopiesAction(
 export async function removeCopiesAction(itemId: string, quantity: number): Promise<ActionResult> {
   return run(async () => {
     await removeCopies(itemId, quantity);
+  });
+}
+
+/** Languages this collection entry can be switched to (the same card in another catalog). */
+export async function collectionLanguageOptionsAction(id: string): Promise<string[]> {
+  try {
+    return await collectionLanguageOptions(id);
+  } catch {
+    return [];
+  }
+}
+
+export async function changeCollectionLanguageAction(
+  id: string,
+  languageCode: string,
+): Promise<ActionResult> {
+  return run(async () => {
+    await changeCollectionItemLanguage(id, languageCode);
   });
 }
