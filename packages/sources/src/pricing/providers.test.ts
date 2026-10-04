@@ -557,6 +557,8 @@ describe("tcgdexCardId", () => {
   });
   it("never guesses an English id for a Japanese card or a tcgcsv promo", () => {
     expect(tcgdexCardId({ ...base, languageCode: "ja" } as never)).toBeNull();
+    // A tcgcsv promo is not a TCGdex card: it must never be looked up there.
+    expect(tcgdexCardId({ ...base, languageCode: "en", externalIds: { "tcgdex-pokemon": "tcgcsv-162270" } } as never)).toBeNull();
     expect(tcgdexCardId({ ...base, setCode: "JP-sm-p", languageCode: "ja" } as never)).toBeNull();
     expect(tcgdexCardId({ ...base, languageCode: "en" } as never)).toBe("sv01-001");
   });

@@ -227,6 +227,7 @@ function ProviderPanel({
 }) {
   const { displayCurrency } = prices.settings;
   const h = panel.headline;
+  const nearMint = h?.condition === "NEAR_MINT";
   const top =
     h && h.kind === "lowest_listing"
       ? panel.others.find(
@@ -261,21 +262,28 @@ function ProviderPanel({
 
       {h ? (
         <div className="mt-3">
-          <Amount p={h} displayCurrency={displayCurrency} rates={prices.rates} big />
-          {top ? (
-            <span className="ml-1 text-2xl font-semibold tracking-tight text-neutral-950">
-              – {formatMoney({ amount: top.amount, currency: top.currency })}
-            </span>
-          ) : null}
-          <div className="mt-1.5">
-            <KindLine p={h} />
-            {h.condition === null ? (
-              <p className="mt-1 text-[11px] text-neutral-500">
-                Price guide · {guideScope(panel)} — not a near-mint price
+          {nearMint ? (
+            <>
+              <Amount p={h} displayCurrency={displayCurrency} rates={prices.rates} big />
+              {top ? (
+                <span className="ml-1 text-2xl font-semibold tracking-tight text-neutral-950">
+                  – {formatMoney({ amount: top.amount, currency: top.currency })}
+                </span>
+              ) : null}
+              <div className="mt-1.5">
+                <KindLine p={h} />
+              </div>
+              <KeyNumbers panel={panel} prices={prices} />
+            </>
+          ) : (
+            <div className="text-sm text-neutral-500">
+              <p className="font-medium text-neutral-700">No near-mint price</p>
+              <p className="mt-0.5 text-xs">
+                {panel.label} doesn't split its prices by condition. What it has is under “All
+                prices &amp; details”.
               </p>
-            ) : null}
-          </div>
-          <KeyNumbers panel={panel} prices={prices} />
+            </div>
+          )}
           <p className="mt-2 text-[11px] text-neutral-500">
             {panel.inValue
               ? "Sets this card’s value."
@@ -294,6 +302,16 @@ function ProviderPanel({
               <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
             </summary>
             <div className="mt-2 flex flex-col gap-2">
+              {nearMint ? null : (
+                <>
+                  <KindLine p={h} />
+                  {h.condition === null ? (
+                    <p className="text-[11px] text-neutral-500">
+                      Price guide · {guideScope(panel)} — not a near-mint price
+                    </p>
+                  ) : null}
+                </>
+              )}
               {panel.others.length > 0 ? (
                 <ul className="flex flex-col gap-1">
                   {[h, ...panel.others].map((o) => (

@@ -64,6 +64,15 @@ export function tcgdexLanguageOf(card: Pick<PricedCard, "languageCode">): string
   return TCGDEX_LANGUAGES.find((l) => l.code === code)?.tcgdex ?? code;
 }
 
+const TCGCSV_ID_PREFIX = "tcgcsv-";
+
+/** The TCGplayer product id of a card that came from tcgcsv (see adapters/tcgcsv-promos.ts). */
+export function tcgcsvProductId(card: Pick<PricedCard, "externalIds">): number | null {
+  const known = card.externalIds["tcgdex-pokemon"];
+  const id = known?.startsWith(TCGCSV_ID_PREFIX) ? Number(known.slice(TCGCSV_ID_PREFIX.length)) : NaN;
+  return Number.isFinite(id) ? id : null;
+}
+
 /** Sets that come from tcgcsv (promos TCGdex lacks), not TCGdex: see adapters/tcgcsv-promos.ts. */
 const NOT_TCGDEX_SET = /^(JP|EN)-/;
 
@@ -75,7 +84,8 @@ const NOT_TCGDEX_SET = /^(JP|EN)-/;
 export function tcgdexCardId(card: PricedCard): string | null {
   const lang = tcgdexLanguageOf(card);
   const known = card.externalIds[lang === "en" ? "tcgdex-pokemon" : `tcgdex-pokemon-${lang}`];
-  if (known) return known;
+  // A tcgcsv promo is filed under a "tcgcsv-<product id>" id: TCGdex has never heard of it.
+  if (known) return known.startsWith(TCGCSV_ID_PREFIX) ? null : known;
   if (lang !== "en" || NOT_TCGDEX_SET.test(card.setCode)) return null;
   // "001/30" inside a 128-card set is a gallery TCGdex files as its own set ("30th-c"):
   // guessing "30th-001" would price a different card.
@@ -272,7 +282,18 @@ export class TcgdexMarketProvider implements PriceProvider {
 
   private async quotes(card: PricedCard) {
     const id = tcgdexCardId(card);
-    if (!id) return { quotes: [] as SourcePriceQuote[], hash: "", noTcgdex: true };
+    if (!id) {
+      // A tcgcsv promo: TCGplayer's own price list is the live source for it.
+      const product = tcgcsvProductId(card);
+      const quotes: SourcePriceQuote[] = [];
+      if (this.id === "tcgplayer" && this.tcgcsv && product !== null && (card.edition ?? "UNLIMITED") === "UNLIMITED") {
+        const quote = await this.tcgcsv
+          .quote({ name: card.setName, code: card.setCode }, product, card.finish)
+          .catch(() => null);
+        if (quote) quotes.push(quote);
+      }
+      return { quotes, hash: "", noTcgdex: true };
+    }
     const { pricing, hash, tcgplayerProducts } = await this.client.card(id, tcgdexLanguageOf(card));
     const edition = card.edition ?? "UNLIMITED";
     const quotes = pricesFor(
@@ -313,7 +334,7 @@ export class TcgdexMarketProvider implements PriceProvider {
     const quote = quotes[0];
     if (noTcgdex) {
       // Not a TCGdex card (a tcgcsv promo): its prices came with the catalog, so keep that link.
-      const own = card.externalIds[this.id];
+      const own = card.externalIds[this.id] ?? (quote ? quote.externalId : undefined);
       return own
         ? {
             externalId: own,
