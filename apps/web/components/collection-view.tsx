@@ -1,11 +1,14 @@
 "use client";
 
 import { partitionBulk } from "@tcg-vault/shared/src/bulk";
+import { Coins } from "lucide-react";
 import { CONDITIONS } from "@tcg-vault/shared/src/enums";
 import { ChevronRight, LayoutGrid, List, Minus, Plus, Search, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
+import { saveSettingsAction } from "../app/settings/actions";
+import { StatTile } from "./ui/stat-tile";
 import { deleteCollectionItemAction, updateCollectionItemAction } from "../app/actions";
 import { CardImage } from "./card-image";
 import { CardTile } from "./card-tile";
@@ -55,13 +58,24 @@ const DEFAULT_FILTERS: CollectionFilters = { query: "", setFilter: "", finish: "
 export function CollectionView({
   rows,
   initialView,
-  bulkThreshold,
+  bulkThreshold: savedThreshold,
+  otherStats,
 }: {
   rows: CollectionRow[];
   initialView: "grid" | "list";
   /** Per-copy value (EUR minor units) under which a card is bulk; 0 = off. */
   bulkThreshold: number;
+  /** The stat tiles shown next to the value tile (cards, profit / loss). */
+  otherStats?: ReactNode;
 }) {
+  const [bulkThreshold, setBulkThreshold] = useState(savedThreshold);
+  const saveTimer = useRef<ReturnType<typeof setTimeout>>();
+  const changeThreshold = (cents: number) => {
+    setBulkThreshold(cents);
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => void saveSettingsAction({ bulkThresholdCents: cents }), 400);
+  };
+  useEffect(() => () => clearTimeout(saveTimer.current), []);
   const router = useRouter();
   const toast = useToast();
   const [, start] = useTransition();
@@ -104,6 +118,11 @@ export function CollectionView({
   const { main, bulk } = partitionBulk(shown, filtering ? 0 : bulkThreshold);
   const bulkCards = bulk.reduce((n, r) => n + r.quantity, 0);
   const bulkValue = bulk.reduce((n, r) => n + (r.value ?? 0), 0);
+  // The headline total is the main cards only: bulk has its own sum, and ignores the filters.
+  const everything = partitionBulk(merged, bulkThreshold);
+  const mainTotal = everything.main.reduce((n, r) => n + (r.value ?? 0), 0);
+  const bulkTotal = everything.bulk.reduce((n, r) => n + (r.value ?? 0), 0);
+  const bulkTotalCards = everything.bulk.reduce((n, r) => n + r.quantity, 0);
   const [bulkOpen, setBulkOpen] = useState(false);
 
   const changeView = (v: "grid" | "list") => {
@@ -260,6 +279,21 @@ export function CollectionView({
 
   return (
     <>
+      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+        <StatTile
+          label="Collection value"
+          value={mainTotal}
+          format="eur"
+          icon={Coins}
+          highlight
+          sub={
+            bulkThreshold > 0
+              ? `Main cards only · bulk (${bulkTotalCards} cards, ${formatEur(bulkTotal)}) not included`
+              : "Near-mint value adjusted for condition"
+          }
+        />
+        {otherStats}
+      </div>
       <div className="panel sticky top-3 z-20 mb-5 flex flex-wrap items-center gap-3 p-3">
         <label className="relative min-w-48 flex-1">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" />
@@ -309,6 +343,25 @@ export function CollectionView({
           <option value="name">Name</option>
           <option value="set">Set & number</option>
         </select>
+        <label
+          className="flex items-center gap-2 text-neutral-500"
+          title="Cards worth less than this each go into the Bulk section. 0 turns bulk off."
+        >
+          Bulk under
+          <input
+            type="range"
+            min={0}
+            max={2000}
+            step={50}
+            value={bulkThreshold}
+            onChange={(e) => changeThreshold(Number(e.target.value))}
+            aria-label="Bulk threshold per card"
+            className="w-28 accent-[var(--accent,currentColor)]"
+          />
+          <span className="w-12 tabular-nums text-neutral-700 dark:text-neutral-300">
+            {bulkThreshold > 0 ? formatEur(bulkThreshold) : "off"}
+          </span>
+        </label>
         <div
           role="radiogroup"
           aria-label="View"

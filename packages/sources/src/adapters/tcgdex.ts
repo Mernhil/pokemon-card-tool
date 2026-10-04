@@ -428,7 +428,12 @@ export class TcgdexPokemonAdapter implements CatalogSourceAdapter {
         }),
       );
       for (const card of details) {
-        if (card) results.push(mapTcgdexCardToSourcePrinting(card, set.variants));
+        if (card) {
+          results.push({
+            ...mapTcgdexCardToSourcePrinting(card, set.variants),
+            externalSource: this.slug,
+          });
+        }
       }
     }
 

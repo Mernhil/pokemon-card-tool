@@ -3,7 +3,7 @@
 import type { AppSettings, SecretStatus } from "@tcg-vault/db";
 import {
   PRICE_KIND_LABELS,
-  PRICE_LANGUAGES,
+  PRICE_LANGUAGES_MAIN_FIRST,
   TCGDEX_LANGUAGES,
   priceLanguageLabel,
   type PriceKind,
@@ -338,7 +338,7 @@ export function SettingsForm({
               save({ priceLanguage: e.target.value as AppSettings["priceLanguage"] })
             }
           >
-            {PRICE_LANGUAGES.map((l) => (
+            {PRICE_LANGUAGES_MAIN_FIRST.map((l) => (
               <option key={l.code} value={l.code}>
                 {l.label}
               </option>

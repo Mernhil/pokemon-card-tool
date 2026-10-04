@@ -133,6 +133,21 @@ export const PRICE_LANGUAGES = [
   { code: "th", label: "Thai" },
 ] as const;
 export type PriceLanguage = (typeof PRICE_LANGUAGES)[number]["code"];
+/** The languages the app is built around: listed first wherever languages are chosen. */
+export const MAIN_LANGUAGES = ["en", "ja", "it"] as const;
+/** PRICE_LANGUAGES with the main languages first. */
+export const PRICE_LANGUAGES_MAIN_FIRST = (() => {
+  const order = sortLanguages(PRICE_LANGUAGES.map((l) => l.code));
+  return order.map((code) => PRICE_LANGUAGES.find((l) => l.code === code)!);
+})();
+/** Language codes with the main languages first (English, Japanese, Italian), the rest alphabetical. */
+export function sortLanguages<T extends string>(codes: readonly T[]): T[] {
+  const rank = (c: string) => {
+    const i = (MAIN_LANGUAGES as readonly string[]).indexOf(c);
+    return i < 0 ? MAIN_LANGUAGES.length : i;
+  };
+  return [...codes].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+}
 /**
  * Pokémon catalogs TCGdex serves besides English: its language id, ours, and the
  * prefix on their set codes (TCGdex reuses ids like "neo1" across languages).

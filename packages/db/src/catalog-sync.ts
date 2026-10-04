@@ -422,13 +422,14 @@ async function writeSet(
           });
         }
 
+        const refSource = printing.externalSource ?? adapter.slug;
         await tx.externalRef.upsert({
           where: {
-            source_externalId: { source: adapter.slug, externalId: printing.externalCardId },
+            source_externalId: { source: refSource, externalId: printing.externalCardId },
           },
           update: { printingId: dbPrinting.id },
           create: {
-            source: adapter.slug,
+            source: refSource,
             externalId: printing.externalCardId,
             printingId: dbPrinting.id,
           },

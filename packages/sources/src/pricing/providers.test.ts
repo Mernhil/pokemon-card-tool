@@ -531,4 +531,10 @@ describe("tcgdexCardId", () => {
     expect(tcgdexCardId({ ...base, setCode: "JP-sm-p", languageCode: "ja" } as never)).toBeNull();
     expect(tcgdexCardId({ ...base, languageCode: "en" } as never)).toBe("sv01-001");
   });
+  it("does not guess an id for a gallery numbered outside the set's own total (30th Classic 001/30)", () => {
+    const classic = { setCode: "30th", collectorNumber: "001/30", printedTotal: 128, languageCode: "en", externalIds: {} };
+    expect(tcgdexCardId(classic as never)).toBeNull();
+    expect(tcgdexCardId({ ...classic, externalIds: { "tcgdex-pokemon": "30th-c-001" } } as never)).toBe("30th-c-001");
+    expect(tcgdexCardId({ ...classic, collectorNumber: "001/128" } as never)).toBe("30th-001");
+  });
 });

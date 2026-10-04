@@ -1,6 +1,6 @@
 "use client";
 
-import { PRICE_LANGUAGES } from "@tcg-vault/shared/src/enums";
+import { PRICE_LANGUAGES_MAIN_FIRST } from "@tcg-vault/shared/src/enums";
 import { useRouter, useSearchParams } from "next/navigation";
 
 /**
@@ -51,7 +51,7 @@ export function PriceLanguageSelect({
         }}
         aria-label="Price language"
       >
-        {PRICE_LANGUAGES.map((l) => (
+        {PRICE_LANGUAGES_MAIN_FIRST.map((l) => (
           <option key={l.code} value={l.code}>
             {l.label}
             {siblings.some((s) => s.language === l.code) ? " — open card" : ""}

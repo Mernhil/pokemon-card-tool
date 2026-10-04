@@ -1,4 +1,4 @@
-import { Coins, Layers, TrendingUp } from "lucide-react";
+import { Layers, TrendingUp } from "lucide-react";
 import { cookies } from "next/headers";
 import { collectionItemValue, getSettings, latestValuations, prisma } from "@tcg-vault/db";
 import { CollectionView, type CollectionRow } from "../../components/collection-view";
@@ -48,7 +48,6 @@ export default async function CollectionPage() {
       addedAt: item.createdAt.getTime(),
     };
   });
-  const total = rows.reduce((s, r) => s + (r.value ?? 0), 0);
   const cards = rows.reduce((s, r) => s + r.quantity, 0);
   const paidRows = rows.filter((r) => r.paidPerCard !== null);
   const cost = paidRows.reduce((s, r) => s + r.paidPerCard! * r.quantity, 0);
@@ -69,15 +68,12 @@ export default async function CollectionPage() {
         </EmptyState>
       ) : (
         <>
-          <div className="mb-6 grid gap-4 sm:grid-cols-3">
-            <StatTile
-              label="Collection value"
-              value={total}
-              format="eur"
-              icon={Coins}
-              highlight
-              sub="Near-mint value adjusted for condition"
-            />
+          <CollectionView
+            rows={rows}
+            initialView={view}
+            bulkThreshold={settings.bulkThresholdCents}
+            otherStats={
+              <>
             <StatTile
               label="Cards"
               value={cards}
@@ -95,11 +91,8 @@ export default async function CollectionPage() {
                 paidRows.length > 0 ? `on ${formatEur(cost)} paid` : "Add a price paid to track it"
               }
             />
-          </div>
-          <CollectionView
-            rows={rows}
-            initialView={view}
-            bulkThreshold={settings.bulkThresholdCents}
+              </>
+            }
           />
         </>
       )}

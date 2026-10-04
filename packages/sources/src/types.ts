@@ -15,6 +15,12 @@ export interface SourceSet {
 
 export interface SourcePrinting {
   externalCardId: string;
+  /**
+   * ExternalRef source of `externalCardId` when it differs from the adapter's slug:
+   * one adapter composed from several catalogs (each TCGdex language has its own ids,
+   * which must not overwrite the English ones).
+   */
+  externalSource?: string;
   cardName: string;
   cardType: string;
   subtypes: string[];
