@@ -92,6 +92,15 @@ describe("value anchor with mixed-language data", () => {
     });
   });
 
+  it("unlabelled CardTrader listings beat Cardmarket's trend", () => {
+    const points = [
+      pt("cardtrader", "lowest_listing", 7463),
+      pt("cardtrader", "lowest_avg", 7600),
+      pt("cardmarket", "trend", 8627, { condition: null }),
+    ];
+    expect(valueFromPoints(points, rates, new Set(), "it")!.valueEur).toBe(7600);
+  });
+
   it("never uses Cardmarket's lowest listing as a headline or anchor input", () => {
     const onlyLow = [pt("cardmarket", "lowest_listing", 50, { condition: null })];
     expect(valueFromPoints(onlyLow, rates, new Set(), "en")).toBeNull();

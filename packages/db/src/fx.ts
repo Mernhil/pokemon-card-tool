@@ -48,6 +48,7 @@ export async function refreshFxRates(
             }),
           ),
         );
+        fxCache = null;
       },
     },
     { refreshAfterMs: 20 * 3_600_000, delayMs: 0, maxConsecutiveFailures: 1, ...options },
@@ -56,6 +57,17 @@ export async function refreshFxRates(
 
 /** Current rates: ECB rates where we have them, built-in approximations for the rest. */
 export async function loadFxRates(): Promise<FxRates> {
+  // Rates change once a day, but the layout and every page ask for them on each render.
+  if (fxCache && Date.now() - fxCache.at < FX_CACHE_MS) return fxCache.value;
+  const value = await readFxRates();
+  fxCache = { at: Date.now(), value };
+  return value;
+}
+
+let fxCache: { at: number; value: FxRates } | null = null;
+const FX_CACHE_MS = 60_000;
+
+async function readFxRates(): Promise<FxRates> {
   const rows = await prisma.exchangeRate.findMany();
   if (rows.length === 0) return BUILTIN_FX_RATES;
   const perEur = { ...BUILTIN_FX_RATES.perEur };

@@ -80,7 +80,12 @@ export function valueFromPoints(
       observedAt: headline.observedAt.toISOString(),
     };
     raw.push(obs);
-    if (scoped.mode === "language" && headline.kind === "lowest_listing") {
+    // Unlabelled listings (CardTrader often doesn't name the language) are still live listings:
+    // they beat Cardmarket's all-language trend, which would otherwise outweigh them.
+    if (
+      (scoped.mode === "language" || scoped.mode === "unsplit") &&
+      headline.kind === "lowest_listing"
+    ) {
       // The value is the average of the cheapest near-mint listings (one wrongly cheap listing
       // can't drag it down); with too few listings to average, the cheapest one stands alone.
       const avg = usable
