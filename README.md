@@ -46,6 +46,10 @@ Web: http://localhost:3000
   on the shared job runner in `packages/db/src/jobs`). One failing set never
   blocks the others; failed sets are retried on the next run. CLI:
   `pnpm db:sync-catalog -- --all | --sets <codes> | --retry-failed | --status`.
+  Japanese sets TCGdex lists without cards (or only some), and Japanese sets
+  it lacks entirely, get their cards from TCGplayer's catalog via
+  [tcgcsv](https://tcgcsv.com) (`packages/sources/src/adapters/tcgcsv-promos.ts`);
+  jumbo cards, code cards and accessories are left out.
 - **Prices:** one background job per provider (`packages/db/src/price-refresh.ts`,
   adapters in `packages/sources/src/pricing`): cards in your collection every
   24 h, then recently viewed cards; any other card when you open it. Card

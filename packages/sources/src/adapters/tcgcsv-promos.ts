@@ -30,6 +30,20 @@ const JAPAN_IN_TCGDEX = /^(SV-P|M-P)/i;
  */
 const ENGLISH_GROUP =
   /trainer kit|training kit|prize pack|league|deck exclusives|alternate art|blister exclusives|burger king|countdown|kids wb|best of|pikachu world|professor program|world championship|southeast asia|first partner|player placement/i;
+/**
+ * A Japanese set filed under its official set code ("ADV1: ...", "BW7: ..."): the code TCGdex
+ * uses for the same set, so we can tell which sets TCGdex already has.
+ */
+const SET_CODE_HEAD = /^\s*([A-Za-z]*[0-9][A-Za-z0-9-]*)\s*:/;
+/** Groups of things that aren't playing cards (jumbo / oversized cards). */
+const NOT_CARD_GROUP = /jumbo|oversize/i;
+/**
+ * Products that aren't playing cards even though TCGplayer gives them a number or card type:
+ * jumbo cards, code cards, card-shaped accessories. Only The Pokémon Company's own playing
+ * cards go in the catalog.
+ */
+const NOT_A_CARD =
+  /\b(jumbo|oversized?|code cards?|online code|sleeves?|playmat|deck box|binder|portfolio|coins?|damage counters?|markers?|dice)\b/i;
 
 interface Group {
   groupId: number;
@@ -88,6 +102,7 @@ export function mapTcgcsvProduct(
   numberOverride?: string,
 ): SourcePrinting | null {
   const printed = field(product, "Number");
+  if (NOT_A_CARD.test(product.name)) return null;
   // Booster packs, boxes, ... have neither a number nor a card type. Older promos have a
   // type but no number: the product id is the one stable thing to key them by.
   if (!printed && !field(product, "CardType")) return null;
@@ -147,12 +162,46 @@ export function mapTcgcsvProduct(
   };
 }
 
+/**
+ * Japanese sets TCGdex has no set for at all, imported whole from tcgcsv (while the Japanese
+ * catalog is switched on). `tcgdexIds` are TCGdex's Japanese set ids: any tcgcsv set filed
+ * under one of them is TCGdex's set, filled in by {@link TcgcsvJapanFallback} instead.
+ */
+export interface JapaneseSetsOption {
+  enabled: () => Promise<boolean>;
+  tcgdexIds: () => Promise<string[]>;
+}
+
+/** Pure: the official set code a tcgcsv group is filed under ("ADV1: ..." -> "adv1"), or null. */
+export function groupSetCode(group: Pick<Group, "name">): string | null {
+  return group.name.match(SET_CODE_HEAD)?.[1]?.toLowerCase() ?? null;
+}
+
 export class TcgcsvPromoAdapter {
   private readonly fetchImpl: typeof fetch;
-  private groupsCache: Promise<Array<{ region: Region; group: Group; code: string }>> | null = null;
+  private readonly japaneseSets: JapaneseSetsOption | undefined;
+  private groupsCache: Promise<Array<{ region: Region; group: Group; code: string; whole?: boolean }>> | null =
+    null;
 
-  constructor(fetchImpl: typeof fetch = globalThis.fetch) {
+  constructor(
+    fetchImpl: typeof fetch = globalThis.fetch,
+    { japaneseSets }: { japaneseSets?: JapaneseSetsOption } = {},
+  ) {
     this.fetchImpl = fetchImpl;
+    this.japaneseSets = japaneseSets;
+  }
+
+  /** Lower-cased TCGdex Japanese set ids, or null when Japanese sets aren't wanted (or unknown). */
+  private async tcgdexJapaneseIds(): Promise<Set<string> | null> {
+    if (!this.japaneseSets) return null;
+    try {
+      if (!(await this.japaneseSets.enabled())) return null;
+      const ids = await this.japaneseSets.tcgdexIds();
+      // An empty list means TCGdex wasn't reachable: importing now would duplicate its sets.
+      return ids.length > 0 ? new Set(ids.map((id) => id.toLowerCase())) : null;
+    } catch {
+      return null;
+    }
   }
 
   private async json<T>(url: string): Promise<T> {
@@ -164,18 +213,25 @@ export class TcgcsvPromoAdapter {
 
   private groups() {
     this.groupsCache ??= (async () => {
-      const out: Array<{ region: Region; group: Group; code: string }> = [];
+      const out: Array<{ region: Region; group: Group; code: string; whole?: boolean }> = [];
+      const tcgdexJa = await this.tcgdexJapaneseIds();
       for (const [region, wanted] of [
         [JAPAN, JAPAN_GROUP],
         [ENGLISH, ENGLISH_GROUP],
       ] as const) {
         const groups = await this.json<Group[]>(`${BASE}/${region.categoryId}/groups`);
         const taken = new Set<string>();
-        for (const group of groups.filter((g) => wanted.test(g.name) && !(region === JAPAN && JAPAN_IN_TCGDEX.test(g.name)))) {
+        for (const group of groups) {
+          if (NOT_CARD_GROUP.test(group.name)) continue;
+          const promo = wanted.test(group.name) && !(region === JAPAN && JAPAN_IN_TCGDEX.test(group.name));
+          // A Japanese set with an official code TCGdex has no set for (whole eras are missing there).
+          const setCode = region === JAPAN ? groupSetCode(group) : null;
+          const whole = !promo && Boolean(tcgdexJa && setCode && !tcgdexJa.has(setCode));
+          if (!promo && !whole) continue;
           let code = tcgcsvSetCode(region, group);
           if (taken.has(code)) code = `${code}-${group.groupId}`;
           taken.add(code);
-          out.push({ region, group, code });
+          out.push({ region, group, code, ...(whole ? { whole } : {}) });
         }
       }
       return out;
@@ -185,10 +241,10 @@ export class TcgcsvPromoAdapter {
   }
 
   async listSets(): Promise<SourceSet[]> {
-    return (await this.groups()).map(({ region, group, code }) => ({
+    return (await this.groups()).map(({ region, group, code, whole }) => ({
       code,
       name: region.languageCode === "ja" ? `${group.name} (Japanese)` : group.name,
-      series: region.languageCode === "ja" ? "Japanese promos" : "Promos & events",
+      series: whole ? "Japanese sets" : region.languageCode === "ja" ? "Japanese promos" : "Promos & events",
       releaseDate: group.publishedOn?.slice(0, 10),
       languageCode: region.languageCode,
     }));
@@ -330,15 +386,20 @@ export class TcgcsvJapanFallback {
     return hit;
   }
 
+  /**
+   * Gives TCGdex's printings of a set the pictures and TCGplayer prices they lack, and adds
+   * the set's cards TCGdex has no entry for: TCGdex lists many Japanese sets (whole eras:
+   * ADV, DP, BW, ...) without any of their cards, and others only partly.
+   */
   async fill(setId: string, printings: SourcePrinting[]): Promise<SourcePrinting[]> {
     const noTcgplayer = (p: SourcePrinting) => !p.prices?.some((q) => q.source === "TCGPLAYER");
-    const needs = printings.some((p) => !p.imageUrls?.length || noTcgplayer(p));
-    if (!needs) return printings;
     const group = (await this.groups()).get(setId.toLowerCase());
     if (!group) return printings;
     const cards = await this.cards(group);
-    return printings.map((p) => {
+    const have = new Set<number>();
+    const merged = printings.map((p) => {
       const n = parseInt(p.collectorNumber.split("/")[0] ?? "", 10);
+      if (Number.isFinite(n)) have.add(n);
       const match = cards.get(n);
       if (!match) return p;
       const filled = { ...p };
@@ -354,6 +415,17 @@ export class TcgcsvJapanFallback {
       }
       return filled;
     });
+    // Added cards are numbered like TCGdex numbers the rest of the set ("001/86").
+    const totals = new Set(printings.map((p) => p.collectorNumber.split("/")[1]));
+    const total = totals.size === 1 ? [...totals][0] : undefined;
+    const added = [...cards]
+      .filter(([n]) => !have.has(n))
+      .sort(([a], [b]) => a - b)
+      .map(([, card]) => {
+        const [local, ofTotal] = card.collectorNumber.split("/");
+        return total && ofTotal ? { ...card, collectorNumber: `${local}/${total}` } : card;
+      });
+    return [...merged, ...added];
   }
 }
 

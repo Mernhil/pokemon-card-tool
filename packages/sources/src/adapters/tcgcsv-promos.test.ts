@@ -83,3 +83,100 @@ describe("tcgdexLanguageOf", () => {
     expect(tcgdexLanguageOf({ languageCode: "en" })).toBe("en");
   });
 });
+
+import { TcgcsvPromoAdapter, groupSetCode } from "./tcgcsv-promos";
+
+describe("only The Pokémon Company's playing cards go in the catalog", () => {
+  it("skips jumbo cards, code cards and accessories even when they carry a number", () => {
+    const card = (name: string) =>
+      mapTcgcsvProduct({ productId: 1, name, extendedData: ext({ Number: "001/PCG-P", CardType: "Lightning", HP: "60" }) }, []);
+    expect(card("Pikachu (Jumbo Card) - 001/PCG-P")).toBeNull();
+    expect(card("Code Card - Scarlet & Violet")).toBeNull();
+    expect(card("Pikachu Sleeves")).toBeNull();
+    expect(card("Pikachu - 001/PCG-P")?.cardName).toBe("Pikachu");
+  });
+});
+
+describe("groupSetCode", () => {
+  it("reads the official set code a group is filed under", () => {
+    expect(groupSetCode({ name: "ADV1: Expansion Pack" })).toBe("adv1");
+    expect(groupSetCode({ name: "SV11W: White Flare" })).toBe("sv11w");
+    expect(groupSetCode({ name: "BW-P: Black & White Promos" })).toBeNull();
+    expect(groupSetCode({ name: "Pokemon Card 151" })).toBeNull();
+  });
+});
+
+describe("Japanese cards TCGdex lists the set for but has no entry of", () => {
+  const products = [
+    { productId: 11, name: "Treecko - 001/055", extendedData: ext({ Number: "001/055", CardType: "Grass", HP: "50" }) },
+    { productId: 12, name: "Grovyle - 002/055", extendedData: ext({ Number: "002/055", CardType: "Grass", HP: "70" }) },
+    { productId: 13, name: "Sceptile ex - 003/055", extendedData: ext({ Number: "003/055", CardType: "Grass", HP: "150" }) },
+  ];
+  const fake = (async (url: string) => {
+    const body = url.endsWith("/groups")
+      ? [{ groupId: 9, name: "ADV1: Expansion Pack" }]
+      : url.endsWith("/products")
+        ? products
+        : [{ productId: 13, lowPrice: 50, midPrice: 60, marketPrice: 55, subTypeName: "Holofoil" }];
+    return { ok: true, json: async () => ({ results: body }) } as Response;
+  }) as unknown as typeof fetch;
+
+  it("takes the whole card list when TCGdex has the set without any cards", async () => {
+    const out = await new TcgcsvJapanFallback(fake).fill("ADV1", []);
+    expect(out.map((p) => [p.cardName, p.collectorNumber, p.externalCardId])).toEqual([
+      ["Treecko", "001/055", "tcgcsv-11"],
+      ["Grovyle", "002/055", "tcgcsv-12"],
+      ["Sceptile ex", "003/055", "tcgcsv-13"],
+    ]);
+    expect(out[2]!.prices).toEqual([
+      { finish: "HOLO", source: "TCGPLAYER", currency: "USD", market: 5500, mid: 6000, low: 5000, externalId: "13" },
+    ]);
+  });
+
+  it("adds only the numbers TCGdex lacks, numbered like the rest of the set", async () => {
+    const base = { cardType: "Pokemon", subtypes: [], attributes: {}, finishes: ["NON_FOIL"], imageUrls: ["x"] };
+    const out = await new TcgcsvJapanFallback(fake).fill("ADV1", [
+      { ...base, externalCardId: "ADV1-001", cardName: "Treecko", collectorNumber: "001/55" },
+      { ...base, externalCardId: "ADV1-002", cardName: "Grovyle", collectorNumber: "002/55" },
+    ]);
+    expect(out.map((p) => [p.cardName, p.collectorNumber])).toEqual([
+      ["Treecko", "001/55"],
+      ["Grovyle", "002/55"],
+      ["Sceptile ex", "003/55"],
+    ]);
+  });
+});
+
+describe("Japanese sets TCGdex has no set for at all", () => {
+  const fake = (async (url: string) => {
+    const body = url.endsWith("/85/groups")
+      ? [
+          { groupId: 1, name: "ADV1: Expansion Pack" },
+          { groupId: 2, name: "SV11W: White Flare" },
+          { groupId: 3, name: "CoroCoro Comic Promos" },
+          { groupId: 4, name: "PCG1: Jumbo Cards" },
+        ]
+      : [];
+    return { ok: true, json: async () => ({ results: body }) } as Response;
+  }) as unknown as typeof fetch;
+  const codes = async (opts?: ConstructorParameters<typeof TcgcsvPromoAdapter>[1]) =>
+    (await new TcgcsvPromoAdapter(fake, opts).listSets()).map((s) => [s.code, s.series]);
+
+  it("imports a coded set TCGdex lacks, leaving TCGdex's own sets to TCGdex", async () => {
+    const japaneseSets = { enabled: async () => true, tcgdexIds: async () => ["SV11W", "PMCG1"] };
+    expect(await codes({ japaneseSets })).toEqual([
+      ["JP-adv1", "Japanese sets"],
+      ["JP-corocoro-comic-promos", "Japanese promos"],
+    ]);
+  });
+
+  it("imports none while Japanese is off, or when TCGdex's set list is unknown", async () => {
+    const promosOnly = [["JP-corocoro-comic-promos", "Japanese promos"]];
+    expect(await codes()).toEqual(promosOnly);
+    expect(await codes({ japaneseSets: { enabled: async () => false, tcgdexIds: async () => ["SV11W"] } })).toEqual(promosOnly);
+    expect(await codes({ japaneseSets: { enabled: async () => true, tcgdexIds: async () => [] } })).toEqual(promosOnly);
+    expect(
+      await codes({ japaneseSets: { enabled: async () => true, tcgdexIds: () => Promise.reject(new Error("offline")) } }),
+    ).toEqual(promosOnly);
+  });
+});

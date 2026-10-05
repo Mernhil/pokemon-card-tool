@@ -57,20 +57,33 @@ function whenLanguageEnabled(adapter: CatalogSourceAdapter, code: string): Catal
 /**
  * Pokémon: English TCGdex (with a pokemontcg.io image fallback), the tcgcsv promos TCGdex lacks,
  * and one catalog per other TCGdex language (set codes prefixed with the language). Japanese
- * cards TCGdex has no scan or TCGplayer price for get them from tcgcsv's Japanese catalog.
+ * cards TCGdex has no scan or TCGplayer price for get them from tcgcsv's Japanese catalog, as
+ * do the cards of Japanese sets TCGdex lists without them, and Japanese sets it lacks entirely.
  */
 function pokemonAdapter(): CatalogSourceAdapter {
   const japanFallback = new TcgcsvJapanFallback();
+  const catalogs = new Map(
+    TCGDEX_LANGUAGES.map((lang) => [
+      lang.code,
+      new TcgdexPokemonAdapter(undefined, { language: lang.tcgdex, codePrefix: lang.prefix }),
+    ]),
+  );
+  const japanese = TCGDEX_LANGUAGES.find((l) => l.code === "ja")!;
+  // Japanese sets TCGdex has no set for at all come whole from tcgcsv (TCGplayer's catalog).
+  const promos = new TcgcsvPromoAdapter(undefined, {
+    japaneseSets: {
+      enabled: async () => (await getSettings()).catalogLanguages.includes("ja"),
+      tcgdexIds: async () =>
+        (await catalogs.get("ja")!.listSetSummaries()).map((s) => s.code.slice(japanese.prefix.length)),
+    },
+  });
   let adapter = withExtraSets(
     withImageFallback(new TcgdexPokemonAdapter(), pokemonImageFallback),
-    new TcgcsvPromoAdapter(),
+    promos,
     TCGCSV_SET_PREFIXES,
   );
   for (const lang of TCGDEX_LANGUAGES) {
-    let catalog: CatalogSourceAdapter = new TcgdexPokemonAdapter(undefined, {
-      language: lang.tcgdex,
-      codePrefix: lang.prefix,
-    });
+    let catalog: CatalogSourceAdapter = catalogs.get(lang.code)!;
     if (lang.code === "ja") catalog = withTcgcsvJapanFallback(catalog, japanFallback, lang.prefix);
     adapter = withExtraSets(adapter, whenLanguageEnabled(catalog, lang.code), [lang.prefix]);
   }
