@@ -333,6 +333,16 @@ describe("value from the average of the cheapest near-mint listings", () => {
     ];
     expect(valueFromPoints(points, rates, new Set(), "it")!.valueEur).toBe(6899);
   });
+  it("ignores an average dearer than the 5th cheapest listing", () => {
+    // Stored before the fix: two ~€10k listings averaged, above five cheaper ones.
+    const points = [
+      pt("cardtrader", "lowest_listing", 20064, { languageCode: null }),
+      pt("cardtrader", "lowest_avg", 1003427, { languageCode: null, listingCount: 2 }),
+      pt("cardtrader", "lowest_5th", 200064, { languageCode: null }),
+      pt("cardmarket", "trend", 21376, { condition: null }),
+    ];
+    expect(valueFromPoints(points, rates, new Set(), "en")!.valueEur).toBe(20064);
+  });
 });
 
 describe("a card is valued in its own language", () => {

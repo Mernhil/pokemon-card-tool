@@ -94,10 +94,20 @@ export function valueFromPoints(
     ) {
       // The value is the average of the cheapest near-mint listings (one wrongly cheap listing
       // can't drag it down); with too few listings to average, the cheapest one stands alone.
-      const avg = usable
-        .filter((p) => p.kind === "lowest_avg" && p.observedAt.getTime() === headline.observedAt.getTime())
-        .find((p) => p.condition === headline.condition && p.currency === headline.currency);
-      const avgEur = avg ? convertMinor(avg.amount, avg.currency, "EUR", rates) : null;
+      const sameFetch = usable.filter(
+        (p) =>
+          p.observedAt.getTime() === headline.observedAt.getTime() &&
+          p.condition === headline.condition &&
+          p.currency === headline.currency,
+      );
+      const avg = sameFetch.find((p) => p.kind === "lowest_avg");
+      const fifth = sameFetch.find((p) => p.kind === "lowest_5th");
+      // An average dearer than the 5th cheapest listing came from far above the cheapest few
+      // (stored before lowestAverage stopped skipping a scattered market's cheap end).
+      const avgEur =
+        avg && !(fifth && avg.amount > fifth.amount)
+          ? convertMinor(avg.amount, avg.currency, "EUR", rates)
+          : null;
       listingRaw.push(avgEur === null ? obs : { ...obs, value: avgEur });
       listingProviders.push(provider);
     }

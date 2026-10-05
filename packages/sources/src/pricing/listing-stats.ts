@@ -10,7 +10,8 @@
  * The average starts at the first such level. So a lone listing far below the rest — or a
  * couple of them — is a random post and is skipped, while a deep, gradually rising market
  * (a card whose better copies run to the 80s) is followed upward as far as the average
- * needs, but never across a jump of more than 25% to a level of its own.
+ * needs, but never across a jump of more than 25% to a level of its own. At most two
+ * listings (and never a third of them) are passed over to reach the first supported level.
  * null when fewer than two listings qualify.
  */
 export function lowestAverage(sorted: number[]): { amount: number; count: number } | null {
@@ -23,13 +24,17 @@ export function lowestAverage(sorted: number[]): { amount: number; count: number
     else levels[levels.length - 1]!.push(sorted[i]!);
   }
   const support = n >= 8 ? 3 : 2;
-  const real = levels.filter((l) => l.length >= support);
+  // Only a couple of cheap posts may be passed over, and never a third of the market: a
+  // scattered market whose cheapest listings all stand alone must not be valued from a
+  // cluster of dear (often absurd) asking prices further up — it gets no average at all.
+  const below = (level: number[]) => sorted.indexOf(level[0]!);
+  const skippable = (level: number[]) => below(level) <= 2 && below(level) * 3 <= n;
+  const real = levels.filter((l) => l.length >= support && skippable(l));
   if (real.length === 0) return null;
 
   // A small level far below the next real one is a random cheap post, not the floor.
   let start = real[0]!;
-  const startIdx = levels.indexOf(start);
-  const next = levels.slice(startIdx + 1).find((l) => l.length >= support);
+  const next = real[1];
   if (start.length < 3 && next && start[0]! < 0.7 * next[0]!) start = next;
 
   const want = n >= 20 ? 5 : n >= 12 ? 4 : n >= 6 ? 3 : 2;

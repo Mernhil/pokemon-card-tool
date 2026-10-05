@@ -706,6 +706,16 @@ describe("lowestAverage tells a real market level from a random post", () => {
   it("gives up when no price level has any support", () => {
     expect(lowestAverage([6000, 9000, 12000])).toBeNull();
   });
+  it("never skips the cheap end of a scattered market to average dear listings", () => {
+    // 7 near-mint copies: five scattered from €200 to €2,000, then two "for display" at ~€10k.
+    // The five cheapest have no neighbour within 15%, the two dearest do: they are not the value.
+    const scattered = [20064, 45000, 90000, 140000, 200064, 999999, 1006855];
+    expect(lowestAverage(scattered)).toBeNull();
+  });
+  it("still skips a lone cheap post when a third of the market is not below the level", () => {
+    expect(lowestAverage([1000, 5000, 9000, 9100, 9200])).toBeNull();
+    expect(lowestAverage([1000, 9000, 9100, 9200, 9300])).toEqual({ amount: 9050, count: 2 });
+  });
 });
 
 describe("eBay reports the same cheapest-listing figures", () => {
