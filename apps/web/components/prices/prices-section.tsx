@@ -279,7 +279,7 @@ function ProviderPanel({
             <div className="text-sm text-neutral-500">
               <p className="font-medium text-neutral-700">No near-mint price</p>
               <p className="mt-0.5 text-xs">
-                {panel.label} doesn't split its prices by condition. What it has is under “All
+                {panel.label} doesn&apos;t split its prices by condition. What it has is under “All
                 prices &amp; details”.
               </p>
             </div>

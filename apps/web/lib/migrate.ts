@@ -28,12 +28,14 @@ export async function runMigrations(): Promise<void> {
     return;
   }
 
+  const done = new Set(
+    (await prisma.$queryRawUnsafe<{ id: string }[]>(`SELECT id FROM _local_migrations`)).map(
+      (row) => row.id,
+    ),
+  );
+
   for (const name of names) {
-    const applied = await prisma.$queryRawUnsafe<{ id: string }[]>(
-      `SELECT id FROM _local_migrations WHERE id = ?`,
-      name,
-    );
-    if (applied.length > 0) continue;
+    if (done.has(name)) continue;
 
     const sql = readFileSync(join(migrationsDir, name, "migration.sql"), "utf8");
     const statements = sql
@@ -41,6 +43,8 @@ export async function runMigrations(): Promise<void> {
       .map((statement) => statement.trim())
       .filter(Boolean);
 
+    // Not wrapped in a transaction: SQLite ignores `PRAGMA foreign_keys=OFF` inside one, and the
+    // table-redefining migrations rely on it.
     for (const statement of statements) {
       await prisma.$executeRawUnsafe(statement);
     }
