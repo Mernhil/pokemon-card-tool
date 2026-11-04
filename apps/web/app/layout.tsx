@@ -22,7 +22,7 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // Rendered server-side from cookies, so there's no flash of the wrong theme/layout.
-  const jar = cookies();
+  const jar = await cookies();
   const theme = parseTheme(jar.get(THEME_COOKIE)?.value);
   const collapsed = jar.get(SIDEBAR_COOKIE)?.value === "collapsed";
   const money = await loadMoneyDisplay();

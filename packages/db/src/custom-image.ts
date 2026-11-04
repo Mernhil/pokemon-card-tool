@@ -1,7 +1,5 @@
 import { createHash } from "node:crypto";
-import { rm } from "node:fs/promises";
-import { join } from "node:path";
-import { mediaFilePath, putFile, remoteImageKey } from "@tcg-vault/shared";
+import { cacheDelete, deleteFile, putFile, remoteImageKey } from "@tcg-vault/shared";
 import { prisma } from "./client";
 import { cacheFileName, imageCacheDir } from "./image-cache";
 
@@ -63,14 +61,14 @@ export function validateCustomImage(
 
 async function removeStoredFile(key: string | null): Promise<void> {
   if (!key || !key.startsWith("custom/")) return;
-  await rm(mediaFilePath(key), { force: true }).catch(() => {});
+  await deleteFile(key).catch(() => {});
 }
 
 /** Drops any downloaded copy so nothing stale outlives a change of image. */
 async function dropCachedCopy(printingId: string): Promise<void> {
   const file = cacheFileName(printingId);
   await prisma.imageCacheEntry.deleteMany({ where: { key: file } });
-  await rm(join(imageCacheDir(), file), { force: true }).catch(() => {});
+  await cacheDelete(imageCacheDir(), file).catch(() => {});
 }
 
 export async function setCustomImage(

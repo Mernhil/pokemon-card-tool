@@ -1,4 +1,5 @@
 import { convertMinor } from "@tcg-vault/shared";
+import { inChunks } from "./chunk";
 import { prisma } from "./client";
 import { loadFxRates } from "./fx";
 import { latestValuations } from "./valuations";
@@ -94,9 +95,11 @@ export async function gradingCandidates(
   const ids = [...byVariant.keys()];
   const [values, graded, rates] = await Promise.all([
     latestValuations(ids),
-    prisma.gradedPrice.findMany({
-      where: { variantId: { in: ids }, company, gradeKey: { in: ["10", "9", "9.5"] } },
-    }),
+    inChunks(ids, (chunk) =>
+      prisma.gradedPrice.findMany({
+        where: { variantId: { in: chunk }, company, gradeKey: { in: ["10", "9", "9.5"] } },
+      }),
+    ),
     loadFxRates(),
   ]);
 

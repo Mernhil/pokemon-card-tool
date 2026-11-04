@@ -1,4 +1,4 @@
-import type { Prisma, PriceObservation } from "@prisma/client";
+import type { Prisma, PriceObservation } from "./generated/node/client";
 import type { PricePoint } from "@tcg-vault/pricing";
 import type { PriceKind } from "@tcg-vault/shared";
 import {
@@ -7,6 +7,7 @@ import {
   type SourcePriceQuote,
 } from "@tcg-vault/sources";
 import { prisma } from "./client";
+import { inChunks } from "./chunk";
 
 type Db = Prisma.TransactionClient;
 
@@ -143,10 +144,14 @@ export async function pricePoints(
   variantIds: string[],
   since?: Date,
 ): Promise<Map<string, PricePoint[]>> {
-  const rows = await prisma.priceObservation.findMany({
-    where: { variantId: { in: variantIds }, ...(since ? { observedAt: { gte: since } } : {}) },
-    orderBy: { observedAt: "asc" },
-  });
+  const rows = (
+    await inChunks(variantIds, (chunk) =>
+      prisma.priceObservation.findMany({
+        where: { variantId: { in: chunk }, ...(since ? { observedAt: { gte: since } } : {}) },
+        orderBy: { observedAt: "asc" },
+      }),
+    )
+  ).sort((a, b) => a.observedAt.getTime() - b.observedAt.getTime());
   const out = new Map<string, PricePoint[]>(variantIds.map((id) => [id, []]));
   for (const row of rows) out.get(row.variantId)!.push(...normalizeObservation(row));
   return out;
@@ -167,9 +172,14 @@ export async function pruneOldPriceObservations(
 ): Promise<number> {
   const cutoff = new Date(now);
   cutoff.setUTCMonth(cutoff.getUTCMonth() - months);
+  // Dates are ISO text through the driver adapters; databases written by the old engine hold
+  // epoch milliseconds. Comparing a number with text never matches, so each form gets its own test.
   return db.$executeRaw`
     DELETE FROM "PriceObservation"
-    WHERE "observedAt" < ${cutoff.getTime()}
+    WHERE (
+        (typeof("observedAt") = 'text' AND "observedAt" < ${cutoff.toISOString()})
+        OR (typeof("observedAt") <> 'text' AND "observedAt" < ${cutoff.getTime()})
+      )
       AND "id" NOT IN (
         SELECT "id" FROM (
           SELECT "id", ROW_NUMBER() OVER (

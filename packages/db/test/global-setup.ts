@@ -1,20 +1,23 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createClient } from "@libsql/client";
 
-/** Creates an empty test database from the current schema; removed afterwards. */
-export default function setup() {
+/** Creates an empty test database by replaying prisma/migrations (as production does); removed afterwards. */
+export default async function setup() {
   const dir = mkdtempSync(join(tmpdir(), "tcg-vault-db-test-"));
-  const url = `file:${join(dir, "test.db")}`;
+  const file = join(dir, "test.db");
   process.env.TCG_VAULT_TEST_DIR = dir;
-  process.env.DATABASE_URL = url;
-  execFileSync("npx", ["prisma", "db", "push", "--skip-generate", "--accept-data-loss"], {
-    cwd: join(__dirname, ".."),
-    env: { ...process.env, DATABASE_URL: url },
-    stdio: "pipe",
-    // npx is npx.cmd on Windows, which execFile can only start through a shell.
-    shell: process.platform === "win32",
-  });
+  process.env.DATABASE_URL = `file:${file}`;
+
+  const migrations = join(__dirname, "../prisma/migrations");
+  const db = createClient({ url: `file:${file}` });
+  for (const name of readdirSync(migrations, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .sort()) {
+    await db.executeMultiple(readFileSync(join(migrations, name, "migration.sql"), "utf8"));
+  }
+  db.close();
   return () => rmSync(dir, { recursive: true, force: true });
 }

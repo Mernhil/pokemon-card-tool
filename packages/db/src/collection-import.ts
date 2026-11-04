@@ -1,6 +1,6 @@
 import type { ImportRow } from "@tcg-vault/shared";
 import { normalizeName, scoreCardMatch, scoreSetMatch } from "@tcg-vault/sources";
-import { prisma } from "./client";
+import { interactiveTransaction, prisma } from "./client";
 
 /**
  * Matches rows read from another tracker's file (parseCollectionCsv) to
@@ -154,7 +154,7 @@ export interface ImportItem {
 /** Adds the confirmed rows as new collection entries (one transaction); returns copies added. */
 export async function commitImport(items: ImportItem[]): Promise<number> {
   const now = new Date();
-  return prisma.$transaction(async (tx) => {
+  return interactiveTransaction(async (tx) => {
     let copies = 0;
     for (const item of items) {
       if (!Number.isInteger(item.quantity) || item.quantity < 1) continue;

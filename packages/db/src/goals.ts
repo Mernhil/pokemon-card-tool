@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma } from "./generated/node/client";
 import { isRarityTier, rarityTier } from "@tcg-vault/shared";
 import { prisma } from "./client";
 import { findPokemonByName } from "./dex";

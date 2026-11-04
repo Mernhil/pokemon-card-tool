@@ -1,4 +1,5 @@
 import { convertMinor } from "@tcg-vault/shared";
+import { inChunks } from "./chunk";
 import { prisma } from "./client";
 import { loadFxRates } from "./fx";
 
@@ -44,17 +45,18 @@ export async function wishlistDeals(now = new Date()): Promise<Map<string, Wishl
   const variantIds = items.flatMap((i) => i.printing.variants.map((v) => v.id));
   const since = new Date(now.getTime() - DEAL_WINDOW_MS);
   const [obs, rates] = await Promise.all([
-    prisma.priceObservation.findMany({
-      where: {
-        variantId: { in: variantIds },
-        provider: { in: [...DEAL_PROVIDERS] },
-        kind: "lowest_listing",
-        amount: { not: null },
-        observedAt: { gte: since },
-      },
-      orderBy: { observedAt: "desc" },
-      select: { variantId: true, provider: true, amount: true, currency: true, observedAt: true },
-    }),
+    inChunks(variantIds, (chunk) =>
+      prisma.priceObservation.findMany({
+        where: {
+          variantId: { in: chunk },
+          provider: { in: [...DEAL_PROVIDERS] },
+          kind: "lowest_listing",
+          amount: { not: null },
+          observedAt: { gte: since },
+        },
+        select: { variantId: true, provider: true, amount: true, currency: true, observedAt: true },
+      }),
+    ).then((rows) => rows.sort((a, b) => b.observedAt.getTime() - a.observedAt.getTime())),
     loadFxRates(),
   ]);
   // Latest observation per variant x provider: older ones are superseded.

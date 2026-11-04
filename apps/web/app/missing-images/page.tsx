@@ -14,11 +14,10 @@ const PROMOS = "promos";
  * promos, events and other special sets. DB only: nothing is fetched. For a
  * probe of the addresses themselves see `pnpm db:image-report`.
  */
-export default async function MissingImagesPage({
-  searchParams,
-}: {
-  searchParams: { tab?: string };
+export default async function MissingImagesPage(props: {
+  searchParams: Promise<{ tab?: string }>;
 }) {
+  const searchParams = await props.searchParams;
   const settings = await getSettings();
   const printings = await prisma.printing.findMany({
     where: {

@@ -1,7 +1,14 @@
 import { variantKind } from "@tcg-vault/shared/src/enums";
 import { ChartLine, Coins, Layers, Library, TrendingUp } from "lucide-react";
 import Link from "next/link";
-import { collectionItemValue, computeValuations, latestValuations, listAlerts, prisma } from "@tcg-vault/db";
+import {
+  collectionItemValue,
+  computeValuations,
+  inChunks,
+  latestValuations,
+  listAlerts,
+  prisma,
+} from "@tcg-vault/db";
 import { topMovers } from "@tcg-vault/pricing";
 import { SET_CATEGORY_BADGES, isSetCategory } from "@tcg-vault/shared";
 import { CardTile } from "../../components/card-tile";
@@ -100,13 +107,17 @@ export default async function DashboardPage() {
     variantIds: [...new Set(items.map((i) => i.variantId))],
   }).catch(() => 0);
   const values = await latestValuations(items.map((i) => i.variantId));
-  const recentValuations = await prisma.variantValuation.findMany({
-    where: {
-      variantId: { in: items.map((i) => i.variantId) },
-      bucket: "NM",
-      day: { gte: new Date(Date.now() - 30 * 86_400_000) },
-    },
-  });
+  const recentValuations = await inChunks(
+    items.map((i) => i.variantId),
+    (chunk) =>
+      prisma.variantValuation.findMany({
+        where: {
+          variantId: { in: chunk },
+          bucket: "NM",
+          day: { gte: new Date(Date.now() - 30 * 86_400_000) },
+        },
+      }),
+  );
   const movers = topMovers(
     recentValuations.map((v) => ({ id: v.variantId, day: v.day, value: v.valueEur })),
     { days: 7, limit: 6 },
@@ -149,10 +160,12 @@ export default async function DashboardPage() {
     owned.add(variant.printingId);
     ownedBySet.set(variant.printing.setId, owned);
   }
-  const ownedSets = await prisma.set.findMany({
-    where: { id: { in: [...ownedBySet.keys()] } },
-    include: { game: true, _count: { select: { printings: true } } },
-  });
+  const ownedSets = await inChunks([...ownedBySet.keys()], (chunk) =>
+    prisma.set.findMany({
+      where: { id: { in: chunk } },
+      include: { game: true, _count: { select: { printings: true } } },
+    }),
+  );
   const setProgress = ownedSets
     .map((set) => ({ set, owned: ownedBySet.get(set.id)!.size, total: set._count.printings }))
     .sort((a, b) => b.owned / Math.max(1, b.total) - a.owned / Math.max(1, a.total));

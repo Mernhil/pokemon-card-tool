@@ -32,7 +32,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@stable
@@ -66,7 +66,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          NODE_VERSION="20.18.1"
+          NODE_VERSION="22.14.0"
           TARGET_TRIPLE="x86_64-pc-windows-msvc"
           DEST="apps/desktop/src-tauri/binaries"
           mkdir -p "$DEST"

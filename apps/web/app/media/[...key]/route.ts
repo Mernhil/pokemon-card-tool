@@ -43,7 +43,8 @@ const EMPTY: ImageResult = {
  * cache (packages/db/src/image-cache.ts): served from disk, or fetched once
  * and cached. A scan that can't be fetched gets a placeholder, not an error.
  */
-export async function GET(req: Request, { params }: { params: { key: string[] } }) {
+export async function GET(req: Request, props: { params: Promise<{ key: string[] }> }) {
+  const params = await props.params;
   const key = params.key.join("/");
   const query = new URL(req.url).searchParams;
   const strict = query.get("strict") === "1";

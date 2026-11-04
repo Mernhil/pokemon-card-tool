@@ -72,7 +72,7 @@ export function CollectionView({
   otherStats?: ReactNode;
 }) {
   const [bulkThreshold, setBulkThreshold] = useState(savedThreshold);
-  const saveTimer = useRef<ReturnType<typeof setTimeout>>();
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const changeThreshold = (cents: number) => {
     setBulkThreshold(cents);
     clearTimeout(saveTimer.current);

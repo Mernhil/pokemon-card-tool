@@ -20,11 +20,10 @@ const signed = (n: number | null) =>
   n === null ? "—" : `${n < 0 ? "−" : "+"}${formatEur(Math.abs(n))}`;
 
 /** Raw cards you own against graded asking prices, minus what grading costs. */
-export default async function GradingPage({
-  searchParams,
-}: {
-  searchParams: { company?: string; fee?: string };
+export default async function GradingPage(props: {
+  searchParams: Promise<{ company?: string; fee?: string }>;
 }) {
+  const searchParams = await props.searchParams;
   await loadMoneyDisplay();
   const company = (GRADING_COMPANIES as readonly string[]).includes(searchParams.company ?? "")
     ? searchParams.company!

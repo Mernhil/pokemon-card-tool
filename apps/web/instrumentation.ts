@@ -1,5 +1,9 @@
 /** Next.js calls this once, on server start, in the Node runtime only. */
 export async function register() {
+  // Hosted on Cloudflare: no long-lived process, so no startup backfills or in-process
+  // scheduler — migrations are applied by wrangler and syncs run from cron triggers.
+  if (process.env.TCG_VAULT_CLOUD === "1") return;
+
   if (process.env.NEXT_RUNTIME === "nodejs") {
     // Set by the Tauri sidecar only (see apps/desktop/src-tauri/src/main.rs)
     // — dev/CI use `pnpm db:migrate:dev` / `db:migrate:deploy` directly.

@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tcg-vault",
+  "main": "worker.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // Every 5 minutes (a tick may run for up to ~4 min): a slice of catalog / price / FX sync (see lib/cloud-tick.ts).
+  "triggers": { "crons": ["*/5 * * * *"] },
+  // Syncing parses large source files; the default 30 s of CPU is too tight.
+  "limits": { "cpu_ms": 120000 },
+  // CRON_SECRET: `wrangler secret put CRON_SECRET` (local: .dev.vars).
+  "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tcg-vault",
+      // Replace with the id printed by `wrangler d1 create tcg-vault` before deploying.
+      // Local `wrangler dev` / `pnpm cf:preview` ignore it and use a local emulation.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": ".d1-migrations"
+    }
+  ],
+  "r2_buckets": [
+    // Card scans cache + uploaded images (replaces the on-disk cache of the desktop app).
+    { "binding": "MEDIA", "bucket_name": "tcg-vault-media" }
+  ]
+}

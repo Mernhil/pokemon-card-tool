@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, normalize, sep } from "node:path";
 
@@ -54,6 +54,27 @@ export async function hasFile(key: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export async function deleteFile(key: string): Promise<void> {
+  await rm(resolveKey(key), { force: true });
+}
+
+/**
+ * The lazy card-image cache lives in its own directory (see packages/db/src/image-cache.ts),
+ * separate from MEDIA_DIR. The hosted build keeps both in one R2 bucket and ignores `dir`.
+ */
+export async function cacheGet(dir: string, file: string): Promise<Buffer> {
+  return readFile(join(dir, file));
+}
+
+export async function cachePut(dir: string, file: string, body: Uint8Array | Buffer): Promise<void> {
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, file), body);
+}
+
+export async function cacheDelete(dir: string, file: string): Promise<void> {
+  await rm(join(dir, file), { force: true });
 }
 
 export * from "./media-url";

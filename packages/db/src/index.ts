@@ -1,5 +1,5 @@
 export { prisma } from "./client";
-export * from "@prisma/client";
+export * from "./generated/node/client";
 export * from "./catalog-sync";
 export * from "./jobs";
 export * from "./prices";
@@ -26,3 +26,4 @@ export * from "./goals";
 export * from "./grading-helper";
 export * from "./wishlist-deals";
 export * from "./scan-lookup";
+export * from "./chunk";
